@@ -100,13 +100,25 @@ func (s *Store) UpsertDevice(d Device) (id string, created bool, err error) {
 	return id, id == d.ID, nil
 }
 
-// CreatePairingWithDevice inserts a pairing and its first device atomically.
-func (s *Store) CreatePairingWithDevice(p Pairing, d Device) error {
+// CreatePairingWithDevice inserts a pairing and its first device atomically, for a ticket ConsumeTicket redeemed.
+// It returns ErrTicketExpired when the ticket was expired since (ExpireTicketsForUser: the user was unpaired).
+func (s *Store) CreatePairingWithDevice(ticket string, p Pairing, d Device) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	var expires int64
+	err = tx.QueryRow(`SELECT expires_at FROM tickets WHERE ticket = ?`, hashSecret(ticket)).Scan(&expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if expires == 0 {
+		return ErrTicketExpired
+	}
 	if _, err := tx.Exec(`INSERT INTO pairings(id, external_user_id, key_wrapped, created_at) VALUES (?, ?, ?, ?)`,
 		p.ID, p.ExternalUserID, p.KeyWrapped, unix(p.CreatedAt)); err != nil {
 		return err

@@ -26,7 +26,7 @@ var (
 	ErrNotFound = errors.New("store: not found")
 	// ErrTicketUsed means the pairing ticket was already redeemed.
 	ErrTicketUsed = errors.New("store: ticket already used")
-	// ErrTicketExpired means the pairing ticket's TTL elapsed.
+	// ErrTicketExpired means the pairing ticket's TTL elapsed, or the user was unpaired since it was issued.
 	ErrTicketExpired = errors.New("store: ticket expired")
 )
 

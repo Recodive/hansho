@@ -186,13 +186,17 @@ func (s *server) redeemTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.Now()
-	err = s.Store.CreatePairingWithDevice(
+	err = s.Store.CreatePairingWithDevice(req.Ticket,
 		store.Pairing{ID: pairingID, ExternalUserID: userID, KeyWrapped: atRest, CreatedAt: now},
 		store.Device{
 			ID: deviceID, PairingID: pairingID, SignPub: dev.signPub, Platform: dev.platform, Name: dev.name,
 			SealedAlert: req.Tokens.Alert, SealedBackground: req.Tokens.Background,
 			SealedPushToStart: req.Tokens.PushToStart, SealedWidgets: req.Tokens.Widgets, CreatedAt: now,
 		})
+	if errors.Is(err, store.ErrTicketExpired) { // the user was unpaired while this redeem was in flight
+		writeErr(w, http.StatusGone, "ticket_expired")
+		return
+	}
 	if err != nil {
 		s.internal(w, "create pairing failed", err)
 		return
@@ -304,6 +308,12 @@ func (s *server) unpairDevice(w http.ResponseWriter, r *http.Request, dev store.
 // DELETE /api/v1/users/{external_user_id}/pairings
 func (s *server) unpairUser(w http.ResponseWriter, r *http.Request) {
 	user := r.PathValue("external_user_id")
+	// Expire the user's tickets first: an outstanding one must not pair again after this, and a redeem in flight
+	// either committed its pairing already (listed and revoked below) or is refused when it tries.
+	if err := s.Store.ExpireTicketsForUser(user); err != nil {
+		s.internal(w, "expire tickets failed", err)
+		return
+	}
 	pairings, err := s.Store.ActivePairingsForUser(user)
 	if err != nil {
 		s.internal(w, "list pairings failed", err)

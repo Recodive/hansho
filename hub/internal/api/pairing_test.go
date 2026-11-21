@@ -462,6 +462,24 @@ func TestUnpairFromSender(t *testing.T) {
 	}
 }
 
+// A ticket issued before the sender unpaired the user cannot pair them again afterwards.
+func TestUnpairUserExpiresOutstandingTickets(t *testing.T) {
+	e := newEnv(t)
+	tk := decode[struct{ Ticket string }](t, e.api("POST", "/api/v1/pairing-tickets", map[string]string{"external_user_id": "alice"})).Ticket
+	if w := e.api("DELETE", "/api/v1/users/alice/pairings", nil); w.Code != 200 {
+		t.Fatalf("unpair: %d %s", w.Code, w.Body)
+	}
+	w := e.do("POST", "/device/v1/pairings", e.newDevice("phone").redeemBody(tk), nil)
+	if w.Code != 410 {
+		t.Fatalf("redeem after unpair: %d %s", w.Code, w.Body)
+	}
+	if ds, _ := e.st.ActiveDevicesForUser("alice"); len(ds) != 0 {
+		t.Fatalf("%d active devices", len(ds))
+	}
+	// A ticket minted after the unpair works.
+	e.newDevice("laptop").pair("alice")
+}
+
 func TestUnpairSurvivesRelayRevokeFailure(t *testing.T) {
 	e := newEnv(t)
 	d := e.newDevice("phone")
