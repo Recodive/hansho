@@ -44,8 +44,8 @@ export interface Channel {
   thread?: string;
   actions?: Action[];
   /**
-   * Who may use the channel. `putChannel` replaces the whole channel, so leaving this out makes it open to everyone
-   * again. `getChannel` always returns it.
+   * Who may use the channel. Leaving this out keeps the stored audience; send `{ mode: "everyone" }` to open the channel
+   * up. `getChannel` always returns it.
    */
   audience?: Audience;
 }

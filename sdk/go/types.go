@@ -74,8 +74,8 @@ type Group struct {
 
 // Channel groups messages and gives them defaults.
 //
-// Audience decides who may use the channel. PutChannel replaces the whole channel, so a nil Audience makes it
-// AudienceEveryone again; GetChannel always returns one.
+// Audience decides who may use the channel. A nil Audience keeps the stored one (send AudienceEveryone to
+// open the channel up); GetChannel always returns one.
 type Channel struct {
 	Name         string    `json:"name"`
 	DefaultLevel Level     `json:"default_level"`
