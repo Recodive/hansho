@@ -284,6 +284,18 @@ func (s *Store) RevokePairing(id string) (changed bool, err error) {
 	return n > 0, err
 }
 
+// RevokePairingIfNoActiveDevices revokes a pairing whose last active device is gone. changed is false when it
+// still has an active device or was already revoked.
+func (s *Store) RevokePairingIfNoActiveDevices(id string) (changed bool, err error) {
+	res, err := s.exec(`UPDATE pairings SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL
+		AND NOT EXISTS (SELECT 1 FROM devices WHERE pairing_id = pairings.id AND revoked_at IS NULL)`, unix(s.Now()), id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // RevokeDevice marks a single device revoked.
 func (s *Store) RevokeDevice(id string) error {
 	_, err := s.exec(`UPDATE devices SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`, unix(s.Now()), id)

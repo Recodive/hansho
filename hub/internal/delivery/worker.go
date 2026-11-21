@@ -136,7 +136,7 @@ func (w *Worker) envelope(c *envCache, p store.Pairing, messageID string, plaint
 }
 
 // pushAlert sends the message to one device and classifies the outcome.
-// It applies relay verdicts that change hub state (cleared tokens, revoked pairings).
+// It applies relay verdicts that change hub state (cleared tokens, retired devices, revoked pairings).
 func (w *Worker) pushAlert(ctx context.Context, m store.Message, ch store.Channel, plaintext []byte, dev store.DeviceWithPairing, c *envCache) sendResult {
 	if !dev.RevokedAt.IsZero() || !dev.Pairing.RevokedAt.IsZero() || c.revoked[dev.Pairing.ID] {
 		return sendResult{kind: sendSkipped, errCode: "pairing_revoked"}
@@ -190,11 +190,16 @@ func (w *Worker) classify(ctx context.Context, err error, dev store.DeviceWithPa
 		onGone()
 		return sendResult{kind: sendFailed, errCode: "unregistered"}
 	case errors.Is(err, relay.ErrPairingRevoked):
-		c.revoked[dev.Pairing.ID] = true
-		changed, rerr := w.st.RevokePairing(dev.Pairing.ID)
+		// Each device seals its tokens under its own relay pairing id, so the verdict covers this device only (e.g.
+		// "Remove from this watch"): retire it, and revoke the pairing only once no active device is left.
+		if rerr := w.st.RevokeDevice(dev.ID); rerr != nil {
+			w.log.Error("revoke device failed", "device_id", dev.ID, "err", rerr)
+		}
+		changed, rerr := w.st.RevokePairingIfNoActiveDevices(dev.Pairing.ID)
 		if rerr != nil {
 			w.log.Error("revoke pairing failed", "pairing_id", dev.Pairing.ID, "err", rerr)
 		} else if changed {
+			c.revoked[dev.Pairing.ID] = true
 			emit(ctx, w.wh, webhook.EventPairingRevoked, map[string]string{
 				"pairing_id": dev.Pairing.ID, "external_user_id": dev.Pairing.ExternalUserID, "by": "relay",
 			})

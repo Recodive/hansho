@@ -196,41 +196,44 @@ func TestOnlyDeviceUnregisteredMakesMessageUndeliverable(t *testing.T) {
 	}
 }
 
-// Review focus 3b: PairingRevoked marks the pairing revoked and tells the sender.
-func TestPairingRevokedFromRelay(t *testing.T) {
+// The relay's PairingRevoked covers one device's tokens (each device seals under its own relay pairing id, and
+// "Remove from this watch" revokes only the watch's): that device is retired, the rest of the pairing keeps working,
+// and the pairing is revoked, with one pairing.revoked, only when its last device goes.
+func TestPairingRevokedFromRelayRetiresOnlyThatDevice(t *testing.T) {
 	f := newFixture(t)
 	f.pairing("p1", "alice", "phone", "watch")
-	f.pairing("p2", "alice", "ipad")
-	f.relay.setErr("alert-phone", relay.ErrPairingRevoked)
+	f.relay.setErr("alert-watch", relay.ErrPairingRevoked)
 	res := f.enqueue("alice", "active")
 	f.run()
 
-	p1, _ := f.st.GetPairing("p1")
-	p2, _ := f.st.GetPairing("p2")
-	if p1.RevokedAt.IsZero() || !p2.RevokedAt.IsZero() {
-		t.Fatalf("revoked: p1=%v p2=%v", p1.RevokedAt, p2.RevokedAt)
+	if w, _ := f.st.GetDevice("watch"); w.RevokedAt.IsZero() {
+		t.Fatal("watch not retired")
+	}
+	if p, _ := f.st.GetPairing("p1"); !p.RevokedAt.IsZero() {
+		t.Fatal("pairing revoked although the phone is still active")
+	}
+	if len(f.events("pairing.revoked")) != 0 {
+		t.Fatal("pairing.revoked for a single device")
+	}
+	if len(f.pushesTo("alert-phone")) != 1 || f.msg(res.Message.ID).Status != store.MsgDelivered {
+		t.Fatal("phone not delivered")
+	}
+	res2 := f.enqueue("alice", "active")
+	if len(res2.Deliveries) != 1 || res2.Deliveries[0].DeviceID != "phone" {
+		t.Fatalf("%+v", res2.Deliveries)
+	}
+	f.run()
+
+	// The last device goes too: now the pairing is revoked, once.
+	f.relay.setErr("alert-phone", relay.ErrPairingRevoked)
+	f.enqueue("alice", "active")
+	f.run()
+	if p, _ := f.st.GetPairing("p1"); p.RevokedAt.IsZero() {
+		t.Fatal("pairing not revoked after its last device")
 	}
 	ev := f.events("pairing.revoked")
 	if len(ev) != 1 || ev[0]["pairing_id"] != "p1" || ev[0]["by"] != "relay" || ev[0]["external_user_id"] != "alice" {
 		t.Fatalf("events %v", ev)
-	}
-	if len(f.pushesTo("alert-watch")) != 0 {
-		t.Fatal("pushed to the revoked pairing's other device")
-	}
-	if len(f.pushesTo("alert-ipad")) != 1 {
-		t.Fatal("other pairing not delivered")
-	}
-	if f.msg(res.Message.ID).Status != store.MsgDelivered {
-		t.Fatal("message should be delivered through the other pairing")
-	}
-	// Next message no longer targets the revoked pairing.
-	res2 := f.enqueue("alice", "active")
-	if len(res2.Deliveries) != 1 || res2.Deliveries[0].DeviceID != "ipad" {
-		t.Fatalf("%+v", res2.Deliveries)
-	}
-	f.run()
-	if len(f.events("pairing.revoked")) != 1 {
-		t.Fatal("duplicate pairing.revoked")
 	}
 }
 
