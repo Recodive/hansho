@@ -3,7 +3,10 @@ package api
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"encoding/base64"
+	"maps"
+	"math/big"
 	"net/url"
 	"strings"
 	"sync"
@@ -256,6 +259,20 @@ func TestDeviceSignatureAuth(t *testing.T) {
 	// Replay of the exact same request.
 	if w := e.do("PUT", path, body, hdr); w.Code != 409 {
 		t.Fatalf("replay: want 409, got %d", w.Code)
+	}
+	// Replay with the malleated twin (r, n-s), which verifies too.
+	raw, err := base64.RawURLEncoding.DecodeString(hdr[headerSignature])
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := elliptic.P256().Params().N
+	s := new(big.Int).Sub(n, new(big.Int).SetBytes(raw[32:]))
+	twin := append([]byte{}, raw[:32]...)
+	twin = append(twin, s.FillBytes(make([]byte, 32))...)
+	mal := maps.Clone(hdr)
+	mal[headerSignature] = base64.RawURLEncoding.EncodeToString(twin)
+	if w := e.do("PUT", path, body, mal); w.Code != 409 {
+		t.Fatalf("malleated replay: want 409, got %d", w.Code)
 	}
 	// Signed with another device's key.
 	other := e.newDevice("other")

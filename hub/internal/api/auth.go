@@ -71,7 +71,8 @@ func (s *server) checkTimestamp(ts string) bool {
 type deviceHandler func(w http.ResponseWriter, r *http.Request, dev store.DeviceWithPairing, body []byte)
 
 // withDevice authenticates a request signed by a paired device: ECDSA P-256 over
-// the canonical string, +-300 s skew, replay cache keyed by signature (600 s).
+// the canonical string, +-300 s skew, replay cache keyed by the signature's value (600 s, see
+// crypto.SignatureReplayKey).
 func (s *server) withDevice(h deviceHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, ok := readBody(w, r, maxJSONBody)
@@ -99,7 +100,7 @@ func (s *server) withDevice(h deviceHandler) http.HandlerFunc {
 		}
 		// Only record the nonce once the signature is proven, so forged requests
 		// cannot fill the cache or pre-burn a legitimate signature.
-		if !s.recordNonce(w, "sig:"+sig) {
+		if !s.recordNonce(w, "sig:"+crypto.SignatureReplayKey(sig)) {
 			return
 		}
 		// Only a caller that proves it holds the device's key learns why it is refused. A retired device is not a

@@ -3,6 +3,7 @@ package crypto
 import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -47,6 +48,26 @@ func VerifyDeviceSignature(pub *ecdsa.PublicKey, ts, method, path string, body [
 	r := new(big.Int).SetBytes(sig[:32])
 	s := new(big.Int).SetBytes(sig[32:])
 	return ecdsa.Verify(pub, digest[:], r, s)
+}
+
+// SignatureReplayKey names a device signature in the replay cache by its value, not its text. An ECDSA signature
+// (r, s) also verifies as (r, n-s), and base64url text can differ in unused trailing bits, so a cache keyed on the
+// header text would let a captured request be replayed once more in another form. The key is hex(r || low-s);
+// it is empty for a signature that does not decode to 64 bytes (VerifyDeviceSignature rejects those).
+func SignatureReplayKey(sigB64 string) string {
+	sig, err := b64.DecodeString(sigB64)
+	if err != nil || len(sig) != 64 {
+		return ""
+	}
+	n := elliptic.P256().Params().N
+	s := new(big.Int).SetBytes(sig[32:])
+	if s.Cmp(new(big.Int).Rsh(n, 1)) > 0 {
+		s.Sub(n, s)
+	}
+	out := make([]byte, 64)
+	copy(out, sig[:32])
+	s.FillBytes(out[32:])
+	return hex.EncodeToString(out)
 }
 
 // DeviceAuthKey derives the key used for new-device pairing proofs.
