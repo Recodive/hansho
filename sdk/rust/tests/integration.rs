@@ -186,6 +186,7 @@ fn runs_the_whole_flow_against_the_real_hub() {
             template_id: Some(tpl.clone()),
             thread: Some("ops".into()),
             actions: vec![ack.clone()],
+            audience: None,
         },
     )
     .unwrap();

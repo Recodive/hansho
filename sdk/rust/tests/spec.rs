@@ -51,6 +51,7 @@ fn calls() -> BTreeMap<&'static str, Call> {
                     Action { id: "ack".into(), title: "Acknowledge".into(), ack: Some(true), kind: None },
                     Action { id: "reply".into(), title: "Reply".into(), ack: None, kind: Some("text".into()) },
                 ],
+                audience: None,
             };
             c.put_channel("ops", &ch).unwrap();
         }),
@@ -66,6 +67,7 @@ fn calls() -> BTreeMap<&'static str, Call> {
                 template_id: None,
                 thread: Some("ops".into()),
                 actions: vec![],
+                audience: None,
             };
             assert_eq!(c.get_channel("ops").unwrap(), want);
         }),
@@ -109,6 +111,7 @@ fn calls() -> BTreeMap<&'static str, Call> {
                 devices: 2,
                 status: "queued".into(),
                 deliveries: vec![delivery("dev_1", "queued", None), delivery("dev_2", "queued", None)],
+                recipients: vec![],
             };
             assert_eq!(c.send_message(&msg).unwrap(), want);
         }),
@@ -127,6 +130,7 @@ fn calls() -> BTreeMap<&'static str, Call> {
                 devices: 1,
                 status: "queued".into(),
                 deliveries: vec![delivery("dev_1", "queued", None)],
+                recipients: vec![],
             };
             assert_eq!(c.send_message(&msg).unwrap(), want);
         }),
@@ -178,6 +182,7 @@ fn calls() -> BTreeMap<&'static str, Call> {
                 template_id: "status".into(),
                 title: Some("Uptime".into()),
                 data: json!({"up": true, "ms": 41}),
+                ..Default::default()
             };
             assert_eq!(c.put_feed("uptime", &f).unwrap(), FeedResult { feed_id: "uptime".into(), devices: 2 });
         }),
