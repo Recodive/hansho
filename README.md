@@ -33,5 +33,5 @@ and if you offer a changed hub to others over a network, you share those changes
 
 ## Contributing and security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Please report vulnerabilities privately, as described in
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md). Please report vulnerabilities privately, as described in
 [SECURITY.md](SECURITY.md), not in public issues.
