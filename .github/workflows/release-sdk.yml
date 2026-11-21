@@ -21,6 +21,13 @@ jobs:
       lang: ${{ steps.m.outputs.lang }}
       version: ${{ steps.m.outputs.version }}
     steps:
+      # Every publish job needs this one, so nothing is published from a tag that is not on main.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: tagged commit is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "$GITHUB_REF_NAME is not on main" >&2; exit 1; }
       - id: m
         env:
           REF: ${{ github.ref_name }}
