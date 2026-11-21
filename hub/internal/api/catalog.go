@@ -7,6 +7,7 @@ import (
 	"errors"
 	"mime"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 
@@ -312,8 +313,14 @@ func (s *server) downloadSound(w http.ResponseWriter, r *http.Request, _ store.D
 	w.Write(snd.Data)
 }
 
+// isHTTPSURL reports whether s is an https URL with a host.
+func isHTTPSURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme == "https" && u.Hostname() != ""
+}
+
 // checkActions validates an actions array (each entry needs string id and
-// title; ack, if present, is a boolean). It returns the JSON to store, or the
+// title; ack, if present, is a boolean; a "url" action needs an https url). It returns the JSON to store, or the
 // failing field path and a message.
 func checkActions(raw json.RawMessage) (norm, field, msg string) {
 	if len(raw) == 0 || string(raw) == "null" {
@@ -332,6 +339,11 @@ func checkActions(raw json.RawMessage) (norm, field, msg string) {
 		if v, present := a["ack"]; present {
 			if _, ok := v.(bool); !ok {
 				return "", "actions[" + strconv.Itoa(i) + "].ack", "must be a boolean"
+			}
+		}
+		if a["kind"] == "url" {
+			if u, ok := a["url"].(string); !ok || !isHTTPSURL(u) {
+				return "", "actions[" + strconv.Itoa(i) + "].url", "must be an https URL with a host"
 			}
 		}
 	}

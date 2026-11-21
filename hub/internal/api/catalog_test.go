@@ -79,6 +79,18 @@ func TestChannelValidation(t *testing.T) {
 		{"unknown sound", func(m map[string]any) { m["sound"] = "nope" }, "sound"},
 		{"action without id", func(m map[string]any) { m["actions"] = []any{map[string]any{"title": "Ack"}} }, "actions[0].id"},
 		{"action without title", func(m map[string]any) { m["actions"] = []any{map[string]any{"id": "ack"}} }, "actions[0].title"},
+		{"url action without url", func(m map[string]any) {
+			m["actions"] = []any{map[string]any{"id": "o", "title": "Open", "kind": "url"}}
+		}, "actions[0].url"},
+		{"url action over http", func(m map[string]any) {
+			m["actions"] = []any{map[string]any{"id": "o", "title": "Open", "kind": "url", "url": "http://example.com"}}
+		}, "actions[0].url"},
+		{"url action without host", func(m map[string]any) {
+			m["actions"] = []any{map[string]any{"id": "o", "title": "Open", "kind": "url", "url": "https:///x"}}
+		}, "actions[0].url"},
+		{"url action javascript", func(m map[string]any) {
+			m["actions"] = []any{map[string]any{"id": "ack", "title": "Ack"}, map[string]any{"id": "o", "title": "Open", "kind": "url", "url": "javascript:alert(1)"}}
+		}, "actions[1].url"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

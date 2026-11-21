@@ -61,6 +61,16 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		bad("collapse_id", "at most 64 bytes")
 		return
 	}
+	for i := 0; i < len(req.CollapseID); i++ {
+		if c := req.CollapseID[i]; c <= ' ' || c > '~' {
+			bad("collapse_id", "printable ASCII without spaces")
+			return
+		}
+	}
+	if req.ImageURL != "" && !isHTTPSURL(req.ImageURL) {
+		bad("image_url", "must be an https URL with a host")
+		return
+	}
 
 	ch, err := s.Store.GetChannel(req.Channel)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && !ch.DeletedAt.IsZero()) {
