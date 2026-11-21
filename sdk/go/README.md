@@ -39,7 +39,36 @@ ticket, err := c.CreatePairingTicket(ctx, "user-42")
 // The hub then sends a pairing.created webhook.
 
 err = c.Unpair(ctx, "user-42") // revokes every pairing of the user
+err = c.Kick(ctx, "user-42")   // the same call; the app tells the person that you ended it
 ```
+
+## Audiences and groups
+
+A channel or feed is open to everyone unless it has an `Audience`: `AudienceOnly` the listed users and groups, or
+`AudienceExcept` them. Users are your external user ids (they may not have paired yet); groups are named lists you keep
+on the hub. The hub decides who has access and checks it on every request, so a change applies at once.
+
+```go
+c.PutGroup(ctx, "oncall", []string{"alice", "bob"}) // replaces the whole member list
+c.PutChannel(ctx, "pager", hansho.Channel{
+    Name: "Pager", DefaultLevel: hansho.LevelPage, MaxLevel: hansho.LevelPage,
+    Audience: &hansho.Audience{Mode: hansho.AudienceOnly, Groups: []string{"oncall"}},
+})
+// PutChannel replaces the whole channel: leaving Audience nil makes it open to everyone again.
+
+// A feed uses its Channel's audience unless it sets its own. Send both with every update.
+c.PutFeed(ctx, "queue", hansho.Feed{TemplateID: "status", Channel: "pager", Data: map[string]any{"value": 3}})
+fs, err := c.GetFeed(ctx, "queue", "") // settings without the data
+
+// Send to several users, or to everyone in the channel's audience. People outside it are not delivered to.
+res, err := c.SendMessage(ctx, hansho.Message{ToAudience: true, Channel: "pager", Title: "DB down", Body: "..."})
+for _, r := range res.Recipients {
+    if r.Status == hansho.RecipientNoAccess { /* only with ExternalUserID(s): not in the audience */ }
+}
+```
+
+Error codes: `hansho.CodeNoAccess` (403, `StartActivity` for a user outside the channel's audience) and
+`hansho.CodeUnknownGroup` (404).
 
 ## Sending
 
