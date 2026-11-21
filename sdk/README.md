@@ -35,8 +35,8 @@ Licence: MIT. The hub itself is AGPL-3.0.
 4. **Send** a message, a page (`level: "page"`, repeats until acknowledged), a
    Live Activity or a widget feed. Channels and feeds can be limited to an
    *audience* of users and groups; a send can target one user, several or the
-   channel's audience (the Go and Node SDKs cover audiences, groups and kick so
-   far, see their READMEs).
+   channel's audience (every SDK covers audiences, groups and kick, see their
+   READMEs; the Java, PHP and Rust ones are not yet compiled or tested).
 5. **Listen** for webhooks (`message.delivered`, `message.acked`, `action`, ...)
    and verify every one against the raw request body.
 
