@@ -3,6 +3,13 @@ from __future__ import annotations
 from typing import Optional
 
 
+#: Error codes of the hub that callers commonly branch on (``HanshoError.code``).
+#: 403: the user is outside the channel's audience (``start_activity`` for such a user).
+CODE_NO_ACCESS = "no_access"
+#: 404: the group does not exist (``get_group``, ``delete_group``).
+CODE_UNKNOWN_GROUP = "unknown_group"
+
+
 class HanshoError(Exception):
     """A non-2xx answer from the hub. The API key never appears in it."""
 
