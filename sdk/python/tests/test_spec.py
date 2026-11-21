@@ -6,8 +6,11 @@ from typing import Any, Callable, Dict, Tuple
 
 from hansho import (
     Action,
+    CODE_NO_ACCESS,
+    CODE_UNKNOWN_GROUP,
     Activity,
     ActivityAlert,
+    Audience,
     ActivityStarted,
     ActivityUpdate,
     ActivityUpdated,
@@ -15,6 +18,7 @@ from hansho import (
     Delivery,
     Feed,
     FeedResult,
+    Group,
     Hansho,
     HanshoError,
     Message,
@@ -22,6 +26,7 @@ from hansho import (
     MessageStatus,
     PageOptions,
     PairingTicket,
+    Recipient,
     SoundResult,
 )
 
@@ -44,6 +49,10 @@ def spec_channel() -> Channel:
         thread="ops-thread",
         actions=[Action("ack", "Acknowledge", ack=True), Action("reply", "Reply", kind="text")],
     )
+
+
+def spec_audience() -> Audience:
+    return Audience("only", users=["alice"], groups=["oncall"])
 
 
 # Every operation of the shared spec: the SDK call and the value it must produce.
@@ -130,7 +139,36 @@ CALLS: Dict[str, Tuple[Callable[[Hansho], Any], Any]] = {
         lambda c: c.put_feed("uptime", Feed("status", {"up": True, "ms": 41}, external_user_id="user-42", title="Uptime")),
         FeedResult("uptime", 2),
     ),
+    "putGroup": (lambda c: c.put_group("oncall", ["alice", "bob"]), Group("oncall", ["alice", "bob"])),
+    "getGroup": (lambda c: c.get_group("oncall"), Group("oncall", ["alice", "bob"])),
+    "deleteGroup": (lambda c: c.delete_group("oncall"), None),
+    "kick": (lambda c: c.kick("user-42"), None),
+    "putChannelWithAudience": (
+        lambda c: c.put_channel("ops", Channel("Operations", "active", "critical", audience=spec_audience())),
+        None,
+    ),
+    "putFeedWithChannel": (
+        lambda c: c.put_feed("uptime", Feed("status", {"up": True}, channel="ops", audience=spec_audience())),
+        FeedResult("uptime", 1),
+    ),
+    "sendToAudience": (
+        lambda c: c.send_message(Message(to_audience=True, channel="ops", title="Deploy done", body="v1.2.3 is live")),
+        MessageResult(
+            "",
+            "active",
+            0,
+            "",
+            [],
+            [
+                Recipient("alice", "queued", "msg_7", 1, [Delivery("dev_1", "queued")]),
+                Recipient("carol", "no_access"),
+            ],
+        ),
+    ),
 }
+
+# The error codes the SDK exports, by the code the hub sends.
+ERROR_CODES = {"unknown_group": CODE_UNKNOWN_GROUP, "no_access": CODE_NO_ACCESS}
 
 
 class SpecOperations(unittest.TestCase):
@@ -190,6 +228,8 @@ def _make_err_test(e: Dict[str, Any]) -> Callable[[SpecErrors], None]:
             err = cm.exception
             self.assertEqual(err.status, e["status"])
             self.assertEqual(err.code, e["code"])
+            if e["code"] in ERROR_CODES:
+                self.assertEqual(err.code, ERROR_CODES[e["code"]])
             self.assertEqual(err.field or "", e["field"])
             self.assertEqual(round((err.retry_after or 0) * 1000), e["retry_after_ms"])
             self.assertEqual(len(hub.requests), 1, "POST /messages must not be retried")
