@@ -122,6 +122,7 @@ func TestGroupCRUD(t *testing.T) {
 
 func TestChannelAudienceRoundTripAndValidation(t *testing.T) {
 	e := newEnv(t)
+	e.group("oncall")
 	e.audienceChannel("ops", only([]string{"alice"}, "oncall"))
 	got := decode[map[string]any](t, e.api("GET", "/api/v1/channels/ops", nil))
 	if !reflect.DeepEqual(got["audience"], map[string]any{"mode": "only", "users": []any{"alice"}, "groups": []any{"oncall"}}) {
@@ -154,6 +155,26 @@ func TestChannelAudienceRoundTripAndValidation(t *testing.T) {
 		if w.Code != 400 || decode[map[string]string](t, w)["field"] != c.field {
 			t.Errorf("%v: %d %s, want field %s", c.aud, w.Code, w.Body, c.field)
 		}
+	}
+}
+
+func TestAudienceNamingAnUnknownGroupIsRefused(t *testing.T) {
+	e := newEnv(t)
+	body := okChannel()
+	body["audience"] = except(nil, "typo")
+	w := e.api("PUT", "/api/v1/channels/ops", body)
+	if got := decode[map[string]string](t, w); w.Code != 400 || got["field"] != "audience.groups" || got["message"] != "unknown group" {
+		t.Fatalf("channel: %d %s", w.Code, w.Body)
+	}
+	w = e.api("PUT", "/api/v1/feeds/f", map[string]any{"audience": except(nil, "typo"), "data": map[string]any{}})
+	if got := decode[map[string]string](t, w); w.Code != 400 || got["field"] != "audience.groups" || got["message"] != "unknown group" {
+		t.Fatalf("feed: %d %s", w.Code, w.Body)
+	}
+	// Users are never looked up, and deleting a group that is still named stays allowed.
+	e.group("oncall", "alice")
+	e.audienceChannel("ops", only([]string{"not-paired-yet"}, "oncall"))
+	if w := e.api("DELETE", "/api/v1/groups/oncall", nil); w.Code != 204 {
+		t.Fatalf("delete: %d", w.Code)
 	}
 }
 

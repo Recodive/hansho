@@ -86,6 +86,13 @@ func (s *server) putFeed(w http.ResponseWriter, r *http.Request) {
 			bad(field, msg)
 			return
 		}
+		if field, msg, err := s.checkGroupsExist(a, "audience"); err != nil {
+			s.internal(w, "group lookup failed", err)
+			return
+		} else if field != "" {
+			bad(field, msg)
+			return
+		}
 		f.Audience = &a
 	} else if req.Channel == "" {
 		// Leaving both out keeps what is stored, so an old client republishing data never widens access.

@@ -129,8 +129,9 @@ Every channel and feed has an **audience**: who may use it.
 
 `everyone` (the default when `audience` is left out) lets every paired user in; `only` lets in just the listed users and
 the members of the listed groups; `except` lets in everyone but them. `users` and `groups` must be empty for `everyone`.
-Users may not have paired yet and groups may not exist yet; neither is looked up when you save. A group that does not
-exist has no members. Groups are managed with `PUT /api/v1/groups/{id}` (`{"members": [...]}`, replacing the whole list),
+Users may not have paired yet and are not looked up when you save. Every group must exist: a `PUT` of a channel or
+feed naming a missing group is refused with `400` (`audience.groups`, `unknown group`), so create the group first.
+Deleting a group that audiences still name is allowed; it then behaves as an empty group. Groups are managed with `PUT /api/v1/groups/{id}` (`{"members": [...]}`, replacing the whole list),
 `GET` and `DELETE`; the group id follows the same pattern as other ids, `GET` answers `404 unknown_group` for a missing one.
 
 A feed uses the audience of the channel named in its `channel` field unless it sets its own `audience`; with neither it is

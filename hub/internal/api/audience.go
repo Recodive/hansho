@@ -14,8 +14,8 @@ const (
 )
 
 // checkAudience validates an audience from a request and returns it normalized, or the failing field path (under
-// prefix, e.g. "audience") and a message. Entries may name users who have not paired yet and groups that do not exist
-// yet, so neither is looked up.
+// prefix, e.g. "audience") and a message. Users may not have paired yet, so they are not looked up; groups are checked
+// by the callers (see checkGroupsExist).
 func checkAudience(a store.Audience, prefix string) (store.Audience, string, string) {
 	switch a.Mode {
 	case store.AudienceEveryone, store.AudienceOnly, store.AudienceExcept:
@@ -43,6 +43,19 @@ func checkAudience(a store.Audience, prefix string) (store.Audience, string, str
 	}
 	a.Users, a.Groups = dedupe(a.Users), dedupe(a.Groups)
 	return a.Normalized(), "", ""
+}
+
+// checkGroupsExist refuses an audience that names a group that does not exist, so a misspelled "except" group cannot
+// silently exclude nobody. Deleting a group later stays allowed. It returns the failing field and message, or "" "".
+func (s *server) checkGroupsExist(a store.Audience, prefix string) (string, string, error) {
+	for _, g := range a.Groups {
+		if _, err := s.Store.GetGroup(g); errors.Is(err, store.ErrNotFound) {
+			return prefix + ".groups", "unknown group", nil
+		} else if err != nil {
+			return "", "", err
+		}
+	}
+	return "", "", nil
 }
 
 // dedupe drops repeated entries, keeping the first of each.

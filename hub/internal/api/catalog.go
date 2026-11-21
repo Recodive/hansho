@@ -131,6 +131,15 @@ func (s *server) putChannel(w http.ResponseWriter, r *http.Request) {
 			bad(field, msg)
 			return
 		}
+		field, msg, err := s.checkGroupsExist(audience, "audience")
+		if err != nil {
+			s.internal(w, "group lookup failed", err)
+			return
+		}
+		if field != "" {
+			bad(field, msg)
+			return
+		}
 	}
 	c := store.Channel{ID: id, Name: req.Name, DefaultLevel: req.DefaultLevel, MaxLevel: req.MaxLevel,
 		Sound: req.Sound, TemplateID: req.TemplateID, Thread: thread, ActionsJSON: actions, Audience: audience.Normalized()}
