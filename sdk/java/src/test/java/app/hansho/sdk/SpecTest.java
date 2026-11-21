@@ -93,6 +93,27 @@ class SpecTest {
         }, null);
         op("putFeed", c -> c.putFeed("uptime", Feed.of("status", Map.of("up", true, "ms", 41)).forUser("user-42").withTitle("Uptime")),
                 new FeedResult("uptime", 2));
+        op("putGroup", c -> c.putGroup("oncall", List.of("alice", "bob")), new Group("oncall", List.of("alice", "bob")));
+        op("getGroup", c -> c.getGroup("oncall"), new Group("oncall", List.of("alice", "bob")));
+        op("deleteGroup", c -> {
+            c.deleteGroup("oncall");
+            return null;
+        }, null);
+        op("kick", c -> {
+            c.kick("user-42");
+            return null;
+        }, null);
+        op("putChannelWithAudience", c -> {
+            c.putChannel("ops", Channel.builder("Operations", Level.ACTIVE, Level.CRITICAL)
+                    .audience(Audience.only(List.of("alice"), List.of("oncall"))).build());
+            return null;
+        }, null);
+        op("putFeedWithChannel", c -> c.putFeed("uptime", Feed.of("status", Map.of("up", true)).withChannel("ops")
+                .withAudience(Audience.only(List.of("alice"), List.of("oncall")))), new FeedResult("uptime", 1));
+        op("sendToAudience", c -> c.sendMessage(Message.forAudience("ops", "Deploy done", "v1.2.3 is live").build()),
+                new MessageResult("", Level.ACTIVE, 0, "", List.of(), List.of(
+                        new Recipient("alice", "msg_7", "queued", 1, List.of(new Delivery("dev_1", "queued", null))),
+                        new Recipient("carol", null, Recipient.NO_ACCESS, 0, List.of()))));
     }
 
     @TestFactory
