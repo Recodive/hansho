@@ -14,6 +14,10 @@ class SpecTest < Minitest::Test
     actions: [{ id: "ack", title: "Acknowledge", ack: true }, { id: "reply", title: "Reply", kind: "text" }]
   }.freeze
 
+  SPEC_AUDIENCE = { mode: :only, users: ["alice"], groups: ["oncall"] }.freeze
+  # What an audience reads back as.
+  SPEC_AUDIENCE_READ = { mode: "only", users: ["alice"], groups: ["oncall"] }.freeze
+
   # Every operation of the spec: the SDK call and the value it must produce.
   CALLS = {
     "createPairingTicket" => [
@@ -83,8 +87,34 @@ class SpecTest < Minitest::Test
     "putFeed" => [
       ->(c) { c.put_feed("uptime", external_user_id: "user-42", template_id: "status", title: "Uptime", data: { up: true, ms: 41 }) },
       Hansho::FeedResult.new(feed_id: "uptime", devices: 2)
+    ],
+    "putGroup" => [->(c) { c.put_group("oncall", %w[alice bob]) }, Hansho::Group.new(id: "oncall", members: %w[alice bob])],
+    "getGroup" => [->(c) { c.get_group("oncall") }, Hansho::Group.new(id: "oncall", members: %w[alice bob])],
+    "deleteGroup" => [->(c) { c.delete_group("oncall") }, nil],
+    "kick" => [->(c) { c.kick("user-42") }, nil],
+    "putChannelWithAudience" => [
+      ->(c) { c.put_channel("ops", name: "Operations", default_level: "active", max_level: "critical", audience: SPEC_AUDIENCE) },
+      nil
+    ],
+    "putFeedWithChannel" => [
+      ->(c) { c.put_feed("uptime", template_id: "status", channel: "ops", audience: SPEC_AUDIENCE, data: { up: true }) },
+      Hansho::FeedResult.new(feed_id: "uptime", devices: 1)
+    ],
+    "sendToAudience" => [
+      ->(c) { c.send_message(to_audience: true, channel: "ops", title: "Deploy done", body: "v1.2.3 is live") },
+      Hansho::MessageResult.new(
+        message_id: nil, level: "active", devices: nil, status: nil, deliveries: [],
+        recipients: [
+          Hansho::Recipient.new(external_user_id: "alice", message_id: "msg_7", status: "queued", devices: 1,
+                                deliveries: [Hansho::Delivery.new(device_id: "dev_1", status: "queued")]),
+          Hansho::Recipient.new(external_user_id: "carol", message_id: nil, status: Hansho::RECIPIENT_NO_ACCESS, devices: 0, deliveries: [])
+        ]
+      )
     ]
   }.freeze
+
+  # The error codes the SDK exports, by the code the hub sends.
+  ERROR_CODES = { "unknown_group" => Hansho::APIError::UNKNOWN_GROUP, "no_access" => Hansho::APIError::NO_ACCESS }.freeze
 
   SPEC["operations"].each do |op|
     define_method("test_operation_#{op["name"]}") do
@@ -131,6 +161,7 @@ class SpecTest < Minitest::Test
         end
         assert_equal e["status"], err.status
         assert_equal e["code"], err.code
+        assert_equal ERROR_CODES.fetch(e["code"]), err.code if ERROR_CODES.key?(e["code"])
         assert_equal e["field"], err.field.to_s
         assert_equal e["retry_after_ms"], err.retry_after_ms.to_i
         assert_equal 1, hub.requests.length, "POST /messages must not be retried"
