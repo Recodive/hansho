@@ -111,14 +111,60 @@ curl -H "Authorization: Bearer $KEY" https://hub.example.com/api/v1/messages/msg
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/v1/pairing-tickets` | `{external_user_id}` -> `{ticket, qr, expires_at}` |
-| `DELETE /api/v1/users/{external_user_id}/pairings` | Unpair a user everywhere |
-| `PUT/GET/DELETE /api/v1/channels/{id}` | `{name, default_level, max_level, sound?, template_id?, thread?, actions?}` |
+| `DELETE /api/v1/users/{external_user_id}/pairings` | Unpair a user everywhere. Done by the sender it is a *kick*: the user's devices are told so (see [Audiences](#audiences-groups-and-kick)) |
+| `PUT/GET/DELETE /api/v1/channels/{id}` | `{name, default_level, max_level, sound?, template_id?, thread?, actions?, audience?}`; a PUT replaces the whole channel, so leaving `audience` out makes it `everyone` again |
+| `PUT/GET/DELETE /api/v1/groups/{id}` | `{members:[external_user_id,...]}`; a PUT replaces the whole member list |
 | `PUT /api/v1/templates/{id}` | `{version, body}`; version must increase |
 | `PUT /api/v1/sounds/{id}` | Raw `audio/x-caf`, `audio/wav` or `audio/aiff`, at most 1 MB; WAV/AIFF shorter than 30 s |
-| `POST /api/v1/messages` | `{external_user_id, channel, level?, title, subtitle?, body, image_url?, template_id?, data?, sound?, actions?, collapse_id?, page?:{interval_s?, max_retries?}}` -> 202 |
+| `POST /api/v1/messages` | `{external_user_id \| external_user_ids \| to_audience, channel, level?, title, subtitle?, body, image_url?, template_id?, data?, sound?, actions?, collapse_id?, page?:{interval_s?, max_retries?}}` -> 202 with a `recipients` list (see [Audiences](#audiences-groups-and-kick)) |
 | `GET /api/v1/messages/{id}` | `{status, level, attempts, deliveries, acked_at?}` |
 | `POST /api/v1/activities`, `PATCH`/`DELETE /api/v1/activities/{id}` | Live Activities (content-state at most 4 KB; update priority 5 or 10) |
-| `PUT /api/v1/feeds/{id}` | `{external_user_id?, template_id?, title?, data}`; omit the user for a feed shared by all paired users; `title` (at most 64 bytes) is the name the app's feed picker shows instead of the id, and an upsert without one clears it. Without `template_id` the app draws the data with an automatic layout chosen from its shape (a number with `min`/`max` -> gauge, a `value` -> big number, `items[]` with `state` -> status grid, other `items[]` -> list); a named template must exist |
+| `PUT/GET /api/v1/feeds/{id}` | `{external_user_id?, template_id?, title?, channel?, audience?, data}` (GET takes `?external_user_id=` and returns the settings without the data); `channel` and `audience` are explained under [Audiences](#audiences-groups-and-kick) and, like `title`, an upsert without them clears them; omit the user for a feed shared by all paired users; `title` (at most 64 bytes) is the name the app's feed picker shows instead of the id, and an upsert without one clears it. Without `template_id` the app draws the data with an automatic layout chosen from its shape (a number with `min`/`max` -> gauge, a `value` -> big number, `items[]` with `state` -> status grid, other `items[]` -> list); a named template must exist |
+
+### Audiences, groups and kick
+
+Every channel and feed has an **audience**: who may use it.
+
+    {"mode": "everyone" | "only" | "except", "users": ["external_user_id", ...], "groups": ["group_id", ...]}
+
+`everyone` (the default when `audience` is left out) lets every paired user in; `only` lets in just the listed users and
+the members of the listed groups; `except` lets in everyone but them. `users` and `groups` must be empty for `everyone`.
+Users may not have paired yet and groups may not exist yet; neither is looked up when you save. A group that does not
+exist has no members. Groups are managed with `PUT /api/v1/groups/{id}` (`{"members": [...]}`, replacing the whole list),
+`GET` and `DELETE`; the group id follows the same pattern as other ids, `GET` answers `404 unknown_group` for a missing one.
+
+A feed uses the audience of the channel named in its `channel` field unless it sets its own `audience`; with neither it is
+for everyone. Both are stored per feed, so republish them with every data update.
+
+Access is checked by the hub on every request and read fresh each time, so a change to an audience or a group applies at
+once, and it is the only place it is decided (the app and the relay never see audiences):
+
+- `GET /device/v1/sync` leaves out channels the user cannot access, and `GET /device/v1/feeds` and `GET /device/v1/acks`
+  leave out the feeds and acknowledged messages of channels they cannot access. Nothing marks them as locked.
+- Every other device call about such a channel or feed (a feed fetch, an action or acknowledgement on one of its messages,
+  a Live Activity token) answers `403 {"error":"no_access"}`. That is not `401 pairing_revoked`: the pairing is fine.
+- A queued message, a page being resent and a Live Activity update are not delivered to someone who lost access in the
+  meantime. Messages already in the inbox stay there. A Live Activity they lost access to still gets its end event, without
+  newer data.
+- `POST /api/v1/activities` for a user without access answers `403 no_access`.
+
+**Send.** Give exactly one target: `external_user_id`, `external_user_ids` (at most 1000) or `to_audience: true` (every
+paired user in the channel's audience, resolved when you send). The response lists one entry per recipient:
+
+    {"level":"active","recipients":[
+      {"external_user_id":"alice","message_id":"msg_...","status":"queued","devices":1,"deliveries":[...]},
+      {"external_user_id":"carol","status":"no_access"}]}
+
+A user outside the audience gets `status: "no_access"`, no message and no push; the others are delivered. A recipient
+with a message has the usual message status (`queued`, or `undeliverable` when no device can be reached). The
+`external_user_id` form also keeps the original top-level `message_id`, `devices`, `status` and `deliveries` of that single
+recipient; with no access they are `status: "no_access"`, `devices: 0` and no `message_id`. `to_audience` only lists users
+in the audience. A send is never refused for `no_access` as a whole.
+
+**Kick.** `DELETE /api/v1/users/{external_user_id}/pairings` ends every pairing of the user, relay included. The user's
+devices then get `401 {"error":"pairing_revoked","reason":"kicked"}`; when the person unpaired from the app themselves
+(or the relay revoked it) `reason` is absent. There is no block list: the user can pair again with a new ticket. A kick
+differs from leaving an audience, which only hides one channel or feed.
 
 Levels, lowest to highest: `passive`, `active`, `time-sensitive`, `critical`,
 `page`. The delivered level is `min(requested ?? channel default, channel max)`.
@@ -236,11 +282,13 @@ every other device call.
 exactly what `GET /device/v1/feeds/{id}` can fetch for that device's pairing: the
 feeds published for its `external_user_id` plus the global ones (published
 without a user), one entry per id, a person's own feed winning over a global one
-with the same id. It is a listing only; the signed data still comes from
-`GET /device/v1/feeds/{id}`. There is no separate access list: to limit a feed to
-certain people, publish it per user with `external_user_id`; a feed published
-without one is for everyone paired with the hub. Older hubs answer the listing
-with 404 or 405, and the app then falls back to asking for the feed id.
+with the same id, minus the feeds whose [audience](#audiences-groups-and-kick) does
+not include the person. It is a listing only; the signed data still comes from
+`GET /device/v1/feeds/{id}`, which answers `403 no_access` for a feed outside the
+person's audience. To limit a feed to certain people, give it an `audience` (or a
+`channel` whose audience it inherits) or publish it per user with `external_user_id`.
+Older hubs answer the listing with 404 or 405, and the app then falls back to
+asking for the feed id.
 
 `GET /device/v1/hub` is unauthenticated and returns
 `{hub_id, name, domain, public_key, fingerprint}` (`public_key` is base64url of the
