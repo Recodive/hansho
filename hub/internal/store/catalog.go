@@ -19,18 +19,20 @@ type Channel struct {
 	TemplateID   string
 	Thread       string
 	ActionsJSON  string // JSON array
+	Audience     Audience
 	DeletedAt    time.Time
 }
 
-const channelCols = `id, name, default_level, max_level, sound, template_id, thread, actions_json, deleted_at`
+const channelCols = `id, name, default_level, max_level, sound, template_id, thread, actions_json, audience_json, deleted_at`
 
 func scanChannel(sc interface{ Scan(...any) error }) (Channel, error) {
 	var c Channel
 	var del sql.NullInt64
-	if err := sc.Scan(&c.ID, &c.Name, &c.DefaultLevel, &c.MaxLevel, &c.Sound, &c.TemplateID, &c.Thread, &c.ActionsJSON, &del); err != nil {
+	var aud string
+	if err := sc.Scan(&c.ID, &c.Name, &c.DefaultLevel, &c.MaxLevel, &c.Sound, &c.TemplateID, &c.Thread, &c.ActionsJSON, &aud, &del); err != nil {
 		return c, err
 	}
-	c.DeletedAt = nullTime(del)
+	c.Audience, c.DeletedAt = decodeAudience(aud), nullTime(del)
 	return c, nil
 }
 
@@ -39,11 +41,11 @@ func (s *Store) UpsertChannel(c Channel) error {
 	if c.ActionsJSON == "" {
 		c.ActionsJSON = "[]"
 	}
-	_, err := s.exec(`INSERT INTO channels(`+channelCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+	_, err := s.exec(`INSERT INTO channels(`+channelCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
 		ON CONFLICT(id) DO UPDATE SET name = excluded.name, default_level = excluded.default_level,
 		max_level = excluded.max_level, sound = excluded.sound, template_id = excluded.template_id,
-		thread = excluded.thread, actions_json = excluded.actions_json, deleted_at = NULL`,
-		c.ID, c.Name, c.DefaultLevel, c.MaxLevel, c.Sound, c.TemplateID, c.Thread, c.ActionsJSON)
+		thread = excluded.thread, actions_json = excluded.actions_json, audience_json = excluded.audience_json, deleted_at = NULL`,
+		c.ID, c.Name, c.DefaultLevel, c.MaxLevel, c.Sound, c.TemplateID, c.Thread, c.ActionsJSON, c.Audience.encode())
 	return err
 }
 

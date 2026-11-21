@@ -162,6 +162,15 @@ func (w *Worker) pushAlert(ctx context.Context, m store.Message, ch store.Channe
 	return w.classify(ctx, err, dev, c, func() { w.clearTokens(dev.ID, store.TokenAlert, store.TokenBackground) })
 }
 
+// canAccess reports whether the user is in the channel's audience now.
+func (w *Worker) canAccess(user string, ch store.Channel) (bool, error) {
+	acc, err := w.st.AccessFor(user)
+	if err != nil {
+		return false, err
+	}
+	return acc.Allows(ch.Audience), nil
+}
+
 func (w *Worker) clearTokens(deviceID string, kinds ...store.TokenKind) {
 	for _, k := range kinds {
 		if err := w.st.ClearDeviceToken(deviceID, k); err != nil {
@@ -183,7 +192,7 @@ func (w *Worker) classify(ctx context.Context, err error, dev store.DeviceWithPa
 		return sendResult{kind: sendFailed, errCode: "unregistered"}
 	case errors.Is(err, relay.ErrPairingRevoked):
 		c.revoked[dev.Pairing.ID] = true
-		changed, rerr := w.st.RevokePairing(dev.Pairing.ID)
+		changed, rerr := w.st.RevokePairing(dev.Pairing.ID, "relay")
 		if rerr != nil {
 			w.log.Error("revoke pairing failed", "pairing_id", dev.Pairing.ID, "err", rerr)
 		} else if changed {
@@ -236,6 +245,11 @@ func (w *Worker) processQueued(ctx context.Context, m store.Message) error {
 	if err != nil {
 		return err
 	}
+	// Access is checked again here, not only when the message was accepted: a user who lost it meanwhile gets nothing.
+	allowed, err := w.canAccess(m.ExternalUserID, ch)
+	if err != nil {
+		return err
+	}
 	cache := newEnvCache()
 	var retryAfter time.Duration
 	for _, d := range dels {
@@ -246,7 +260,10 @@ func (w *Worker) processQueued(ctx context.Context, m store.Message) error {
 		if err != nil {
 			return err
 		}
-		res := w.pushAlert(ctx, m, ch, plaintext, dev, cache)
+		res := sendResult{kind: sendSkipped, errCode: "no_access"}
+		if allowed {
+			res = w.pushAlert(ctx, m, ch, plaintext, dev, cache)
+		}
 		switch res.kind {
 		case sendSent:
 			d.Status, d.APNsID, d.Error = store.DelSent, res.apnsID, ""

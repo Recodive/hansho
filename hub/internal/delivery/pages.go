@@ -39,7 +39,12 @@ func (w *Worker) processPage(ctx context.Context, m store.Message) error {
 	if err != nil {
 		return err
 	}
-	if !ch.DeletedAt.IsZero() || m.Attempts >= m.PageMaxRetries {
+	// A user who lost access to the channel is not paged again.
+	allowed, err := w.canAccess(m.ExternalUserID, ch)
+	if err != nil {
+		return err
+	}
+	if !ch.DeletedAt.IsZero() || m.Attempts >= m.PageMaxRetries || !allowed {
 		changed, err := w.st.TransitionMessage(m.ID, store.MsgPaging, store.MsgExpired)
 		if err != nil {
 			return err

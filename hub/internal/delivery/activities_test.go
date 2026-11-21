@@ -193,7 +193,7 @@ func TestEndSkipsRevokedAndDropsUnregisteredTokens(t *testing.T) {
 	f.pairing("p1", "alice", "phone")
 	f.pairing("p2", "alice", "ipad")
 	newActivity(f, "alice", "phone", "ipad")
-	f.st.RevokePairing("p2")
+	f.st.RevokePairing("p2", "")
 	f.relay.setErr("la-phone", relay.ErrUnregistered)
 	f.clk.Advance(ActivityLifetime)
 	f.run()
