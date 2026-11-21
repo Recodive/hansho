@@ -1,3 +1,11 @@
+/** Error codes of the hub that callers commonly branch on (`HanshoError.code`). */
+export const ERROR_CODES = {
+  /** 403: the user is outside the channel's audience (`startActivity` for such a user). */
+  noAccess: "no_access",
+  /** 404: the group does not exist (`getGroup`, `deleteGroup`). */
+  unknownGroup: "unknown_group",
+} as const;
+
 /** A non-2xx answer from the hub. The API key never appears in it. */
 export class HanshoError extends Error {
   readonly status: number;

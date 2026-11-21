@@ -7,16 +7,20 @@ import type {
   ActivityStarted,
   ActivityUpdate,
   ActivityUpdated,
+  Audience,
   Channel,
   HanshoOptions,
   Delivery,
   Feed,
   FeedResult,
+  FeedSettings,
+  Group,
   Level,
   Message,
   MessageResult,
   MessageStatus,
   PairingTicket,
+  Recipient,
   RequestOptions,
   SoundResult,
 } from "./types.ts";
@@ -71,6 +75,16 @@ function deliveryFromWire(raw: unknown): Delivery[] {
   return raw.map((d: Wire) => defined({ deviceId: d.device_id as string, status: d.status as string, error: (d.error as string | undefined) || undefined }));
 }
 
+function audienceToWire(a: Audience | undefined): unknown {
+  return a && defined({ mode: a.mode, users: a.users, groups: a.groups });
+}
+
+function audienceFromWire(raw: unknown): Audience | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const a = raw as Wire;
+  return defined({ mode: a.mode as Audience["mode"], users: a.users as string[] | undefined, groups: a.groups as string[] | undefined });
+}
+
 function channelToWire(c: Channel): Wire {
   return defined({
     name: c.name,
@@ -80,6 +94,7 @@ function channelToWire(c: Channel): Wire {
     template_id: c.templateId,
     thread: c.thread,
     actions: actionsToWire(c.actions),
+    audience: audienceToWire(c.audience),
   });
 }
 
@@ -92,12 +107,32 @@ function channelFromWire(w: Wire): Channel {
     templateId: w.template_id as string | undefined,
     thread: w.thread as string | undefined,
     actions: actionsFromWire(w.actions),
+    audience: audienceFromWire(w.audience),
   });
+}
+
+function recipientsFromWire(raw: unknown): Recipient[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw.map((r: Wire) =>
+    defined({
+      externalUserId: r.external_user_id as string,
+      messageId: r.message_id as string | undefined,
+      status: r.status as string,
+      devices: r.devices as number | undefined,
+      deliveries: r.deliveries === undefined ? undefined : deliveryFromWire(r.deliveries),
+    }),
+  );
+}
+
+function groupFromWire(w: Wire): Group {
+  return { id: w.id as string, members: (w.members as string[] | undefined) ?? [] };
 }
 
 function messageToWire(m: Message): Wire {
   return defined({
     external_user_id: m.externalUserId,
+    external_user_ids: m.externalUserIds,
+    to_audience: m.toAudience,
     channel: m.channel,
     level: m.level,
     title: m.title,
@@ -157,6 +192,15 @@ export class Hansho {
     await this.#json("DELETE", `/api/v1/users/${seg(externalUserId)}/pairings`, undefined, opts);
   }
 
+  /**
+   * Ends the user's whole pairing, on every device: `unpair` under its sender-side name. The app tells the person
+   * that the sender ended it (a 401 `pairing_revoked` with reason `"kicked"`), where an unpair they did themselves
+   * carries no reason. There is no block list; a new ticket pairs them again.
+   */
+  kick(externalUserId: string, opts?: RequestOptions): Promise<void> {
+    return this.unpair(externalUserId, opts);
+  }
+
   // --- catalog -------------------------------------------------------------
 
   async putChannel(id: string, channel: Channel, opts?: RequestOptions): Promise<void> {
@@ -169,6 +213,26 @@ export class Hansho {
 
   async deleteChannel(id: string, opts?: RequestOptions): Promise<void> {
     await this.#json("DELETE", `/api/v1/channels/${seg(id)}`, undefined, opts);
+  }
+
+  // --- groups --------------------------------------------------------------
+
+  /**
+   * Creates a group or replaces its whole member list (external user ids, who may not have paired yet). Audiences
+   * that name the group follow at once. Ids match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`.
+   */
+  async putGroup(id: string, members: string[], opts?: RequestOptions): Promise<Group> {
+    return groupFromWire(await this.#json("PUT", `/api/v1/groups/${seg(id)}`, { members }, opts));
+  }
+
+  /** A missing group is a `HanshoError` with code `"unknown_group"`. */
+  async getGroup(id: string, opts?: RequestOptions): Promise<Group> {
+    return groupFromWire(await this.#json("GET", `/api/v1/groups/${seg(id)}`, undefined, opts));
+  }
+
+  /** An audience that still names the group matches nobody through it. */
+  async deleteGroup(id: string, opts?: RequestOptions): Promise<void> {
+    await this.#json("DELETE", `/api/v1/groups/${seg(id)}`, undefined, opts);
   }
 
   /** Stores a template version; the version must increase. */
@@ -205,13 +269,14 @@ export class Hansho {
       call.headers = { "Idempotency-Key": message.idempotencyKey };
     }
     const w = await this.#send(call, opts);
-    return {
-      messageId: w.message_id as string,
+    return defined({
+      messageId: (w.message_id as string | undefined) ?? "",
       level: w.level as Level,
-      devices: w.devices as number,
-      status: w.status as string,
+      devices: (w.devices as number | undefined) ?? 0,
+      status: (w.status as string | undefined) ?? "",
       deliveries: deliveryFromWire(w.deliveries),
-    };
+      recipients: recipientsFromWire(w.recipients),
+    });
   }
 
   async getMessage(id: string, opts?: RequestOptions): Promise<MessageStatus> {
@@ -267,11 +332,28 @@ export class Hansho {
         external_user_id: feed.externalUserId,
         template_id: feed.templateId,
         title: feed.title,
+        channel: feed.channel,
+        audience: audienceToWire(feed.audience),
         data: feed.data,
       }),
       opts,
     );
     return { feedId: w.feed_id as string, devices: w.devices as number };
+  }
+
+  /** A feed's settings without its data. Omit `externalUserId` for the feed shared by all users. */
+  async getFeed(id: string, externalUserId?: string, opts?: RequestOptions): Promise<FeedSettings> {
+    const query = externalUserId ? `?external_user_id=${encodeURIComponent(externalUserId)}` : "";
+    const w = await this.#json("GET", `/api/v1/feeds/${seg(id)}${query}`, undefined, opts);
+    return defined({
+      feedId: w.feed_id as string,
+      externalUserId: w.external_user_id as string | undefined,
+      templateId: w.template_id as string,
+      title: w.title as string | undefined,
+      channel: w.channel as string | undefined,
+      audience: audienceFromWire(w.audience),
+      updatedAt: w.updated_at as number,
+    });
   }
 
   // --- plumbing ------------------------------------------------------------

@@ -33,7 +33,10 @@ Licence: MIT. The hub itself is AGPL-3.0.
    it as a QR code; the user scans it in the Hansho app. The ticket is single
    use and valid for 10 minutes. You get a `pairing.created` webhook.
 4. **Send** a message, a page (`level: "page"`, repeats until acknowledged), a
-   Live Activity or a widget feed.
+   Live Activity or a widget feed. Channels and feeds can be limited to an
+   *audience* of users and groups; a send can target one user, several or the
+   channel's audience (the Go and Node SDKs cover audiences, groups and kick so
+   far, see their READMEs).
 5. **Listen** for webhooks (`message.delivered`, `message.acked`, `action`, ...)
    and verify every one against the raw request body.
 
