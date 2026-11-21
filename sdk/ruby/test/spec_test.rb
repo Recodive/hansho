@@ -47,7 +47,8 @@ class SpecTest < Minitest::Test
       },
       Hansho::MessageResult.new(
         message_id: "msg_1", level: "time-sensitive", devices: 2, status: "queued",
-        deliveries: [Hansho::Delivery.new(device_id: "dev_1", status: "queued"), Hansho::Delivery.new(device_id: "dev_2", status: "queued")]
+        deliveries: [Hansho::Delivery.new(device_id: "dev_1", status: "queued"), Hansho::Delivery.new(device_id: "dev_2", status: "queued")],
+        recipients: []
       )
     ],
     "sendPage" => [
@@ -56,7 +57,7 @@ class SpecTest < Minitest::Test
                        body: "Failover did not complete", page: { interval_seconds: 60, max_retries: 3 })
       },
       Hansho::MessageResult.new(message_id: "msg_2", level: "page", devices: 1, status: "queued",
-                                deliveries: [Hansho::Delivery.new(device_id: "dev_1", status: "queued")])
+                                deliveries: [Hansho::Delivery.new(device_id: "dev_1", status: "queued")], recipients: [])
     ],
     "getMessage" => [
       ->(c) { c.get_message("msg_2") },
