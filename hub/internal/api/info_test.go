@@ -57,7 +57,7 @@ func TestRootShowsAStatusPage(t *testing.T) {
 	}
 	body := w.Body.String()
 	plain := regexp.MustCompile(`</span><span>`).ReplaceAllString(body, "")
-	for _, want := range []string{"Example Hub", "hub.example.com", "https://hansho.app", "no web interface"} {
+	for _, want := range []string{"Example Hub", "hub.example.com", "https://hansho.app", ">hansho.app<", "no web interface", "https://recodive.com/"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("page does not mention %q:\n%s", want, body)
 		}
