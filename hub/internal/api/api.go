@@ -50,6 +50,8 @@ type server struct {
 	pub    ed25519.PublicKey
 	fp     string
 	domain string
+
+	actionLimit actionLimiter // per-device press rate for POST /device/v1/actions
 }
 
 // New returns the hub's HTTP handler.

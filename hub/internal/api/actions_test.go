@@ -336,3 +336,46 @@ func TestDismissAfterNonPageAckIsSilent(t *testing.T) {
 		t.Fatal("acknowledged on the phone, then cleared on the watch: acked once, never dismissed")
 	}
 }
+
+func TestActionIDMustBeOffered(t *testing.T) {
+	p := newPage(t, []any{map[string]any{"id": "snooze", "title": "Snooze"}})
+	before := len(p.e.events("action"))
+	if code := p.action(p.phone, "bogus", nil); code != 400 {
+		t.Fatalf("unknown action id: %d", code)
+	}
+	if code := p.action(p.phone, "snooze", nil); code != 200 {
+		t.Fatalf("offered action id: %d", code)
+	}
+	if got := len(p.e.events("action")); got != before+1 {
+		t.Fatalf("only the offered press may be forwarded: %d -> %d action events", before, got)
+	}
+	if code := p.action(p.watch, "_dismissed", nil); code != 200 {
+		t.Fatalf("built-in _dismissed: %d", code)
+	}
+}
+
+func TestActionRateLimitPerDevice(t *testing.T) {
+	p := newPage(t, []any{map[string]any{"id": "snooze", "title": "Snooze"}})
+	for i := range actionBurst {
+		if code := p.action(p.phone, "snooze", nil); code != 200 {
+			t.Fatalf("press %d: %d", i, code)
+		}
+	}
+	w := p.phone.request("POST", "/device/v1/actions", map[string]any{"message_id": p.id, "action_id": "snooze"})
+	if w.Code != 429 || w.Header().Get("Retry-After") == "" {
+		t.Fatalf("past the burst: %d %v", w.Code, w.Header())
+	}
+	if code := p.action(p.watch, "snooze", nil); code != 200 {
+		t.Fatalf("another device shares no bucket: %d", code)
+	}
+	if got := len(p.e.events("action")); got != actionBurst+1 {
+		t.Fatalf("a refused press must not reach the outbox: %d action events", got)
+	}
+	p.e.clk.Advance(time.Second)
+	if code := p.action(p.phone, "snooze", nil); code != 200 {
+		t.Fatalf("one token refills per second: %d", code)
+	}
+	if code := p.action(p.phone, "snooze", nil); code != 429 {
+		t.Fatalf("only one: %d", code)
+	}
+}

@@ -40,6 +40,9 @@ var knownEvents = map[string]bool{
 }
 
 const (
+	// retention is how long finished (delivered or dropped) outbox rows are kept; the outbox is pruned once a minute.
+	retention     = 7 * 24 * time.Hour
+	pruneInterval = time.Minute
 	baseBackoff   = 10 * time.Second
 	maxAttempts   = 8
 	batchSize     = 100
@@ -56,6 +59,8 @@ type Dispatcher struct {
 	secret []byte
 	hc     *http.Client
 	now    func() time.Time
+
+	lastPrune time.Time // only touched by RunOnce
 }
 
 // New creates a dispatcher. An empty url disables webhooks. hc and now may be nil.
@@ -98,6 +103,7 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (sent int, err error) {
 		return 0, nil
 	}
 	now := d.now()
+	d.prune(now)
 	due, err := d.st.DueWebhooks(now, batchSize)
 	if err != nil {
 		return 0, err
@@ -111,6 +117,17 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (sent int, err error) {
 		}
 	}
 	return sent, nil
+}
+
+// prune deletes finished rows older than the retention period, at most once per pruneInterval.
+func (d *Dispatcher) prune(now time.Time) {
+	if now.Sub(d.lastPrune) < pruneInterval {
+		return
+	}
+	d.lastPrune = now
+	if _, err := d.st.PruneWebhooks(now.Add(-retention)); err != nil {
+		slog.Error("webhook: prune failed", "err", err)
+	}
 }
 
 func (d *Dispatcher) deliver(ctx context.Context, w store.Webhook, now time.Time) bool {

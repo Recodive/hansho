@@ -153,7 +153,7 @@ func TestDroppedAfterMaxAttempts(t *testing.T) {
 	d.Emit(context.Background(), EventActionTaken, map[string]string{})
 	for range 12 {
 		d.RunOnce(context.Background())
-		clk.t = clk.t.Add(24 * time.Hour)
+		clk.t = clk.t.Add(time.Hour) // past the longest backoff (10 s << 7), well inside the pruning retention
 	}
 	if len(sk.got) != 8 {
 		t.Fatalf("want 8 attempts, got %d", len(sk.got))
@@ -199,5 +199,45 @@ func TestEventNames(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("event %d: %q != %q", i, got[i], want[i])
 		}
+	}
+}
+
+func TestPrunesFinishedRowsAfterRetention(t *testing.T) {
+	d, st, sk, clk := setup(t, 200)
+	ctx := context.Background()
+	d.Emit(ctx, EventMessageAcked, map[string]string{"n": "delivered"})
+	d.RunOnce(ctx) // delivered
+	sk.mu.Lock()
+	sk.status = 500
+	sk.mu.Unlock()
+	d.Emit(ctx, EventMessageAcked, map[string]string{"n": "pending"}) // never finishes: the receiver keeps failing
+	clk.t = t0.Add(retention - time.Hour)
+	d.RunOnce(ctx)
+	if rows, _ := st.ListWebhooks(""); len(rows) != 2 {
+		t.Fatalf("pruned inside the retention period: %d rows", len(rows))
+	}
+	clk.t = t0.Add(retention + time.Hour)
+	d.RunOnce(ctx)
+	rows, _ := st.ListWebhooks("")
+	if len(rows) != 1 || !rows[0].DeliveredAt.IsZero() {
+		t.Fatalf("want only the unfinished row left: %+v", rows)
+	}
+}
+
+func TestPruneRunsOncePerInterval(t *testing.T) {
+	d, st, _, clk := setup(t, 200)
+	ctx := context.Background()
+	d.Emit(ctx, EventMessageAcked, map[string]string{})
+	d.RunOnce(ctx) // delivered at t0; this run also prunes
+	clk.t = t0.Add(retention + time.Hour)
+	d.lastPrune = clk.t.Add(-pruneInterval / 2)
+	d.RunOnce(ctx)
+	if rows, _ := st.ListWebhooks(""); len(rows) != 1 {
+		t.Fatalf("pruned again within the interval: %d rows", len(rows))
+	}
+	clk.t = clk.t.Add(pruneInterval)
+	d.RunOnce(ctx)
+	if rows, _ := st.ListWebhooks(""); len(rows) != 0 {
+		t.Fatalf("not pruned after the interval: %d rows", len(rows))
 	}
 }
