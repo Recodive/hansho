@@ -162,7 +162,7 @@ public sealed class HanshoClient : IDisposable
     {
         ArgumentNullException.ThrowIfNull(members);
         var list = new JsonArray();
-        foreach (var m in members) list.Add(m);
+        foreach (var m in members) list.Add(JsonValue.Create(m));
         var w = await JsonCallAsync("PUT", $"/api/v1/groups/{Seg(id)}", new JsonObject { ["members"] = list }, cancellationToken).ConfigureAwait(false);
         return GroupFromWire(w);
     }
@@ -341,7 +341,7 @@ public sealed class HanshoClient : IDisposable
     private static JsonArray StringsToWire(IEnumerable<string> values)
     {
         var arr = new JsonArray();
-        foreach (var v in values) arr.Add(v);
+        foreach (var v in values) arr.Add(JsonValue.Create(v)); // not Add<T>: that needs reflection-based serialization
         return arr;
     }
 
