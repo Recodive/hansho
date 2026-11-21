@@ -122,6 +122,8 @@ curl -H "Authorization: Bearer $KEY" https://hub.example.com/api/v1/messages/msg
 | `POST /api/v1/activities`, `PATCH`/`DELETE /api/v1/activities/{id}` | Live Activities (content-state at most 4 KB; update priority 5 or 10) |
 | `PUT /api/v1/feeds/{id}` | `{external_user_id?, template_id?, title?, data}`; omit the user for a feed shared by all paired users; `title` (at most 64 bytes) is the name the app's feed picker shows instead of the id, and an upsert without one clears it. Without `template_id` the app draws the data with an automatic layout chosen from its shape (a number with `min`/`max` -> gauge, a `value` -> big number, `items[]` with `state` -> status grid, other `items[]` -> list); a named template must exist |
 
+`image_url` and the `url` of a `"kind": "url"` action (in a message or a channel's `actions`) must be `https://` with a host, and `collapse_id` at most 64 bytes of printable ASCII without spaces; otherwise `400`. A Live Activity's `alert` is dropped when its channel's `max_level` is `passive`.
+
 Levels, lowest to highest: `passive`, `active`, `time-sensitive`, `critical`,
 `page`. The delivered level is `min(requested ?? channel default, channel max)`.
 
@@ -230,6 +232,10 @@ other users' ids are omitted, so it cannot be used to probe for messages. The
 signature covers the path only, not the query string. A retired device or a
 revoked pairing is refused with `401 device_revoked` / `pairing_revoked` like
 every other device call.
+
+`POST /device/v1/actions` takes `{message_id, action_id, text?}`. The action id must be `ack`, `_dismissed`, or an
+action of the message (or of its channel), else `400`. Each device may press at most 10 times in a burst, then one per
+second (`429` with `Retry-After`). A message or activity of another user answers `404` exactly like an unknown id.
 
 ### Widget feeds: who sees which feed
 
