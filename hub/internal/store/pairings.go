@@ -80,11 +80,27 @@ func (s *Store) AddDevice(d Device) error {
 	return err
 }
 
+// MaxDevicesPerPairing caps the active devices of one pairing.
+const MaxDevicesPerPairing = 10
+
 // UpsertDevice registers a device in an existing pairing, or refreshes the registration it already has: one active
 // device per pairing and signing key. It returns the device's ID (the existing one when the device re-joined) and
-// whether a new device was created.
+// whether a new device was created. A new device beyond MaxDevicesPerPairing is refused with ErrTooManyDevices.
 func (s *Store) UpsertDevice(d Device) (id string, created bool, err error) {
-	err = s.queryRow(`INSERT INTO devices(id, pairing_id, sign_pub, platform, name,
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", false, err
+	}
+	defer tx.Rollback()
+	var active, same int
+	if err := tx.QueryRow(`SELECT COUNT(*), COALESCE(SUM(sign_pub = ?), 0) FROM devices WHERE pairing_id = ? AND revoked_at IS NULL`,
+		d.SignPub, d.PairingID).Scan(&active, &same); err != nil {
+		return "", false, err
+	}
+	if same == 0 && active >= MaxDevicesPerPairing {
+		return "", false, ErrTooManyDevices
+	}
+	err = tx.QueryRow(`INSERT INTO devices(id, pairing_id, sign_pub, platform, name,
 		sealed_alert, sealed_background, sealed_pushtostart, sealed_widgets, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(pairing_id, sign_pub) WHERE revoked_at IS NULL DO UPDATE SET
@@ -97,7 +113,7 @@ func (s *Store) UpsertDevice(d Device) (id string, created bool, err error) {
 	if err != nil {
 		return "", false, err
 	}
-	return id, id == d.ID, nil
+	return id, id == d.ID, tx.Commit()
 }
 
 // CreatePairingWithDevice inserts a pairing and its first device atomically, for a ticket ConsumeTicket redeemed.

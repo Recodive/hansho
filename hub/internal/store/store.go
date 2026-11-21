@@ -28,6 +28,8 @@ var (
 	ErrTicketUsed = errors.New("store: ticket already used")
 	// ErrTicketExpired means the pairing ticket's TTL elapsed, or the user was unpaired since it was issued.
 	ErrTicketExpired = errors.New("store: ticket expired")
+	// ErrTooManyDevices means the pairing already has MaxDevicesPerPairing active devices.
+	ErrTooManyDevices = errors.New("store: too many devices")
 )
 
 // Store wraps the SQLite database. Now is the clock used by methods that take

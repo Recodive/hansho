@@ -264,6 +264,10 @@ func (s *server) addDevice(w http.ResponseWriter, r *http.Request) {
 		SealedAlert: req.Tokens.Alert, SealedBackground: req.Tokens.Background,
 		SealedPushToStart: req.Tokens.PushToStart, SealedWidgets: req.Tokens.Widgets, CreatedAt: s.Now(),
 	})
+	if errors.Is(err, store.ErrTooManyDevices) {
+		writeErr(w, http.StatusConflict, "too_many_devices")
+		return
+	}
 	if err != nil {
 		s.internal(w, "add device failed", err)
 		return

@@ -15,6 +15,7 @@ import (
 
 	"github.com/recodive/hansho/hub/internal/identity"
 	"github.com/recodive/hansho/hub/internal/relay"
+	"github.com/recodive/hansho/hub/internal/store"
 	"net/http/httptest"
 )
 
@@ -478,6 +479,28 @@ func TestUnpairUserExpiresOutstandingTickets(t *testing.T) {
 	}
 	// A ticket minted after the unpair works.
 	e.newDevice("laptop").pair("alice")
+}
+
+// A pairing takes at most store.MaxDevicesPerPairing active devices; a device already in it can still re-join.
+func TestDevicesPerPairingCapped(t *testing.T) {
+	e := newEnv(t)
+	phone := e.newDevice("phone")
+	phone.pair("alice")
+	for i := 1; i < store.MaxDevicesPerPairing; i++ {
+		if w := e.newDevice("d").addTo(phone.PairingID, phone.PairingKey); w.Code != 201 {
+			t.Fatalf("device %d: %d %s", i+1, w.Code, w.Body)
+		}
+	}
+	w := e.newDevice("extra").addTo(phone.PairingID, phone.PairingKey)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), `"too_many_devices"`) {
+		t.Fatalf("over the cap: %d %s", w.Code, w.Body)
+	}
+	if ds, _ := e.st.ActiveDevicesForPairing(phone.PairingID); len(ds) != store.MaxDevicesPerPairing {
+		t.Fatalf("%d active devices", len(ds))
+	}
+	if w := phone.addTo(phone.PairingID, phone.PairingKey); w.Code != 201 {
+		t.Fatalf("re-join at the cap: %d %s", w.Code, w.Body)
+	}
 }
 
 func TestUnpairSurvivesRelayRevokeFailure(t *testing.T) {
