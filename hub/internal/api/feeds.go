@@ -64,8 +64,8 @@ func (s *server) putFeed(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// channel is optional: a feed inherits the audience of its channel unless it sets its own audience. Like the
-	// title, both are replaced by every upsert, so republish them with the data.
+	// channel is optional: a feed inherits the audience of its channel unless it sets its own audience. Leaving
+	// both out keeps the stored values.
 	if req.Channel != "" {
 		if ch, err := s.Store.GetChannel(req.Channel); err != nil || !ch.DeletedAt.IsZero() {
 			if err == nil || errors.Is(err, store.ErrNotFound) {
@@ -87,6 +87,11 @@ func (s *server) putFeed(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.Audience = &a
+	} else if req.Channel == "" {
+		// Leaving both out keeps what is stored, so an old client republishing data never widens access.
+		if old, err := s.Store.GetFeed(id, f.ExternalUserID); err == nil {
+			f.ChannelID, f.Audience = old.ChannelID, old.Audience
+		}
 	}
 	if err := s.Store.UpsertFeed(f); err != nil {
 		s.internal(w, "store feed failed", err)

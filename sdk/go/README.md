@@ -54,7 +54,7 @@ c.PutChannel(ctx, "pager", hansho.Channel{
     Name: "Pager", DefaultLevel: hansho.LevelPage, MaxLevel: hansho.LevelPage,
     Audience: &hansho.Audience{Mode: hansho.AudienceOnly, Groups: []string{"oncall"}},
 })
-// PutChannel replaces the whole channel: leaving Audience nil makes it open to everyone again.
+// PutChannel replaces the channel, except that a nil Audience keeps the stored one (send Mode "everyone" to open it up).
 
 // A feed uses its Channel's audience unless it sets its own. Send both with every update.
 c.PutFeed(ctx, "queue", hansho.Feed{TemplateID: "status", Channel: "pager", Data: map[string]any{"value": 3}})

@@ -60,7 +60,7 @@ await hansho.putChannel("pager", {
   maxLevel: "page",
   audience: { mode: "only", groups: ["oncall"] },
 });
-// putChannel replaces the whole channel: leaving audience out makes it open to everyone again.
+// putChannel replaces the channel, except that leaving audience out keeps the stored one ({ mode: 'everyone' } opens it up).
 
 // A feed uses its channel's audience unless it sets its own. Send both with every update.
 await hansho.putFeed("queue", { templateId: "status", channel: "pager", data: { value: 3 } });

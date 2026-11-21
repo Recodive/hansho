@@ -127,8 +127,13 @@ func TestChannelAudienceRoundTripAndValidation(t *testing.T) {
 	if !reflect.DeepEqual(got["audience"], map[string]any{"mode": "only", "users": []any{"alice"}, "groups": []any{"oncall"}}) {
 		t.Fatalf("audience %v", got["audience"])
 	}
-	// Absent means everyone, and a PUT replaces the channel whole.
+	// Absent keeps the stored audience, so an old client republishing never widens access.
 	e.audienceChannel("ops", nil)
+	got = decode[map[string]any](t, e.api("GET", "/api/v1/channels/ops", nil))
+	if got["audience"].(map[string]any)["mode"] != "only" {
+		t.Fatalf("an absent audience must keep the stored one: %v", got["audience"])
+	}
+	e.audienceChannel("ops", map[string]any{"mode": "everyone"})
 	got = decode[map[string]any](t, e.api("GET", "/api/v1/channels/ops", nil))
 	if !reflect.DeepEqual(got["audience"], map[string]any{"mode": "everyone", "users": []any{}, "groups": []any{}}) {
 		t.Fatalf("default audience %v", got["audience"])
@@ -241,7 +246,7 @@ func TestFeedAudience(t *testing.T) {
 	}
 
 	// The channel's audience changes at once for the feeds that inherit it.
-	e.audienceChannel("ops", nil)
+	e.audienceChannel("ops", map[string]any{"mode": "everyone"})
 	if w := bob.request("GET", "/device/v1/feeds/inherits", nil); w.Code != 200 {
 		t.Fatalf("bob after the channel opened: %d %s", w.Code, w.Body)
 	}
@@ -291,7 +296,7 @@ func TestFeedWidgetPushesOnlyReachPeopleInTheAudience(t *testing.T) {
 
 func TestDeviceCallsOnAnInaccessibleChannelAreRefused(t *testing.T) {
 	e := newEnv(t)
-	e.audienceChannel("ops", nil)
+	e.audienceChannel("ops", map[string]any{"mode": "everyone"})
 	if w := e.api("PUT", "/api/v1/templates/deploy", map[string]any{"version": 1, "body": json.RawMessage(goodTemplate)}); w.Code != 200 {
 		t.Fatalf("%d %s", w.Code, w.Body)
 	}
@@ -340,7 +345,7 @@ func TestDeviceCallsOnAnInaccessibleChannelAreRefused(t *testing.T) {
 	}
 
 	// Access back: it works again.
-	e.audienceChannel("ops", nil)
+	e.audienceChannel("ops", map[string]any{"mode": "everyone"})
 	if w := phone.request("POST", "/device/v1/actions", map[string]any{"message_id": sent.MessageID, "action_id": "ack"}); w.Code != 200 {
 		t.Fatalf("action after access came back: %d %s", w.Code, w.Body)
 	}
@@ -348,7 +353,7 @@ func TestDeviceCallsOnAnInaccessibleChannelAreRefused(t *testing.T) {
 
 func TestAcksOmitMessagesOfInaccessibleChannels(t *testing.T) {
 	e := newEnv(t)
-	e.audienceChannel("ops", nil)
+	e.audienceChannel("ops", map[string]any{"mode": "everyone"})
 	phone := e.newDevice("phone")
 	phone.pair("alice")
 	m := msg("alice", "ops")
@@ -507,7 +512,7 @@ func TestSendTargetValidation(t *testing.T) {
 
 func TestQueuedMessageAndPagesStopWhenAccessIsLost(t *testing.T) {
 	e := newEnv(t)
-	e.audienceChannel("ops", nil)
+	e.audienceChannel("ops", map[string]any{"mode": "everyone"})
 	if w := e.api("PUT", "/api/v1/channels/oncall", map[string]any{"name": "oncall", "default_level": "page", "max_level": "page"}); w.Code != 200 {
 		t.Fatal(w.Body)
 	}

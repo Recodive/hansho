@@ -118,9 +118,14 @@ func (s *server) putChannel(w http.ResponseWriter, r *http.Request) {
 	if thread == "" {
 		thread = id
 	}
-	// A channel is replaced whole, so leaving the audience out makes it everyone again.
+	// Leaving the audience out keeps the stored one, so a republish from a client that does not know audiences never
+	// widens access; send {"mode":"everyone"} to open a channel up again.
 	var audience store.Audience
-	if req.Audience != nil {
+	if req.Audience == nil {
+		if old, err := s.Store.GetChannel(id); err == nil {
+			audience = old.Audience
+		}
+	} else {
 		var field, msg string
 		if audience, field, msg = checkAudience(*req.Audience, "audience"); field != "" {
 			bad(field, msg)
