@@ -20,10 +20,9 @@ dependencies beyond their standard library (PHP: ext-curl and ext-json). Java
 uses Jackson for JSON; Rust uses ureq (rustls), serde, serde_json, hmac and sha2.
 Licence: MIT. The hub itself is AGPL-3.0.
 
-> Not published yet. Publishing to pkg.go.dev (a `sdk/go/vX.Y.Z` tag), npm, PyPI,
-> RubyGems, Packagist, Maven Central, NuGet and crates.io
-> needs the final package name and the owner's accounts, and is left to the
-> owner; nothing in this repository publishes.
+> Go is published (`go get github.com/recodive/hansho/sdk/go`). The others are
+> not on npm, PyPI, RubyGems, Packagist, Maven Central, NuGet or crates.io yet;
+> until they are, build them from their directory here.
 
 ## The flow
 
