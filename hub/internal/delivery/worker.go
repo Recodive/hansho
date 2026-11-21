@@ -58,6 +58,8 @@ func NewWorker(st *store.Store, rc RelayClient, wh *webhook.Dispatcher, cfg conf
 func (w *Worker) RunOnce(ctx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	// Work is serial, so a 429 must not sleep here: it is rescheduled instead (see sendRetry).
+	ctx = relay.NoWait(ctx)
 	return errors.Join(
 		w.sendQueued(ctx),
 		w.runPages(ctx),
@@ -104,14 +106,17 @@ type sendResult struct {
 }
 
 // envCache holds one envelope per pairing for one send pass, and remembers
-// pairings the relay reported revoked so their other devices are skipped.
+// pairings revoked after a relay verdict so their other devices are skipped, and
+// pairings the relay rate-limited (with its suggested wait) so their remaining
+// deliveries wait for a later pass.
 type envCache struct {
 	envs    map[string]crypto.Envelope
 	revoked map[string]bool
+	limited map[string]time.Duration
 }
 
 func newEnvCache() *envCache {
-	return &envCache{envs: map[string]crypto.Envelope{}, revoked: map[string]bool{}}
+	return &envCache{envs: map[string]crypto.Envelope{}, revoked: map[string]bool{}, limited: map[string]time.Duration{}}
 }
 
 func (w *Worker) envelope(c *envCache, p store.Pairing, messageID string, plaintext []byte) (crypto.Envelope, error) {
@@ -138,6 +143,9 @@ func (w *Worker) pushAlert(ctx context.Context, m store.Message, ch store.Channe
 	}
 	if dev.SealedAlert == "" {
 		return sendResult{kind: sendSkipped, errCode: "no_token"}
+	}
+	if wait, ok := c.limited[dev.Pairing.ID]; ok {
+		return sendResult{kind: sendRetry, errCode: "rate_limited", retryAfter: wait}
 	}
 	env, err := w.envelope(c, dev.Pairing, m.ID, plaintext)
 	if err != nil {
@@ -195,6 +203,7 @@ func (w *Worker) classify(ctx context.Context, err error, dev store.DeviceWithPa
 	case errors.Is(err, relay.ErrTokenExpired):
 		return sendResult{kind: sendFailed, errCode: "token_expired"}
 	case errors.As(err, &rl):
+		c.limited[dev.Pairing.ID] = max(c.limited[dev.Pairing.ID], rl.RetryAfter)
 		return sendResult{kind: sendRetry, errCode: "rate_limited", retryAfter: rl.RetryAfter}
 	case errors.As(err, &he) && he.Status >= 400 && he.Status < 500 && he.Status != http.StatusTooManyRequests:
 		return sendResult{kind: sendFailed, errCode: he.Code}
@@ -211,11 +220,12 @@ func (w *Worker) sendQueued(ctx context.Context) error {
 		return err
 	}
 	var errs []error
+	limited := map[string]time.Duration{} // rate-limited pairings, shared by every message of this pass
 	for _, m := range msgs {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if err := w.processQueued(ctx, m); err != nil {
+		if err := w.processQueued(ctx, m, limited); err != nil {
 			w.log.Error("process message failed", "message_id", m.ID, "err", err)
 			errs = append(errs, err)
 		}
@@ -223,7 +233,7 @@ func (w *Worker) sendQueued(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func (w *Worker) processQueued(ctx context.Context, m store.Message) error {
+func (w *Worker) processQueued(ctx context.Context, m store.Message, limited map[string]time.Duration) error {
 	ch, err := w.st.GetChannel(m.ChannelID)
 	if err != nil {
 		return err
@@ -237,6 +247,7 @@ func (w *Worker) processQueued(ctx context.Context, m store.Message) error {
 		return err
 	}
 	cache := newEnvCache()
+	cache.limited = limited
 	var retryAfter time.Duration
 	for _, d := range dels {
 		if d.Status != store.DelQueued {

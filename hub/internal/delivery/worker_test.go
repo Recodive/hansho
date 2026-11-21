@@ -271,6 +271,53 @@ func TestRateLimitedStaysQueuedThenDelivers(t *testing.T) {
 	}
 }
 
+// countingRelay counts push attempts per sealed token, failed ones included.
+type countingRelay struct {
+	RelayClient
+	tries map[string]int
+}
+
+func (c *countingRelay) Push(ctx context.Context, p relay.PushRequest) (string, error) {
+	c.tries[p.Sealed]++
+	return c.RelayClient.Push(ctx, p)
+}
+
+// A 429 does not hold up the serial worker: the rest of that pairing's deliveries in the pass wait for a later pass
+// without another relay call, and other pairings are delivered.
+func TestRateLimitedPairingSkippedForTheRestOfThePass(t *testing.T) {
+	f := newFixture(t)
+	cr := &countingRelay{RelayClient: f.relay, tries: map[string]int{}}
+	f.w = NewWorker(f.st, cr, f.wh, f.cfg, f.hubKey, f.clk.Now)
+	f.pairing("p1", "alice", "phone", "watch")
+	f.pairing("p2", "bob", "bobphone")
+	f.relay.setErr("alert-phone", &relay.RateLimitedError{RetryAfter: 20 * time.Second})
+	m1 := f.enqueue("alice", "active")
+	m2 := f.enqueue("alice", "active")
+	m3 := f.enqueue("bob", "active")
+	f.run()
+
+	if cr.tries["alert-phone"] != 1 || cr.tries["alert-watch"] != 0 {
+		t.Fatalf("relay tries %v, want one for the phone and none for the watch", cr.tries)
+	}
+	for _, id := range []string{m1.Message.ID, m2.Message.ID} {
+		if m := f.msg(id); m.Status != store.MsgQueued || m.NextAttemptAt.Before(f.clk.Now().Add(20*time.Second)) {
+			t.Fatalf("%s: %+v, want queued for at least the Retry-After", id, m)
+		}
+	}
+	if f.msg(m3.Message.ID).Status != store.MsgDelivered {
+		t.Fatal("other pairing held up")
+	}
+
+	f.relay.setErr("alert-phone", nil)
+	f.clk.Advance(30 * time.Second)
+	f.run()
+	for _, id := range []string{m1.Message.ID, m2.Message.ID} {
+		if got := f.msg(id).Status; got != store.MsgDelivered {
+			t.Fatalf("%s: %s", id, got)
+		}
+	}
+}
+
 func TestTransientFailuresGiveUpEventually(t *testing.T) {
 	f := newFixture(t)
 	f.pairing("p1", "alice", "phone")
