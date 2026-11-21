@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/recodive/hansho/hub/internal/crypto"
+	"github.com/recodive/hansho/hub/internal/level"
 	"github.com/recodive/hansho/hub/internal/relay"
 	"github.com/recodive/hansho/hub/internal/store"
 	"github.com/recodive/hansho/hub/internal/webhook"
@@ -126,6 +127,23 @@ func parseAlert(raw string) *ActivityAlert {
 	return &a
 }
 
+// alertFor returns the alert to send with a start or update of a, or nil: a channel whose max level is passive must never
+// make a sound or banner, so its activities carry no alert (the channel is read at send time, so a later change applies).
+func (w *Worker) alertFor(a store.Activity, alert *ActivityAlert) *ActivityAlert {
+	if alert == nil {
+		return nil
+	}
+	ch, err := w.st.GetChannel(a.ChannelID)
+	if err != nil {
+		w.log.Error("activity alert dropped: channel lookup failed", "activity_id", a.ID, "err", err)
+		return nil
+	}
+	if ch.MaxLevel == level.Passive {
+		return nil
+	}
+	return alert
+}
+
 // stateFor builds the content-state for a device: encrypted per pairing when enabled.
 func (w *Worker) stateFor(a store.Activity, dev store.DeviceWithPairing) (json.RawMessage, error) {
 	var key []byte
@@ -150,6 +168,7 @@ func (w *Worker) StartActivity(ctx context.Context, a store.Activity, alert *Act
 		return 0, err
 	}
 	cache := newEnvCache()
+	alert = w.alertFor(a, alert)
 	sent := 0
 	for _, dev := range devices {
 		if dev.SealedPushToStart == "" || cache.revoked[dev.Pairing.ID] {
@@ -212,7 +231,7 @@ func (w *Worker) PushActivityUpdate(ctx context.Context, a store.Activity, seq i
 		return err
 	}
 	cache := newEnvCache()
-	alert := parseAlert(a.AlertJSON)
+	alert := w.alertFor(a, parseAlert(a.AlertJSON))
 	for _, tok := range tokens {
 		dev, err := w.st.GetDevice(tok.DeviceID)
 		if err != nil {
@@ -240,7 +259,7 @@ func (w *Worker) SyncActivityToken(ctx context.Context, a store.Activity, tok st
 	if err != nil {
 		return err
 	}
-	alert := parseAlert(a.AlertJSON)
+	alert := w.alertFor(a, parseAlert(a.AlertJSON))
 	if w.pushActivityTo(ctx, a, tok, dev, newEnvCache(), func(st json.RawMessage) ([]byte, error) {
 		return UpdatePayload(w.now(), st, alert)
 	}, a.Priority) {
