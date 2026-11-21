@@ -52,14 +52,6 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bad := func(field, msg string) { writeFieldErr(w, http.StatusBadRequest, "invalid_request", field, msg) }
-	for _, f := range []struct{ name, v string }{
-		{"channel", req.Channel}, {"title", req.Title}, {"body", req.Body},
-	} {
-		if f.v == "" {
-			bad(f.name, "required")
-			return
-		}
-	}
 	targets := 0
 	for _, set := range []bool{req.ExternalUserID != "", len(req.ExternalUserIDs) > 0, req.ToAudience} {
 		if set {
@@ -83,6 +75,14 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	for i, u := range req.ExternalUserIDs {
 		if u == "" || len(u) > maxFieldLen {
 			bad("external_user_ids["+strconv.Itoa(i)+"]", "required, at most 256 bytes")
+			return
+		}
+	}
+	for _, f := range []struct{ name, v string }{
+		{"channel", req.Channel}, {"title", req.Title}, {"body", req.Body},
+	} {
+		if f.v == "" {
+			bad(f.name, "required")
 			return
 		}
 	}
@@ -231,9 +231,9 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	out := map[string]any{"level": lvl, "recipients": recipients}
 	if req.ExternalUserID != "" {
-		// The single-user form keeps its original fields. Without access there is no message: no message_id.
+		// The single-user form keeps its original fields. Without access there is no message: message_id is "".
 		r0 := recipients[0]
-		out["status"], out["devices"], out["deliveries"] = r0.Status, 0, []deliveryView{}
+		out["message_id"], out["status"], out["devices"], out["deliveries"] = "", r0.Status, 0, []deliveryView{}
 		if r0.MessageID != "" {
 			out["message_id"], out["devices"], out["deliveries"] = r0.MessageID, *r0.Devices, r0.Deliveries
 		}

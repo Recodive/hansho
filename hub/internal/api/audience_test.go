@@ -459,6 +459,9 @@ func TestSendReportsNoAccessPerRecipient(t *testing.T) {
 	if r.Status != "queued" || r.Devices != 1 || !strings.HasPrefix(r.MessageID, "msg_") || len(r.Recipients) != 1 || r.Recipients[0].MessageID != r.MessageID {
 		t.Fatalf("%+v", r)
 	}
+	if raw := e.api("POST", "/api/v1/messages", msg("alice", "ops")).Body.String(); !strings.Contains(raw, `"message_id":""`) {
+		t.Fatalf("older SDKs expect a message_id string: %s", raw)
+	}
 	r = send(msg("alice", "ops"))
 	if r.Status != "no_access" || r.MessageID != "" || r.Devices != 0 || len(r.Recipients) != 1 || r.Recipients[0].Status != "no_access" {
 		t.Fatalf("%+v", r)
@@ -484,6 +487,7 @@ func TestSendTargetValidation(t *testing.T) {
 		field string
 	}{
 		"no target":       {base(nil), "external_user_id"},
+		"empty body":      {map[string]any{}, "external_user_id"},
 		"two targets":     {base(map[string]any{"external_user_id": "a", "to_audience": true}), "external_user_ids"},
 		"empty id":        {base(map[string]any{"external_user_ids": []string{"a", ""}}), "external_user_ids[1]"},
 		"too many":        {base(map[string]any{"external_user_ids": make([]string, 1001)}), "external_user_ids"},

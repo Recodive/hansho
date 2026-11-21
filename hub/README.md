@@ -158,7 +158,7 @@ paired user in the channel's audience, resolved when you send). The response lis
 A user outside the audience gets `status: "no_access"`, no message and no push; the others are delivered. A recipient
 with a message has the usual message status (`queued`, or `undeliverable` when no device can be reached). The
 `external_user_id` form also keeps the original top-level `message_id`, `devices`, `status` and `deliveries` of that single
-recipient; with no access they are `status: "no_access"`, `devices: 0` and no `message_id`. `to_audience` only lists users
+recipient; with no access they are `status: "no_access"`, `devices: 0` and `message_id: ""`. `to_audience` only lists users
 in the audience. A send is never refused for `no_access` as a whole.
 
 **Kick.** `DELETE /api/v1/users/{external_user_id}/pairings` ends every pairing of the user, relay included. The user's
