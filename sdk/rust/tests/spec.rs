@@ -187,7 +187,74 @@ fn calls() -> BTreeMap<&'static str, Call> {
             assert_eq!(c.put_feed("uptime", &f).unwrap(), FeedResult { feed_id: "uptime".into(), devices: 2 });
         }),
     );
+    m.insert(
+        "putGroup",
+        Box::new(|c| {
+            let got = c.put_group("oncall", &["alice", "bob"]).unwrap();
+            assert_eq!(got, Group { id: "oncall".into(), members: vec!["alice".into(), "bob".into()] });
+        }),
+    );
+    m.insert(
+        "getGroup",
+        Box::new(|c| {
+            let got = c.get_group("oncall").unwrap();
+            assert_eq!(got, Group { id: "oncall".into(), members: vec!["alice".into(), "bob".into()] });
+        }),
+    );
+    m.insert("deleteGroup", Box::new(|c| c.delete_group("oncall").unwrap()));
+    m.insert("kick", Box::new(|c| c.kick("user-42").unwrap()));
+    m.insert(
+        "putChannelWithAudience",
+        Box::new(|c| {
+            let ch = Channel {
+                name: "Operations".into(),
+                default_level: Level::Active,
+                max_level: Level::Critical,
+                audience: Some(only()),
+                ..Default::default()
+            };
+            c.put_channel("ops", &ch).unwrap();
+        }),
+    );
+    m.insert(
+        "putFeedWithChannel",
+        Box::new(|c| {
+            let f = Feed {
+                template_id: "status".into(),
+                channel: Some("ops".into()),
+                audience: Some(only()),
+                data: json!({"up": true}),
+                ..Default::default()
+            };
+            assert_eq!(c.put_feed("uptime", &f).unwrap(), FeedResult { feed_id: "uptime".into(), devices: 1 });
+        }),
+    );
+    m.insert(
+        "sendToAudience",
+        Box::new(|c| {
+            let msg = Message { to_audience: true, ..Message::new("", "ops", "Deploy done", "v1.2.3 is live") };
+            let want = MessageResult {
+                level: Level::Active,
+                recipients: vec![
+                    Recipient {
+                        external_user_id: "alice".into(),
+                        message_id: Some("msg_7".into()),
+                        status: "queued".into(),
+                        devices: 1,
+                        deliveries: vec![delivery("dev_1", "queued", None)],
+                    },
+                    Recipient { external_user_id: "carol".into(), status: RECIPIENT_NO_ACCESS.into(), ..Default::default() },
+                ],
+                ..Default::default()
+            };
+            assert_eq!(c.send_message(&msg).unwrap(), want);
+        }),
+    );
     m
+}
+
+fn only() -> Audience {
+    Audience { mode: AudienceMode::Only, users: vec!["alice".into()], groups: vec!["oncall".into()] }
 }
 
 #[test]
