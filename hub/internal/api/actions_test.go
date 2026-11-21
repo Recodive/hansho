@@ -245,8 +245,10 @@ func TestActionAuthorisationAndValidation(t *testing.T) {
 	bob := e.newDevice("bobphone")
 	bob.pair("bob")
 
-	if code := p.action(bob, "ack", nil); code != 403 {
-		t.Fatalf("another user's message: %d", code)
+	foreign := bob.request("POST", "/device/v1/actions", map[string]any{"message_id": p.id, "action_id": "ack"})
+	unknown := bob.request("POST", "/device/v1/actions", map[string]any{"message_id": "msg_nope", "action_id": "ack"})
+	if foreign.Code != 404 || foreign.Code != unknown.Code || foreign.Body.String() != unknown.Body.String() {
+		t.Fatalf("another user's message must look like an unknown one: %d %s vs %d %s", foreign.Code, foreign.Body, unknown.Code, unknown.Body)
 	}
 	if p.status().Status != "paging" || len(e.events("message.acked")) != 0 {
 		t.Fatal("foreign ack had an effect")

@@ -103,7 +103,8 @@ func (s *server) deviceAction(w http.ResponseWriter, r *http.Request, dev store.
 		return
 	}
 	if m.ExternalUserID != dev.Pairing.ExternalUserID {
-		writeErr(w, http.StatusForbidden, "forbidden")
+		// The same answer as an unknown id: a device must not learn that another user's message exists.
+		writeErr(w, http.StatusNotFound, "unknown_message")
 		return
 	}
 	if !s.offersAction(m, req.ActionID) {
