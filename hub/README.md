@@ -103,6 +103,8 @@ curl -H "Authorization: Bearer $KEY" https://hub.example.com/api/v1/messages/msg
 |---|---|
 | `hub serve` | HTTP API, delivery worker (1 s tick), webhook loop (1 s tick); graceful shutdown on SIGTERM |
 | `hub apikey create <name>` | Print a new sender API key once |
+| `hub apikey list` | List sender API keys: id, name, created, revoked (never the key itself) |
+| `hub apikey revoke <id>` | Stop the key with that id from working; safe to repeat. Get the id from `hub apikey list` |
 | `hub relay register` | Register with the relay for the host of `HUB_PUBLIC_URL` |
 | `hub relay verify` | Ask the relay to check the domain challenge |
 

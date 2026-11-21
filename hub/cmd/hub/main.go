@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -34,6 +35,8 @@ usage: hub <command>
 commands:
   serve                 run the hub (HTTP API, delivery worker, webhooks)
   apikey create <name>  create a sender API key; the key is printed once
+  apikey list           list sender API keys (id, name, created, revoked)
+  apikey revoke <id>    stop an API key from working
   relay register        register this hub with the relay; prints HUB_ID and HUB_CHALLENGE_TOKEN
   relay verify          ask the relay to verify the domain challenge
 
@@ -77,6 +80,46 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return err
 			}
 			fmt.Fprintln(stdout, key)
+			return nil
+		})
+	case args[0] == "apikey" && len(args) == 2 && args[1] == "list":
+		return withConfig(getenv, stderr, func(cfg config.Config) error {
+			st, err := store.Open(cfg.DBPath)
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+			keys, err := st.ListAPIKeys()
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(stdout, "ID\tNAME\tCREATED\tREVOKED")
+			for _, k := range keys {
+				revoked := "-"
+				if !k.RevokedAt.IsZero() {
+					revoked = k.RevokedAt.UTC().Format(time.RFC3339)
+				}
+				fmt.Fprintf(stdout, "%d\t%s\t%s\t%s\n", k.ID, k.Name, k.CreatedAt.UTC().Format(time.RFC3339), revoked)
+			}
+			return nil
+		})
+	case args[0] == "apikey" && len(args) == 3 && args[1] == "revoke":
+		id, err := strconv.ParseInt(args[2], 10, 64)
+		if err != nil {
+			return usageErr()
+		}
+		return withConfig(getenv, stderr, func(cfg config.Config) error {
+			st, err := store.Open(cfg.DBPath)
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+			if err := st.RevokeAPIKey(id); errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("no API key with id %d (see `hub apikey list`)", id)
+			} else if err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "revoked %d\n", id)
 			return nil
 		})
 	case args[0] == "relay" && len(args) == 2 && args[1] == "register":
