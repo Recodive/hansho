@@ -17,8 +17,9 @@ import (
 const (
 	// maxSkew is the accepted difference between a signed timestamp and now.
 	maxSkew = 300 * time.Second
-	// nonceTTL must exceed twice maxSkew so a replay can never outlive its cache entry.
-	nonceTTL = 600 * time.Second
+	// nonceTTL must exceed twice maxSkew so a replay can never outlive its cache entry: a timestamp is accepted for
+	// 2*maxSkew, and the cache works in whole seconds, so it gets a margin on top.
+	nonceTTL = 2*maxSkew + time.Minute
 )
 
 var (
@@ -71,7 +72,7 @@ func (s *server) checkTimestamp(ts string) bool {
 type deviceHandler func(w http.ResponseWriter, r *http.Request, dev store.DeviceWithPairing, body []byte)
 
 // withDevice authenticates a request signed by a paired device: ECDSA P-256 over
-// the canonical string, +-300 s skew, replay cache keyed by the signature's value (600 s, see
+// the canonical string, +-300 s skew, replay cache keyed by the signature's value (nonceTTL, see
 // crypto.SignatureReplayKey).
 func (s *server) withDevice(h deviceHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

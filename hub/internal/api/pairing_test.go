@@ -306,7 +306,24 @@ func TestDeviceSignatureAuth(t *testing.T) {
 	if w := e.do("PUT", path, body, nil); w.Code != 401 {
 		t.Fatalf("no headers: %d", w.Code)
 	}
-	// Replay cache expires after 600 s, but then the timestamp is stale too.
+}
+
+// A timestamp is accepted from maxSkew before it to maxSkew after it, so its signature must stay in the replay cache for
+// all of that: signed 300 s ahead, first used now and replayed 600 s later is still a replay.
+func TestReplayAtTheFarEdgeOfTheSkewWindow(t *testing.T) {
+	e := newEnv(t)
+	d := e.newDevice("phone")
+	d.pair("alice")
+	path := "/device/v1/devices/" + d.ID + "/tokens"
+	body := []byte(`{"alert":"a2","background":"b2"}`)
+	hdr := d.signedHeaders("PUT", path, body, e.clk.Now().Add(maxSkew))
+	if w := e.do("PUT", path, body, hdr); w.Code != 204 {
+		t.Fatalf("first: %d %s", w.Code, w.Body)
+	}
+	e.clk.Advance(2 * maxSkew)
+	if w := e.do("PUT", path, body, hdr); w.Code != 409 {
+		t.Fatalf("replay at the edge: want 409, got %d %s", w.Code, w.Body)
+	}
 }
 
 func TestUpdateTokens(t *testing.T) {
