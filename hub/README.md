@@ -119,7 +119,7 @@ curl -H "Authorization: Bearer $KEY" https://hub.example.com/api/v1/messages/msg
 | `POST /api/v1/messages` | `{external_user_id \| external_user_ids \| to_audience, channel, level?, title, subtitle?, body, image_url?, template_id?, data?, sound?, actions?, collapse_id?, page?:{interval_s?, max_retries?}}` -> 202 with a `recipients` list (see [Audiences](#audiences-groups-and-kick)) |
 | `GET /api/v1/messages/{id}` | `{status, level, attempts, deliveries, acked_at?}` |
 | `POST /api/v1/activities`, `PATCH`/`DELETE /api/v1/activities/{id}` | Live Activities (content-state at most 4 KB; update priority 5 or 10) |
-| `PUT/GET /api/v1/feeds/{id}` | `{external_user_id?, template_id?, title?, channel?, audience?, data}` (GET takes `?external_user_id=` and returns the settings without the data); `channel` and `audience` are explained under [Audiences](#audiences-groups-and-kick) and, like `title`, an upsert without them clears them; omit the user for a feed shared by all paired users; `title` (at most 64 bytes) is the name the app's feed picker shows instead of the id, and an upsert without one clears it. Without `template_id` the app draws the data with an automatic layout chosen from its shape (a number with `min`/`max` -> gauge, a `value` -> big number, `items[]` with `state` -> status grid, other `items[]` -> list); a named template must exist |
+| `PUT/GET /api/v1/feeds/{id}` | `{external_user_id?, template_id?, title?, channel?, audience?, data}` (GET takes `?external_user_id=` and returns the settings without the data); `channel` and `audience` are explained under [Audiences](#audiences-groups-and-kick) and an upsert without them keeps what is stored; omit the user for a feed shared by all paired users; `title` (at most 64 bytes) is the name the app's feed picker shows instead of the id, and an upsert without one clears it. Without `template_id` the app draws the data with an automatic layout chosen from its shape (a number with `min`/`max` -> gauge, a `value` -> big number, `items[]` with `state` -> status grid, other `items[]` -> list); a named template must exist |
 
 ### Audiences, groups and kick
 
@@ -135,7 +135,7 @@ Deleting a group that audiences still name is allowed; it then behaves as an emp
 `GET` and `DELETE`; the group id follows the same pattern as other ids, `GET` answers `404 unknown_group` for a missing one.
 
 A feed uses the audience of the channel named in its `channel` field unless it sets its own `audience`; with neither it is
-for everyone. Both are stored per feed, so republish them with every data update.
+for everyone. Both are stored per feed; an upsert that leaves both out keeps them.
 
 Access is checked by the hub on every request and read fresh each time, so a change to an audience or a group applies at
 once, and it is the only place it is decided (the app and the relay never see audiences):
