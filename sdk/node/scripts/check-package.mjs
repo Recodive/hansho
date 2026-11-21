@@ -1,4 +1,4 @@
-// Builds the package and checks what would be published: only dist/ and README.md
+// Builds the package and checks what would be published: only dist/, README.md and LICENSE
 // (plus the package.json npm always adds), and that both module formats load.
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -13,9 +13,9 @@ execFileSync(npm, ["run", "build"], { cwd: root, stdio: "inherit" });
 const out = JSON.parse(execFileSync(npm, ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: root, encoding: "utf8" }));
 const files = out[0].files.map((f) => f.path).sort();
 for (const f of files) {
-  assert.ok(f === "package.json" || f === "README.md" || f.startsWith("dist/"), `unexpected file in package: ${f}`);
+  assert.ok(f === "package.json" || f === "README.md" || f === "LICENSE" || f.startsWith("dist/"), `unexpected file in package: ${f}`);
 }
-for (const f of ["dist/index.js", "dist/index.cjs", "dist/index.d.ts", "dist/index.d.cts", "README.md"]) {
+for (const f of ["dist/index.js", "dist/index.cjs", "dist/index.d.ts", "dist/index.d.cts", "README.md", "LICENSE"]) {
   assert.ok(files.includes(f), `missing ${f}`);
 }
 
