@@ -66,7 +66,8 @@ type Dispatcher struct {
 // New creates a dispatcher. An empty url disables webhooks. hc and now may be nil.
 func New(st *store.Store, url string, secret []byte, hc *http.Client, now func() time.Time) *Dispatcher {
 	if hc == nil {
-		hc = &http.Client{Timeout: requestTimout}
+		// A redirect would carry the signed body to a host the operator never configured.
+		hc = &http.Client{Timeout: requestTimout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
 	if now == nil {
 		now = time.Now
@@ -112,7 +113,7 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (sent int, err error) {
 		if ctx.Err() != nil {
 			return sent, ctx.Err()
 		}
-		if d.deliver(ctx, w, now) {
+		if d.deliver(ctx, w) {
 			sent++
 		}
 	}
@@ -130,7 +131,10 @@ func (d *Dispatcher) prune(now time.Time) {
 	}
 }
 
-func (d *Dispatcher) deliver(ctx context.Context, w store.Webhook, now time.Time) bool {
+// deliver makes one attempt. The signature timestamp and the stored times come from the clock at the attempt, not from
+// the start of the batch: after a slow receiver, later rows would otherwise carry a stale timestamp.
+func (d *Dispatcher) deliver(ctx context.Context, w store.Webhook) bool {
+	now := d.now()
 	payload, _ := json.Marshal(body{ID: strconv.FormatInt(w.ID, 10), Event: w.Event, CreatedAt: w.CreatedAt.Unix(), Data: w.PayloadJSON})
 	ok := d.post(ctx, payload, now)
 	switch {

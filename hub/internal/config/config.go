@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 )
@@ -71,6 +72,11 @@ func Load(getenv func(string) string) (Config, error) {
 	if err != nil || u.Scheme != "https" || u.Host == "" {
 		return Config{}, errors.New("config: HUB_PUBLIC_URL must be an https URL with a host")
 	}
+	if c.WebhookURL != "" {
+		if err := checkWebhook(c.WebhookURL, len(c.WebhookSecret) > 0); err != nil {
+			return Config{}, err
+		}
+	}
 	mk, err := base64.StdEncoding.DecodeString(getenv("HUB_MASTER_KEY"))
 	if err != nil {
 		mk, err = base64.RawStdEncoding.DecodeString(getenv("HUB_MASTER_KEY"))
@@ -83,4 +89,29 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	c.MasterKey = mk
 	return c, nil
+}
+
+// checkWebhook requires a signing secret and an https URL, except for a destination that stays inside the cluster or
+// host: a loopback address, a single-label name (a Kubernetes service in the same namespace, a compose service) or a
+// .svc / .cluster.local name.
+func checkWebhook(raw string, hasSecret bool) error {
+	if !hasSecret {
+		return errors.New("config: HUB_WEBHOOK_SECRET is required when HUB_WEBHOOK_URL is set")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return errors.New("config: HUB_WEBHOOK_URL must be an http(s) URL with a host")
+	}
+	if u.Scheme == "http" && !internalHost(u.Hostname()) {
+		return errors.New("config: HUB_WEBHOOK_URL must be https unless its host is loopback or an in-cluster name")
+	}
+	return nil
+}
+
+func internalHost(h string) bool {
+	h = strings.ToLower(strings.TrimSuffix(h, "."))
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback()
+	}
+	return h == "localhost" || !strings.Contains(h, ".") || strings.HasSuffix(h, ".svc") || strings.HasSuffix(h, ".cluster.local")
 }

@@ -92,8 +92,8 @@ curl -H "Authorization: Bearer $KEY" https://hub.example.com/api/v1/messages/msg
 | `HUB_KEY_PATH` | | `./hub.key` (`/data/hub.key` in Docker) | Ed25519 hub key (PEM PKCS#8, created with mode 0600) |
 | `HUB_ID` | yes (`hub serve` refuses to start without it) | | `hub_id` from `hub relay register`; run that command before the first start |
 | `HUB_CHALLENGE_TOKEN` | until verified | | Served at `/.well-known/hansho-challenge` |
-| `HUB_WEBHOOK_URL` | | | Where events are POSTed; empty disables webhooks |
-| `HUB_WEBHOOK_SECRET` | | | HMAC key for webhook signatures |
+| `HUB_WEBHOOK_URL` | | | Where events are POSTed; empty disables webhooks. Must be `https://`, except for a loopback address or an in-cluster name (a single-label host such as `demo`, `*.svc`, `*.cluster.local`), which may use `http://`. Redirects are not followed (a 3xx counts as a failed attempt). Finished rows (delivered or dropped) are deleted from the outbox after 7 days |
+| `HUB_WEBHOOK_SECRET` | with `HUB_WEBHOOK_URL` | | HMAC key for webhook signatures; the hub refuses to start with a webhook URL and no secret. Each attempt is signed with the time of that attempt |
 | `HUB_LA_ENCRYPT` | | `true` | Encrypt Live Activity content-state as `{"blob":...}` with a per-pairing key derived from the pairing key; `false` sends plaintext `{"t","d"}`. Verified on a device with the app force-quit; push-to-start attributes always carry `pairing_id` so the app can pick the key |
 | `HUB_HOME_URL` | | `https://hansho.app` | The project site the status page at `GET /` links to (https only). `GET /` shows what the hub is (its name, domain and public key fingerprint) so that someone who opens the address in a browser is not left with a bare 404 |
 

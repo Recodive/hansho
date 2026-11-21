@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -239,5 +240,68 @@ func TestPruneRunsOncePerInterval(t *testing.T) {
 	d.RunOnce(ctx)
 	if rows, _ := st.ListWebhooks(""); len(rows) != 0 {
 		t.Fatalf("not pruned after the interval: %d rows", len(rows))
+	}
+}
+
+// The default client (hc == nil, as in production) must not follow a redirect: the signed body would reach a host
+// the operator never configured.
+func TestDefaultClientDoesNotFollowRedirects(t *testing.T) {
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	t.Cleanup(target.Close)
+	redirector := httptest.NewServer(http.RedirectHandler(target.URL, http.StatusTemporaryRedirect))
+	t.Cleanup(redirector.Close)
+	st, err := store.Open(filepath.Join(t.TempDir(), "hub.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	d := New(st, redirector.URL, []byte("whsec"), nil, (&clock{t0}).Now)
+	d.Emit(context.Background(), EventMessageAcked, map[string]string{})
+	if n, err := d.RunOnce(context.Background()); n != 0 || err != nil {
+		t.Fatalf("a redirect counted as delivered: %d %v", n, err)
+	}
+	if hits.Load() != 0 {
+		t.Fatal("the redirect was followed")
+	}
+	rows, _ := st.ListWebhooks("")
+	if len(rows) != 1 || rows[0].Attempts != 1 || !rows[0].DeliveredAt.IsZero() {
+		t.Fatalf("a redirect is a failed attempt: %+v", rows)
+	}
+}
+
+// Each attempt is signed with the time of that attempt, not the time the batch started.
+func TestSignatureTimestampIsPerAttempt(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "hub.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	var mu sync.Mutex
+	now := t0
+	clk := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	var stamps []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, rest, _ := strings.Cut(r.Header.Get(SignatureHeader), "t=")
+		ts, _, _ := strings.Cut(rest, ",")
+		stamps = append(stamps, ts)
+		mu.Lock()
+		now = now.Add(5 * time.Minute) // a slow receiver
+		mu.Unlock()
+	}))
+	t.Cleanup(srv.Close)
+	d := New(st, srv.URL, []byte("whsec"), srv.Client(), clk)
+	d.Emit(context.Background(), EventMessageAcked, map[string]string{})
+	d.Emit(context.Background(), EventMessageAcked, map[string]string{})
+	if n, err := d.RunOnce(context.Background()); n != 2 || err != nil {
+		t.Fatalf("%d %v", n, err)
+	}
+	want := []string{strconv.FormatInt(t0.Unix(), 10), strconv.FormatInt(t0.Add(5*time.Minute).Unix(), 10)}
+	if len(stamps) != 2 || stamps[0] != want[0] || stamps[1] != want[1] {
+		t.Fatalf("timestamps %v, want %v", stamps, want)
+	}
+	rows, _ := st.ListWebhooks("")
+	if !rows[1].DeliveredAt.Equal(t0.Add(5 * time.Minute)) {
+		t.Fatalf("delivered_at %v is not the attempt time", rows[1].DeliveredAt)
 	}
 }

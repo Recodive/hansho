@@ -165,9 +165,6 @@ func serve(ctx context.Context, cfg config.Config, ln net.Listener, stdout io.Wr
 	handler := api.New(api.Deps{Cfg: cfg, Store: st, Key: key, Relay: rc, Webhooks: wh, Now: time.Now})
 	worker := delivery.NewWorker(st, rc, wh, cfg, key, time.Now)
 
-	if cfg.WebhookURL != "" && len(cfg.WebhookSecret) == 0 {
-		slog.Warn("HUB_WEBHOOK_SECRET is not set: webhooks are sent unsigned")
-	}
 	fmt.Fprintf(stdout, "hansho hub listening on %s fingerprint=%s\n", ln.Addr(), identity.Fingerprint(key.Public().(ed25519.PublicKey)))
 
 	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second}

@@ -131,3 +131,35 @@ func TestHomeURLDefaultsAndMustBeHTTPS(t *testing.T) {
 		}
 	}
 }
+
+func TestWebhookURLNeedsSecretAndHTTPS(t *testing.T) {
+	ok := []string{
+		"https://backend.example.com/hook",
+		"http://127.0.0.1:8080/hook", "http://localhost:8080/hook", "http://[::1]:8080/hook",
+		"http://hansho-demo:8080/hooks/hansho",
+		"http://hansho-demo.hansho.svc.cluster.local:8080/hooks/hansho", "http://demo.hansho.svc/hook",
+	}
+	for _, u := range ok {
+		m := validEnv()
+		m["HUB_WEBHOOK_URL"], m["HUB_WEBHOOK_SECRET"] = u, "s3cret"
+		if _, err := Load(env(m)); err != nil {
+			t.Errorf("%q refused: %v", u, err)
+		}
+	}
+	for _, u := range []string{"http://backend.example.com/hook", "http://10.0.0.5/hook", "http://localhost.evil.com/hook",
+		"ftp://backend/hook", "https://", "backend.example.com/hook"} {
+		m := validEnv()
+		m["HUB_WEBHOOK_URL"], m["HUB_WEBHOOK_SECRET"] = u, "s3cret"
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "HUB_WEBHOOK_URL") {
+			t.Errorf("%q: want HUB_WEBHOOK_URL error, got %v", u, err)
+		}
+	}
+	m := validEnv()
+	m["HUB_WEBHOOK_URL"] = "https://backend.example.com/hook"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "HUB_WEBHOOK_SECRET") {
+		t.Errorf("a webhook URL without a secret must be refused, got %v", err)
+	}
+	if _, err := Load(env(validEnv())); err != nil {
+		t.Errorf("no webhook at all stays valid: %v", err)
+	}
+}
