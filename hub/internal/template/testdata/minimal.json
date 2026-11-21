@@ -1,0 +1,7 @@
+{
+  "type": "vstack",
+  "children": [
+    { "type": "text", "text": "{{title}}", "style": "headline" },
+    { "type": "text", "text": "{{body}}", "style": "body", "lines": 3 }
+  ]
+}

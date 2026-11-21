@@ -1,0 +1,6 @@
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+
+# Until the gem is published, use the one next to this directory.
+gem "hansho", path: "../../ruby"

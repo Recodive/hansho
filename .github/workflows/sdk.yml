@@ -1,0 +1,270 @@
+name: sdk
+
+# Every SDK on two runtime versions, then all of them against the real hub (sdk/scripts/run-integration.sh).
+
+on:
+  push:
+    paths:
+      - "sdk/**"
+      - "hub/**"
+      - ".github/workflows/sdk.yml"
+  pull_request:
+    paths:
+      - "sdk/**"
+      - "hub/**"
+      - ".github/workflows/sdk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Publishing is release-sdk.yml (tags sdk/<language>/v<version>).
+jobs:
+  go:
+    name: Go SDK (Go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.26", "1.27"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: sdk/go/go.mod
+      - name: gofmt
+        working-directory: sdk/go
+        run: test -z "$(gofmt -l .)"
+      - name: vet
+        working-directory: sdk/go
+        run: go vet ./... && go vet -tags integration ./...
+      - name: test
+        working-directory: sdk/go
+        run: go test -race ./...
+      - name: examples compile
+        working-directory: sdk/examples/go
+        run: go vet ./...
+
+  node:
+    name: Node SDK (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # The tests run .ts files directly, which needs Node 22.18+ (type stripping).
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: sdk/node/package-lock.json
+      - working-directory: sdk/node
+        run: npm ci
+      - name: typecheck
+        working-directory: sdk/node
+        run: npm run typecheck
+      - name: test
+        working-directory: sdk/node
+        run: npm test
+      - name: build and package contents
+        working-directory: sdk/node
+        run: npm run check:package
+      - name: examples type-check
+        working-directory: sdk/node
+        run: npm run check:examples
+
+  python:
+    name: Python SDK (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: test
+        working-directory: sdk/python
+        run: python -m unittest -v
+      - name: examples compile
+        working-directory: sdk/examples/python
+        run: python -m py_compile pair_and_page.py webhook_server.py
+
+  ruby:
+    name: Ruby SDK (Ruby ${{ matrix.ruby }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ruby: ["3.1", "3.4"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+      - name: install
+        working-directory: sdk/ruby
+        run: bundle install
+      - name: test
+        working-directory: sdk/ruby
+        run: bundle exec rake test
+      - name: build gem
+        working-directory: sdk/ruby
+        run: gem build hansho.gemspec
+      - name: example parses
+        run: ruby -c sdk/examples/ruby/pair_and_page.rb
+
+  php:
+    name: PHP SDK (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ["8.1", "8.4"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: json, curl
+          tools: composer:v2
+          coverage: none
+      - name: install
+        working-directory: sdk/php
+        # No committed lock: 8.1 resolves PHPUnit 10, 8.4 PHPUnit 11.
+        run: composer update --no-interaction --no-progress
+      - name: lint
+        run: find sdk/php/src sdk/php/tests sdk/examples/php -name '*.php' -not -path '*/vendor/*' -print0 | xargs -0 -n1 php -l
+      - name: test
+        working-directory: sdk/php
+        run: vendor/bin/phpunit --testsuite unit
+
+  java:
+    name: Java SDK (Java ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: ["17", "21"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+          cache-dependency-path: sdk/java/pom.xml
+      - name: test
+        working-directory: sdk/java
+        run: mvn -B verify
+      - name: example compiles
+        run: |
+          mvn -B -q -f sdk/java/pom.xml -DskipTests install
+          mvn -B -q -f sdk/examples/java/pom.xml compile
+
+  dotnet:
+    name: .NET SDK (.NET ${{ matrix.dotnet }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dotnet: ["8.0", "10.0"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          # The library targets net8.0; the tests run on the matrix runtime.
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: build
+        working-directory: sdk/dotnet
+        run: dotnet build tests/Hansho.Tests -f net${{ matrix.dotnet }} -c Release
+      - name: test
+        working-directory: sdk/dotnet
+        run: dotnet test tests/Hansho.Tests -f net${{ matrix.dotnet }} -c Release --no-build
+      - name: pack
+        working-directory: sdk/dotnet
+        run: dotnet pack src/Hansho -c Release -o "$RUNNER_TEMP/nupkg"
+      - name: example builds
+        working-directory: sdk/examples/dotnet
+        run: dotnet build
+
+  rust:
+    name: Rust SDK (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 1.85 is rust-version in sdk/rust/Cargo.toml.
+        toolchain: ["stable", "1.85"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: |
+            sdk/rust
+            sdk/examples/rust
+      - name: fmt and clippy
+        if: matrix.toolchain == 'stable'
+        working-directory: sdk/rust
+        run: cargo fmt --check && cargo clippy --all-targets -- -D warnings
+      - name: test
+        working-directory: sdk/rust
+        run: cargo test
+      - name: example compiles
+        if: matrix.toolchain == 'stable'
+        working-directory: sdk/examples/rust
+        run: cargo fmt --check && cargo clippy -- -D warnings
+
+  integration:
+    name: Integration against the real hub
+    runs-on: ubuntu-latest
+    needs: [go, node, python, ruby, php, java, dotnet, rust]
+    if: ${{ !cancelled() && needs.go.result == 'success' && needs.node.result == 'success' && needs.python.result == 'success' && needs.ruby.result == 'success' && needs.php.result == 'success' && needs.java.result == 'success' && needs.dotnet.result == 'success' && needs.rust.result == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: hub/go.mod
+          cache-dependency-path: |
+            hub/go.sum
+            sdk/go/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sdk/node/package-lock.json
+      - working-directory: sdk/node
+        run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1
+        with:
+          ruby-version: "3.4"
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: "8.4"
+          extensions: json, curl
+          tools: composer:v2
+          coverage: none
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: sdk/java/pom.xml
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: sdk/rust
+      - name: hub vectors are current
+        working-directory: hub
+        run: go test ./internal/webhook -run SDKVectors -count=1
+      - name: integration
+        run: ./sdk/scripts/run-integration.sh

@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "type": "vstack",
+  "spacing": 8,
+  "align": "leading",
+  "tint": {
+    "light": "#0A84FF",
+    "dark": "#64D2FF"
+  },
+  "children": [
+    {
+      "type": "text",
+      "text": "{{title}}",
+      "style": "headline"
+    },
+    {
+      "type": "foreach",
+      "each": "items",
+      "max": 5,
+      "axis": "vertical",
+      "spacing": 4,
+      "body": {
+        "type": "vstack",
+        "spacing": 3,
+        "align": "leading",
+        "children": [
+          {
+            "type": "hstack",
+            "spacing": 8,
+            "children": [
+              {
+                "type": "symbol",
+                "name": "{{item.icon}}",
+                "size": 14
+              },
+              {
+                "type": "text",
+                "text": "{{index}}. {{item.title}}",
+                "style": "body",
+                "lines": 1
+              },
+              {
+                "type": "spacer",
+                "min": 4
+              },
+              {
+                "type": "text",
+                "text": "{{item.value}}",
+                "style": "caption"
+              }
+            ]
+          },
+          {
+            "type": "progress",
+            "value": {
+              "bind": "item.progress"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

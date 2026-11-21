@@ -1,0 +1,86 @@
+// Package config loads the hub's environment configuration.
+package config
+
+import (
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"net/url"
+	"strings"
+)
+
+// DefaultRelayURL is the relay Hansho runs. HUB_RELAY_URL overrides it only for testing against another relay.
+const DefaultRelayURL = "https://relay.hansho.app"
+
+// Config is the hub's runtime configuration.
+type Config struct {
+	Addr, PublicURL, DisplayName, DBPath, RelayURL, HubID, KeyPath, WebhookURL string
+	MasterKey, WebhookSecret                                                   []byte
+	ChallengeToken                                                             string
+	// HomeURL is the project site the hub's status page links to (HUB_HOME_URL, default https://hansho.app). https only.
+	HomeURL string
+	// LAEncrypt selects encrypted Live Activity content-state (HUB_LA_ENCRYPT). Default true: the app's activity key
+	// mirror was verified on a device with the app force-quit (2026-11-08). Set false for plaintext content state.
+	LAEncrypt bool
+}
+
+// Load reads configuration through getenv and validates it.
+func Load(getenv func(string) string) (Config, error) {
+	def := func(k, d string) string {
+		if v := getenv(k); v != "" {
+			return v
+		}
+		return d
+	}
+	c := Config{
+		HomeURL:        strings.TrimRight(def("HUB_HOME_URL", "https://hansho.app"), "/"),
+		Addr:           def("HUB_ADDR", ":8090"),
+		PublicURL:      strings.TrimRight(getenv("HUB_PUBLIC_URL"), "/"),
+		DisplayName:    getenv("HUB_DISPLAY_NAME"),
+		DBPath:         def("HUB_DB_PATH", "./hub.db"),
+		RelayURL:       strings.TrimRight(def("HUB_RELAY_URL", DefaultRelayURL), "/"),
+		HubID:          getenv("HUB_ID"),
+		KeyPath:        def("HUB_KEY_PATH", "./hub.key"),
+		WebhookURL:     getenv("HUB_WEBHOOK_URL"),
+		ChallengeToken: getenv("HUB_CHALLENGE_TOKEN"),
+	}
+	if s := getenv("HUB_WEBHOOK_SECRET"); s != "" {
+		c.WebhookSecret = []byte(s)
+	}
+	c.LAEncrypt = true
+	switch strings.ToLower(getenv("HUB_LA_ENCRYPT")) {
+	case "", "1", "true":
+	case "0", "false":
+		c.LAEncrypt = false
+	default:
+		return Config{}, errors.New("config: HUB_LA_ENCRYPT must be true or false")
+	}
+	for _, r := range []struct{ k, v string }{
+		{"HUB_PUBLIC_URL", c.PublicURL},
+		{"HUB_DISPLAY_NAME", c.DisplayName},
+		{"HUB_MASTER_KEY", getenv("HUB_MASTER_KEY")},
+	} {
+		if r.v == "" {
+			return Config{}, fmt.Errorf("config: %s is required", r.k)
+		}
+	}
+	if hu, err := url.Parse(c.HomeURL); err != nil || hu.Scheme != "https" || hu.Host == "" {
+		return Config{}, errors.New("config: HUB_HOME_URL must be an https URL with a host")
+	}
+	u, err := url.Parse(c.PublicURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return Config{}, errors.New("config: HUB_PUBLIC_URL must be an https URL with a host")
+	}
+	mk, err := base64.StdEncoding.DecodeString(getenv("HUB_MASTER_KEY"))
+	if err != nil {
+		mk, err = base64.RawStdEncoding.DecodeString(getenv("HUB_MASTER_KEY"))
+	}
+	if err != nil {
+		return Config{}, errors.New("config: HUB_MASTER_KEY is not valid base64")
+	}
+	if len(mk) != 32 {
+		return Config{}, fmt.Errorf("config: HUB_MASTER_KEY must decode to 32 bytes, got %d", len(mk))
+	}
+	c.MasterKey = mk
+	return c, nil
+}

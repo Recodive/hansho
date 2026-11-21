@@ -1,0 +1,251 @@
+package webhook
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/recodive/hansho/hub/internal/store"
+)
+
+// This file produces sdk/spec/webhook-vectors.json: webhooks exactly as the
+// dispatcher signs and serialises them, plus mutations that every SDK must
+// reject. The SDK test suites (sdk/go, sdk/node) verify the same file.
+//
+//	HANSHO_GEN_VECTORS=1 go test ./internal/webhook -run SDKVectors
+//
+// Without the variable the test checks that the committed file is current.
+
+const vectorsPath = "../../../sdk/spec/webhook-vectors.json"
+
+const (
+	vecSecret    = "whsec_sdk_vectors"
+	vecOldSecret = "whsec_sdk_vectors_previous"
+)
+
+type vecExpect struct {
+	OK        bool            `json:"ok"`
+	Error     string          `json:"error,omitempty"`
+	Type      string          `json:"type,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	CreatedAt int64           `json:"created_at,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
+}
+
+type vector struct {
+	Name   string    `json:"name"`
+	Secret string    `json:"secret"`
+	Header string    `json:"header"`
+	Body   string    `json:"body"`
+	Now    int64     `json:"now"`
+	Expect vecExpect `json:"expect"`
+}
+
+type vectorFile struct {
+	Comment          string   `json:"comment"`
+	ToleranceSeconds int      `json:"tolerance_seconds"`
+	Vectors          []vector `json:"vectors"`
+}
+
+type signedEvent struct {
+	event, header, body string
+}
+
+var vectorEvents = []struct {
+	event   string
+	payload map[string]any
+}{
+	{EventPairingCreated, map[string]any{"pairing_id": "pair_1", "external_user_id": "user-42", "device_name": "Bas’s iPhone <Ünï>"}},
+	{EventPairingRevoked, map[string]any{"pairing_id": "pair_1", "external_user_id": "user-42", "by": "sender"}},
+	{EventMessageDelivered, map[string]any{"message_id": "msg_1", "external_user_id": "user-42", "channel": "ops", "level": "page", "devices": 2}},
+	{EventMessageUndeliverable, map[string]any{"message_id": "msg_2", "external_user_id": "user-42", "channel": "ops", "reason": "no_devices"}},
+	{EventMessageAcked, map[string]any{"message_id": "msg_1", "external_user_id": "user-42", "device_id": "dev_1"}},
+	{EventMessageDismissed, map[string]any{"message_id": "msg_1", "external_user_id": "user-42", "device_id": "dev_1"}},
+	{EventMessageExpired, map[string]any{"message_id": "msg_3", "external_user_id": "user-42", "channel": "ops", "attempts": 6}},
+	{EventActionTaken, map[string]any{"message_id": "msg_1", "action_id": "approve", "device_id": "dev_1", "external_user_id": "user-42", "text": "ship it"}},
+	{EventActivityEnded, map[string]any{"activity_id": "act_1", "external_user_id": "user-42", "channel": "ops", "reason": "timeout"}},
+}
+
+// sign runs events (plus a future, unknown one) through a real dispatcher with the given secret.
+func sign(t *testing.T, secret string) []signedEvent {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "hub.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	sk := &sink{status: 200}
+	srv := httptest.NewServer(sk)
+	t.Cleanup(srv.Close)
+	d := New(st, srv.URL, []byte(secret), srv.Client(), (&clock{t0}).Now)
+	for _, e := range vectorEvents {
+		if err := d.Emit(context.Background(), e.event, e.payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A newer hub may send events this SDK has never heard of; Emit refuses them,
+	// the outbox does not.
+	if _, err := st.EnqueueWebhook("future.event", []byte(`{"anything":["goes",1]}`), t0); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := d.RunOnce(context.Background()); err != nil || n != len(vectorEvents)+1 {
+		t.Fatalf("delivered %d: %v", n, err)
+	}
+	var out []signedEvent
+	for _, g := range sk.got {
+		var b struct{ Event string }
+		if err := json.Unmarshal(g.Body, &b); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, signedEvent{b.Event, g.Header.Get(SignatureHeader), string(g.Body)})
+	}
+	return out
+}
+
+func parseHeader(t *testing.T, h string) (ts, sig string) {
+	t.Helper()
+	parts := strings.Split(h, ",")
+	if len(parts) != 2 || !strings.HasPrefix(parts[0], "t=") || !strings.HasPrefix(parts[1], "v1=") {
+		t.Fatalf("header %q", h)
+	}
+	return strings.TrimPrefix(parts[0], "t="), strings.TrimPrefix(parts[1], "v1=")
+}
+
+func expectOK(t *testing.T, se signedEvent, known bool) vecExpect {
+	t.Helper()
+	var b struct {
+		ID        string          `json:"id"`
+		Event     string          `json:"event"`
+		CreatedAt int64           `json:"created_at"`
+		Data      json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(se.body), &b); err != nil {
+		t.Fatal(err)
+	}
+	e := vecExpect{OK: true, Type: b.Event, ID: b.ID, CreatedAt: b.CreatedAt, Data: b.Data}
+	if !known {
+		e.Type, e.Name = "unknown", b.Event
+	}
+	return e
+}
+
+func buildVectors(t *testing.T) vectorFile {
+	t.Helper()
+	cur, old := sign(t, vecSecret), sign(t, vecOldSecret)
+	now := t0.Unix()
+	f := vectorFile{
+		Comment:          "Generated by hub/internal/webhook TestSDKVectors (HANSHO_GEN_VECTORS=1). Header is the exact X-Hansho-Webhook-Signature value, body the exact raw request body. now is unix seconds.",
+		ToleranceSeconds: 300,
+	}
+	add := func(name, secret, header, body string, at int64, e vecExpect) {
+		f.Vectors = append(f.Vectors, vector{name, secret, header, body, at, e})
+	}
+	fail := func(code string) vecExpect { return vecExpect{Error: code} }
+
+	var base signedEvent
+	for i, se := range cur {
+		known := i < len(vectorEvents)
+		name := "valid " + se.event
+		if !known {
+			name = "unknown event type is delivered as unknown"
+		}
+		add(name, vecSecret, se.header, se.body, now, expectOK(t, se, known))
+		if se.event == EventMessageAcked {
+			base = se
+		}
+	}
+	ts, sig := parseHeader(t, base.header)
+	var oldBase signedEvent
+	for _, se := range old {
+		if se.event == EventMessageAcked {
+			oldBase = se
+		}
+	}
+	_, oldSig := parseHeader(t, oldBase.header)
+	if oldBase.body != base.body {
+		t.Fatal("rotation vectors must sign the same body")
+	}
+	ok := expectOK(t, base, true)
+	at := func(d int64) int64 { return now + d }
+
+	add("valid at the tolerance boundary (300 s old)", vecSecret, base.header, base.body, at(300), ok)
+	add("valid at the tolerance boundary (300 s in the future)", vecSecret, base.header, base.body, at(-300), ok)
+	add("stale: timestamp 301 s old", vecSecret, base.header, base.body, at(301), fail("stale"))
+	add("stale: timestamp 301 s in the future", vecSecret, base.header, base.body, at(-301), fail("stale"))
+	add("stale: valid signature replayed a day later", vecSecret, base.header, base.body, at(86400), fail("stale"))
+	add("tampered: one body byte changed", vecSecret, base.header, strings.Replace(base.body, "dev_1", "dev_2", 1), now, fail("bad_signature"))
+	add("tampered: trailing newline appended", vecSecret, base.header, base.body+"\n", now, fail("bad_signature"))
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, []byte(base.body), "", "  "); err != nil {
+		t.Fatal(err)
+	}
+	add("re-serialised body (pretty-printed JSON) does not verify", vecSecret, base.header, pretty.String(), now, fail("bad_signature"))
+	add("wrong secret", "whsec_somebody_else", base.header, base.body, now, fail("bad_signature"))
+	add("tampered signature", vecSecret, "t="+ts+",v1="+strings.Repeat("0", len(sig)), base.body, now, fail("bad_signature"))
+	add("signature is not hex", vecSecret, "t="+ts+",v1=zz"+sig[2:], base.body, now, fail("bad_signature"))
+	add("signed for a different timestamp", vecSecret, "t="+strconv.FormatInt(now+1, 10)+",v1="+sig, base.body, now, fail("bad_signature"))
+	add("rotation: previous secret signature first, current second", vecSecret, "t="+ts+",v1="+oldSig+",v1="+sig, base.body, now, ok)
+	add("rotation: current secret signature first, previous second", vecSecret, "t="+ts+",v1="+sig+",v1="+oldSig, base.body, now, ok)
+	add("rotation: verifying with the previous secret still works", vecOldSecret, "t="+ts+",v1="+sig+",v1="+oldSig, base.body, now, ok)
+	add("rotation: no v1 matches", vecSecret, "t="+ts+",v1="+oldSig+",v1="+strings.Repeat("a", len(sig)), base.body, now, fail("bad_signature"))
+	add("unknown header parts are ignored", vecSecret, "t="+ts+",v0=legacy,v1="+sig+",x=y", base.body, now, ok)
+	for _, m := range []struct{ name, header string }{
+		{"malformed header: empty", ""},
+		{"malformed header: no timestamp", "v1=" + sig},
+		{"malformed header: no v1", "t=" + ts},
+		{"malformed header: non-numeric t", "t=abc,v1=" + sig},
+		{"malformed header: not key=value", "garbage"},
+		{"malformed header: empty timestamp", "t=,v1=" + sig},
+		{"malformed header: empty v1 only", "t=" + ts + ",v1="},
+		{"malformed header: duplicate t", "t=" + ts + ",t=" + ts + ",v1=" + sig},
+	} {
+		add(m.name, vecSecret, m.header, base.body, now, fail("malformed_header"))
+	}
+	return f
+}
+
+func TestSDKVectors(t *testing.T) {
+	f := buildVectors(t)
+	want, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = append(want, '\n')
+	// The secrets are not part of the signed material the SDK gets from the hub,
+	// but they are needed to verify; they are test-only values.
+	if os.Getenv("HANSHO_GEN_VECTORS") == "1" {
+		if err := os.WriteFile(vectorsPath, want, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s (%d vectors)", vectorsPath, len(f.Vectors))
+		return
+	}
+	have, err := os.ReadFile(vectorsPath)
+	if os.IsNotExist(err) {
+		t.Skip("sdk/spec/webhook-vectors.json not present (hub built without the sdk directory)")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(have, want) {
+		t.Fatal("sdk/spec/webhook-vectors.json is out of date; regenerate with: HANSHO_GEN_VECTORS=1 go test ./internal/webhook -run SDKVectors")
+	}
+}
+
+func TestSDKVectorsSelfCheck(t *testing.T) {
+	// The vectors must describe what the dispatcher really produces: every "valid"
+	// vector has t equal to the dispatcher clock and an HMAC the dispatcher computed.
+	for _, se := range sign(t, vecSecret) {
+		ts, _ := parseHeader(t, se.header)
+		if ts != strconv.FormatInt(t0.Unix(), 10) {
+			t.Fatalf("t=%s", ts)
+		}
+	}
+}

@@ -1,0 +1,1488 @@
+[
+  {
+    "name": "node not an object",
+    "body": [
+      1,
+      2
+    ],
+    "path": "",
+    "msg": "node must be an object"
+  },
+  {
+    "name": "child not an object",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        "x"
+      ]
+    },
+    "path": "children[1]",
+    "msg": "node must be an object"
+  },
+  {
+    "name": "unknown type string",
+    "body": {
+      "type": "carousel"
+    },
+    "path": "type",
+    "msg": "unknown component carousel"
+  },
+  {
+    "name": "unknown nested type",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "web"
+        }
+      ]
+    },
+    "path": "children[1].type",
+    "msg": "unknown component web"
+  },
+  {
+    "name": "non-string type is an unknown component",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": true
+        }
+      ]
+    },
+    "path": "children[1].type",
+    "msg": "unknown component true"
+  },
+  {
+    "name": "container without children",
+    "body": {
+      "type": "vstack"
+    },
+    "path": "children",
+    "msg": "containers require a children array"
+  },
+  {
+    "name": "children not an array",
+    "body": {
+      "type": "hstack",
+      "children": {}
+    },
+    "path": "children",
+    "msg": "containers require a children array"
+  },
+  {
+    "name": "leaf with children",
+    "body": {
+      "type": "text",
+      "children": []
+    },
+    "path": "children",
+    "msg": "text cannot have children"
+  },
+  {
+    "name": "depth 9",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "vstack",
+          "children": [
+            {
+              "type": "vstack",
+              "children": [
+                {
+                  "type": "vstack",
+                  "children": [
+                    {
+                      "type": "vstack",
+                      "children": [
+                        {
+                          "type": "vstack",
+                          "children": [
+                            {
+                              "type": "vstack",
+                              "children": [
+                                {
+                                  "type": "vstack",
+                                  "children": [
+                                    {
+                                      "type": "text"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "path": "children[0].children[0].children[0].children[0].children[0].children[0].children[0].children[0]",
+    "msg": "nesting deeper than 8 levels"
+  },
+  {
+    "name": "unknown property",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "text",
+          "colour": 1
+        }
+      ]
+    },
+    "path": "children[1].colour",
+    "msg": "unknown property"
+  },
+  {
+    "name": "several unknown properties report the sorted first",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "text",
+          "zebra": 1,
+          "apple": 2,
+          "mango": 3
+        }
+      ]
+    },
+    "path": "children[1].apple",
+    "msg": "unknown property"
+  },
+  {
+    "name": "unknown property on divider",
+    "body": {
+      "type": "vstack",
+      "schema": 2,
+      "children": [
+        {
+          "type": "divider",
+          "width": 1
+        }
+      ]
+    },
+    "path": "children[0].width",
+    "msg": "unknown property"
+  },
+  {
+    "name": "bad text style",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "text",
+          "style": "huge"
+        }
+      ]
+    },
+    "path": "children[1].style",
+    "msg": "must be one of largeTitle, title, headline, body, caption, footnote"
+  },
+  {
+    "name": "bad align",
+    "body": {
+      "type": "vstack",
+      "align": "middle",
+      "children": []
+    },
+    "path": "align",
+    "msg": "must be one of leading, center, trailing"
+  },
+  {
+    "name": "bad timer mode",
+    "body": {
+      "type": "timer",
+      "mode": "stopwatch"
+    },
+    "path": "mode",
+    "msg": "must be one of countdown, countup"
+  },
+  {
+    "name": "bad image fit",
+    "body": {
+      "type": "image",
+      "fit": "stretch"
+    },
+    "path": "fit",
+    "msg": "must be one of fill, fit"
+  },
+  {
+    "name": "bad foreach axis",
+    "body": {
+      "type": "foreach",
+      "each": "a",
+      "axis": "diagonal",
+      "body": {
+        "type": "text"
+      }
+    },
+    "path": "axis",
+    "msg": "must be one of vertical, horizontal"
+  },
+  {
+    "name": "bad text weight",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "text",
+          "weight": "heavy"
+        }
+      ]
+    },
+    "path": "children[1].weight",
+    "msg": "must be one of regular, medium, semibold, bold"
+  },
+  {
+    "name": "spacing above range",
+    "body": {
+      "type": "vstack",
+      "spacing": 65,
+      "children": []
+    },
+    "path": "spacing",
+    "msg": "must be between 0 and 64"
+  },
+  {
+    "name": "negative spacing",
+    "body": {
+      "type": "hstack",
+      "spacing": -1,
+      "children": []
+    },
+    "path": "spacing",
+    "msg": "must be between 0 and 64"
+  },
+  {
+    "name": "progress above 1",
+    "body": {
+      "type": "progress",
+      "value": 1.5
+    },
+    "path": "value",
+    "msg": "must be between 0 and 1"
+  },
+  {
+    "name": "symbol size below 8",
+    "body": {
+      "type": "symbol",
+      "size": 7
+    },
+    "path": "size",
+    "msg": "must be between 8 and 96"
+  },
+  {
+    "name": "image width above 512",
+    "body": {
+      "type": "image",
+      "width": 513
+    },
+    "path": "width",
+    "msg": "must be between 0 and 512"
+  },
+  {
+    "name": "lines not an integer",
+    "body": {
+      "type": "text",
+      "lines": 1.5
+    },
+    "path": "lines",
+    "msg": "must be an integer"
+  },
+  {
+    "name": "lines above 10",
+    "body": {
+      "type": "text",
+      "lines": 11
+    },
+    "path": "lines",
+    "msg": "must be between 1 and 10"
+  },
+  {
+    "name": "lines zero",
+    "body": {
+      "type": "text",
+      "lines": 0
+    },
+    "path": "lines",
+    "msg": "must be between 1 and 10"
+  },
+  {
+    "name": "number given as string",
+    "body": {
+      "type": "spacer",
+      "min": "4"
+    },
+    "path": "min",
+    "msg": "must be a number or {\"bind\":\"path\"}"
+  },
+  {
+    "name": "foreach max above 12",
+    "body": {
+      "type": "foreach",
+      "each": "a",
+      "max": 13,
+      "body": {
+        "type": "text"
+      }
+    },
+    "path": "max",
+    "msg": "must be between 1 and 12"
+  },
+  {
+    "name": "padding above 32",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "padding": 33,
+      "children": []
+    },
+    "path": "padding",
+    "msg": "must be between 0 and 32"
+  },
+  {
+    "name": "radius below 0",
+    "body": {
+      "schema": 2,
+      "type": "hstack",
+      "radius": -1,
+      "children": []
+    },
+    "path": "radius",
+    "msg": "must be between 0 and 32"
+  },
+  {
+    "name": "bind with a bad path",
+    "body": {
+      "type": "progress",
+      "value": {
+        "bind": "a b"
+      }
+    },
+    "path": "value.bind",
+    "msg": "must be a non-empty path of letters, digits, _ . -"
+  },
+  {
+    "name": "bind with extra keys",
+    "body": {
+      "type": "progress",
+      "value": {
+        "bind": "a",
+        "x": 1
+      }
+    },
+    "path": "value",
+    "msg": "must be a number or {\"bind\":\"path\"}"
+  },
+  {
+    "name": "bind not a string",
+    "body": {
+      "type": "progress",
+      "value": {
+        "bind": 3
+      }
+    },
+    "path": "value",
+    "msg": "must be a number or {\"bind\":\"path\"}"
+  },
+  {
+    "name": "bind object without bind",
+    "body": {
+      "type": "progress",
+      "value": {}
+    },
+    "path": "value",
+    "msg": "must be a number or {\"bind\":\"path\"}"
+  },
+  {
+    "name": "padding bind with a bad path",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "padding": {
+        "bind": "a/b"
+      },
+      "children": []
+    },
+    "path": "padding.bind",
+    "msg": "must be a non-empty path of letters, digits, _ . -"
+  },
+  {
+    "name": "color not an object",
+    "body": {
+      "type": "text",
+      "color": "#000000"
+    },
+    "path": "color",
+    "msg": "must be {\"light\":\"#RRGGBB\",\"dark\":\"#RRGGBB\"}"
+  },
+  {
+    "name": "color bad hex",
+    "body": {
+      "type": "text",
+      "color": {
+        "light": "red",
+        "dark": "#000000"
+      }
+    },
+    "path": "color.light",
+    "msg": "must be a #RRGGBB color"
+  },
+  {
+    "name": "color short hex",
+    "body": {
+      "type": "text",
+      "color": {
+        "light": "#FFF",
+        "dark": "#000000"
+      }
+    },
+    "path": "color.light",
+    "msg": "must be a #RRGGBB color"
+  },
+  {
+    "name": "color missing dark",
+    "body": {
+      "type": "text",
+      "color": {
+        "light": "#000000"
+      }
+    },
+    "path": "color.dark",
+    "msg": "must be a #RRGGBB color"
+  },
+  {
+    "name": "tint bad dark",
+    "body": {
+      "type": "vstack",
+      "children": [],
+      "tint": {
+        "light": "#000000",
+        "dark": "nope"
+      }
+    },
+    "path": "tint.dark",
+    "msg": "must be a #RRGGBB color"
+  },
+  {
+    "name": "divider color bad hex",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "divider",
+          "color": {
+            "light": "#12345G",
+            "dark": "#000000"
+          }
+        }
+      ]
+    },
+    "path": "children[0].color.light",
+    "msg": "must be a #RRGGBB color"
+  },
+  {
+    "name": "nested background color bad",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "vstack",
+          "children": [],
+          "background": "#000000"
+        }
+      ]
+    },
+    "path": "children[0].background",
+    "msg": "must be {\"light\":\"#RRGGBB\",\"dark\":\"#RRGGBB\"}"
+  },
+  {
+    "name": "malformed placeholder",
+    "body": {
+      "type": "text",
+      "text": "hi {{ a }}"
+    },
+    "path": "text",
+    "msg": "malformed placeholder, want {{path}}"
+  },
+  {
+    "name": "unclosed placeholder",
+    "body": {
+      "type": "text",
+      "text": "hi {{a"
+    },
+    "path": "text",
+    "msg": "malformed placeholder, want {{path}}"
+  },
+  {
+    "name": "17 placeholders",
+    "body": {
+      "type": "text",
+      "text": "{{a}}{{a}}{{a}}{{a}}{{a}}{{a}}{{a}}{{a}}{{a}}{{a}}{{a}}{{a}}{{a}}{{a}}{{a}}{{a}}{{a}}"
+    },
+    "path": "text",
+    "msg": "more than 16 placeholders"
+  },
+  {
+    "name": "text of 513 multi-byte characters",
+    "body": {
+      "type": "text",
+      "text": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+    },
+    "path": "text",
+    "msg": "longer than 512 characters"
+  },
+  {
+    "name": "text of 513 emoji",
+    "body": {
+      "type": "text",
+      "text": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    "path": "text",
+    "msg": "longer than 512 characters"
+  },
+  {
+    "name": "url not https",
+    "body": {
+      "type": "image",
+      "url": "http://x/y.png"
+    },
+    "path": "url",
+    "msg": "url must use https"
+  },
+  {
+    "name": "url not a string",
+    "body": {
+      "type": "image",
+      "url": 5
+    },
+    "path": "url",
+    "msg": "must be a string"
+  },
+  {
+    "name": "foreach each not a path",
+    "body": {
+      "type": "foreach",
+      "each": "a b",
+      "body": {
+        "type": "text"
+      }
+    },
+    "path": "each",
+    "msg": "must be a non-empty path of letters, digits, _ . -"
+  },
+  {
+    "name": "tint on a nested node",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "text",
+          "tint": {
+            "light": "#000000",
+            "dark": "#000000"
+          }
+        }
+      ]
+    },
+    "path": "children[0].tint",
+    "msg": "only allowed on the template root"
+  },
+  {
+    "name": "background on a nested text in schema 1",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "text",
+          "background": {
+            "light": "#000000",
+            "dark": "#000000"
+          }
+        }
+      ]
+    },
+    "path": "children[0].background",
+    "msg": "only allowed on the template root"
+  },
+  {
+    "name": "background on a nested stack in schema 1",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "vstack",
+          "children": [],
+          "background": {
+            "light": "#000000",
+            "dark": "#000000"
+          }
+        }
+      ]
+    },
+    "path": "children[0].background",
+    "msg": "only allowed on the template root"
+  },
+  {
+    "name": "background on a nested text in schema 2",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "text",
+          "background": {
+            "light": "#000000",
+            "dark": "#000000"
+          }
+        }
+      ]
+    },
+    "path": "children[0].background",
+    "msg": "only allowed on the template root"
+  },
+  {
+    "name": "tint on a nested stack in schema 2",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "vstack",
+          "children": [],
+          "tint": {
+            "light": "#000000",
+            "dark": "#000000"
+          }
+        }
+      ]
+    },
+    "path": "children[0].tint",
+    "msg": "only allowed on the template root"
+  },
+  {
+    "name": "schema on a nested node",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "text",
+          "schema": 1
+        }
+      ]
+    },
+    "path": "children[0].schema",
+    "msg": "only allowed on the template root"
+  },
+  {
+    "name": "schema 0",
+    "body": {
+      "schema": 0,
+      "type": "spacer"
+    },
+    "path": "schema",
+    "msg": "must be 1 or 2"
+  },
+  {
+    "name": "schema 1.5",
+    "body": {
+      "schema": 1.5,
+      "type": "spacer"
+    },
+    "path": "schema",
+    "msg": "must be 1 or 2"
+  },
+  {
+    "name": "schema 3",
+    "body": {
+      "schema": 3,
+      "type": "spacer"
+    },
+    "path": "schema",
+    "msg": "must be 1 or 2"
+  },
+  {
+    "name": "schema as a string",
+    "body": {
+      "schema": "2",
+      "type": "spacer"
+    },
+    "path": "schema",
+    "msg": "must be 1 or 2"
+  },
+  {
+    "name": "schema null",
+    "body": {
+      "schema": null,
+      "type": "spacer"
+    },
+    "path": "schema",
+    "msg": "must be 1 or 2"
+  },
+  {
+    "name": "foreach without each",
+    "body": {
+      "type": "foreach",
+      "body": {
+        "type": "text"
+      }
+    },
+    "path": "each",
+    "msg": "foreach requires an each path"
+  },
+  {
+    "name": "foreach without body",
+    "body": {
+      "type": "foreach",
+      "each": "a"
+    },
+    "path": "body",
+    "msg": "foreach requires a body object"
+  },
+  {
+    "name": "foreach body not an object",
+    "body": {
+      "type": "foreach",
+      "each": "a",
+      "body": "x"
+    },
+    "path": "body",
+    "msg": "foreach requires a body object"
+  },
+  {
+    "name": "foreach with children",
+    "body": {
+      "type": "foreach",
+      "each": "a",
+      "children": [],
+      "body": {
+        "type": "text"
+      }
+    },
+    "path": "children",
+    "msg": "foreach cannot have children"
+  },
+  {
+    "name": "nested foreach",
+    "body": {
+      "type": "foreach",
+      "each": "a",
+      "body": {
+        "type": "vstack",
+        "children": [
+          {
+            "type": "foreach",
+            "each": "b",
+            "body": {
+              "type": "text"
+            }
+          }
+        ]
+      }
+    },
+    "path": "body.children[0]",
+    "msg": "foreach cannot be nested inside another foreach"
+  },
+  {
+    "name": "65 nodes",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "spacer"
+        }
+      ]
+    },
+    "path": "children[63]",
+    "msg": "more than 64 nodes"
+  },
+  {
+    "name": "padding in schema 1",
+    "body": {
+      "type": "vstack",
+      "padding": 8,
+      "children": []
+    },
+    "path": "padding",
+    "msg": "needs \"schema\": 2"
+  },
+  {
+    "name": "radius in schema 1",
+    "body": {
+      "type": "vstack",
+      "radius": 8,
+      "children": []
+    },
+    "path": "radius",
+    "msg": "needs \"schema\": 2"
+  },
+  {
+    "name": "nested padding in schema 1",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "hstack",
+          "padding": 8,
+          "children": []
+        }
+      ]
+    },
+    "path": "children[0].padding",
+    "msg": "needs \"schema\": 2"
+  },
+  {
+    "name": "weight in schema 1",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "text",
+          "weight": "bold"
+        }
+      ]
+    },
+    "path": "children[0].weight",
+    "msg": "needs \"schema\": 2"
+  },
+  {
+    "name": "divider in schema 1",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "divider"
+        }
+      ]
+    },
+    "path": "children[0].type",
+    "msg": "needs \"schema\": 2"
+  },
+  {
+    "name": "divider as schema 1 root",
+    "body": {
+      "type": "divider"
+    },
+    "path": "type",
+    "msg": "needs \"schema\": 2"
+  },
+  {
+    "name": "if in schema 1",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "text",
+          "if": "a"
+        }
+      ]
+    },
+    "path": "children[0].if",
+    "msg": "needs \"schema\": 2"
+  },
+  {
+    "name": "if on schema 1 root",
+    "body": {
+      "type": "vstack",
+      "if": "a",
+      "children": []
+    },
+    "path": "if",
+    "msg": "needs \"schema\": 2"
+  },
+  {
+    "name": "if with a bad value in schema 1 reports the gate",
+    "body": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "text",
+          "if": "a b"
+        }
+      ]
+    },
+    "path": "children[0].if",
+    "msg": "needs \"schema\": 2"
+  },
+  {
+    "name": "if with spaces",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "text",
+          "if": "a b"
+        }
+      ]
+    },
+    "path": "children[1].if",
+    "msg": "must be a path of letters, digits, _ . -, optionally starting with !"
+  },
+  {
+    "name": "if empty",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "text",
+          "if": ""
+        }
+      ]
+    },
+    "path": "children[1].if",
+    "msg": "must be a path of letters, digits, _ . -, optionally starting with !"
+  },
+  {
+    "name": "if only a bang",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "text",
+          "if": "!"
+        }
+      ]
+    },
+    "path": "children[1].if",
+    "msg": "must be a path of letters, digits, _ . -, optionally starting with !"
+  },
+  {
+    "name": "if double bang",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "text",
+          "if": "!!a"
+        }
+      ]
+    },
+    "path": "children[1].if",
+    "msg": "must be a path of letters, digits, _ . -, optionally starting with !"
+  },
+  {
+    "name": "if with a placeholder",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "text",
+          "if": "{{a}}"
+        }
+      ]
+    },
+    "path": "children[1].if",
+    "msg": "must be a path of letters, digits, _ . -, optionally starting with !"
+  },
+  {
+    "name": "if not a string",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "text",
+          "if": true
+        }
+      ]
+    },
+    "path": "children[1].if",
+    "msg": "must be a path of letters, digits, _ . -, optionally starting with !"
+  },
+  {
+    "name": "if as a bind object",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "spacer"
+        },
+        {
+          "type": "text",
+          "if": {
+            "bind": "a"
+          }
+        }
+      ]
+    },
+    "path": "children[1].if",
+    "msg": "must be a path of letters, digits, _ . -, optionally starting with !"
+  },
+  {
+    "name": "if on a foreach body with a bad value",
+    "body": {
+      "schema": 2,
+      "type": "foreach",
+      "each": "a",
+      "body": {
+        "type": "text",
+        "if": "x y"
+      }
+    },
+    "path": "body.if",
+    "msg": "must be a path of letters, digits, _ . -, optionally starting with !"
+  },
+  {
+    "name": "divider with children",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "divider",
+          "children": []
+        }
+      ]
+    },
+    "path": "children[0].children",
+    "msg": "divider cannot have children"
+  },
+  {
+    "name": "divider counted against the node limit",
+    "body": {
+      "schema": 2,
+      "type": "vstack",
+      "children": [
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        },
+        {
+          "type": "divider"
+        }
+      ]
+    },
+    "path": "children[63]",
+    "msg": "more than 64 nodes"
+  }
+]

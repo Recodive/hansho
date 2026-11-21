@@ -1,0 +1,172 @@
+{
+  "schema": 2,
+  "type": "vstack",
+  "spacing": 10,
+  "align": "leading",
+  "padding": 14,
+  "radius": 16,
+  "tint": {
+    "light": "#0A84FF",
+    "dark": "#64D2FF"
+  },
+  "background": {
+    "light": "#F2F2F7",
+    "dark": "#1C1C1E"
+  },
+  "children": [
+    {
+      "type": "hstack",
+      "spacing": 8,
+      "children": [
+        {
+          "type": "symbol",
+          "name": "phone.badge.waveform.fill",
+          "size": 24,
+          "color": {
+            "light": "#0A84FF",
+            "dark": "#64D2FF"
+          }
+        },
+        {
+          "type": "text",
+          "text": "{{title}}",
+          "style": "headline",
+          "weight": "bold",
+          "lines": 2
+        },
+        {
+          "type": "spacer",
+          "min": 8
+        },
+        {
+          "type": "badge",
+          "text": "{{severity}}",
+          "color": {
+            "light": "#C93400",
+            "dark": "#FF9F0A"
+          },
+          "if": "severity"
+        }
+      ]
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "vstack",
+      "spacing": 4,
+      "padding": 10,
+      "radius": 12,
+      "align": "leading",
+      "background": {
+        "light": "#FFFFFF",
+        "dark": "#2C2C2E"
+      },
+      "if": "primary.name",
+      "children": [
+        {
+          "type": "text",
+          "text": "On call now",
+          "style": "caption",
+          "weight": "medium",
+          "color": {
+            "light": "#6C6C70",
+            "dark": "#AEAEB2"
+          }
+        },
+        {
+          "type": "text",
+          "text": "{{primary.name}}",
+          "style": "body",
+          "weight": "semibold"
+        },
+        {
+          "type": "hstack",
+          "spacing": 6,
+          "padding": {
+            "bind": "gap"
+          },
+          "radius": {
+            "bind": "gap"
+          },
+          "children": [
+            {
+              "type": "text",
+              "text": "{{primary.phone}}",
+              "style": "footnote",
+              "weight": "regular"
+            },
+            {
+              "type": "divider",
+              "color": {
+                "light": "#C6C6C8",
+                "dark": "#48484A"
+              }
+            },
+            {
+              "type": "text",
+              "text": "until {{primary.until}}",
+              "style": "footnote"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Nobody is on call",
+      "style": "body",
+      "weight": "medium",
+      "if": "!primary.name",
+      "color": {
+        "light": "#C93400",
+        "dark": "#FF9F0A"
+      }
+    },
+    {
+      "type": "divider",
+      "color": {
+        "light": "#C6C6C8",
+        "dark": "#48484A"
+      }
+    },
+    {
+      "type": "text",
+      "text": "Escalation",
+      "style": "caption",
+      "weight": "semibold"
+    },
+    {
+      "type": "foreach",
+      "each": "escalation",
+      "max": 4,
+      "spacing": 4,
+      "body": {
+        "type": "hstack",
+        "spacing": 6,
+        "children": [
+          {
+            "type": "text",
+            "text": "{{index}}. {{item.name}}",
+            "style": "footnote",
+            "weight": "medium"
+          },
+          {
+            "type": "spacer"
+          },
+          {
+            "type": "badge",
+            "text": "{{item.channel}}",
+            "if": "item.channel"
+          },
+          {
+            "type": "text",
+            "text": "away",
+            "style": "caption",
+            "if": "!item.available"
+          }
+        ]
+      }
+    }
+  ]
+}

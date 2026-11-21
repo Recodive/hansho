@@ -1,0 +1,191 @@
+name: release-sdk
+
+# Publishes one SDK when its tag is pushed: sdk/<lang>/v<version>, e.g. sdk/python/v0.1.0. The tag's version must
+# equal the version in the SDK's manifest. Publishing uses each registry's trusted publishing (GitHub OIDC, no
+# stored token) where the registry has it; each registry must first trust this repository and this workflow
+# (see sdk/RELEASING.md). Maven Central has no trusted publishing and needs the secrets listed there.
+# Go needs no job: the sdk/go/v* tag is the release.
+on:
+  push:
+    tags:
+      - "sdk/*/v*"
+
+permissions:
+  contents: read
+
+jobs:
+  meta:
+    name: Which SDK
+    runs-on: ubuntu-latest
+    outputs:
+      lang: ${{ steps.m.outputs.lang }}
+      version: ${{ steps.m.outputs.version }}
+    steps:
+      - id: m
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          case "$REF" in sdk/*/v[0-9]*) ;; *) echo "unexpected tag $REF" >&2; exit 1 ;; esac
+          lang=${REF#sdk/}; lang=${lang%%/*}
+          echo "lang=$lang" >> "$GITHUB_OUTPUT"
+          echo "version=${REF##*/v}" >> "$GITHUB_OUTPUT"
+
+  node:
+    needs: meta
+    if: needs.meta.outputs.lang == 'node'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: sdk/node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - name: version matches tag
+        env:
+          WANT: ${{ needs.meta.outputs.version }}
+        run: test "$(node -p 'require("./package.json").version')" = "$WANT"
+      - run: npm ci && npm test && npm run check:package
+      # npm 11.5+ publishes with the workflow's OIDC token once the package trusts this workflow.
+      - run: npm install -g npm@12.2.3 && npm publish --access public --provenance
+
+  python:
+    needs: meta
+    if: needs.meta.outputs.lang == 'python'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - name: version matches tag
+        working-directory: sdk/python
+        env:
+          WANT: ${{ needs.meta.outputs.version }}
+        run: grep -qx "__version__ = \"$WANT\"" hansho/_version.py
+      - name: test and build
+        working-directory: sdk/python
+        run: uv run --python 3.13 -m unittest && uv build --out-dir ../../dist
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
+
+  ruby:
+    needs: meta
+    if: needs.meta.outputs.lang == 'ruby'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: sdk/ruby
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1
+        with:
+          ruby-version: "3.4"
+      - name: version matches tag
+        env:
+          WANT: ${{ needs.meta.outputs.version }}
+        run: grep -q "VERSION = \"$WANT\"" lib/hansho/version.rb
+      - run: bundle install && bundle exec rake test && gem build hansho.gemspec
+      - uses: rubygems/configure-rubygems-credentials@bc6dd217f8a4f919d6835fcfefd470ef821f5c44 # v1.0.0
+      - run: gem push hansho-*.gem
+
+  dotnet:
+    needs: meta
+    if: needs.meta.outputs.lang == 'dotnet'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: sdk/dotnet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: version matches tag
+        env:
+          WANT: ${{ needs.meta.outputs.version }}
+        run: grep -q "<Version>$WANT</Version>" src/Hansho/Hansho.csproj
+      - run: dotnet test -c Release && dotnet pack src/Hansho -c Release -o "$RUNNER_TEMP/nupkg"
+      # Short-lived key from the nuget.org trusted publishing policy (vars.NUGET_USER: the nuget.org account name).
+      - uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
+        id: login
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: dotnet nuget push "$RUNNER_TEMP"/nupkg/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
+
+  rust:
+    needs: meta
+    if: needs.meta.outputs.lang == 'rust'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: sdk/rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - name: version matches tag
+        env:
+          WANT: ${{ needs.meta.outputs.version }}
+        run: grep -qx "version = \"$WANT\"" Cargo.toml
+      - run: cargo test
+      # crates.io trusted publishing works from the second release on; the first one uses CARGO_REGISTRY_TOKEN.
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1
+        id: auth
+        if: ${{ env.FIRST_TOKEN == '' }}
+        env:
+          FIRST_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish
+
+  java:
+    needs: meta
+    if: needs.meta.outputs.lang == 'java'
+    runs-on: ubuntu-latest
+    environment: release
+    defaults:
+      run:
+        working-directory: sdk/java
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: version matches tag
+        env:
+          WANT: ${{ needs.meta.outputs.version }}
+        run: test "$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)" = "$WANT"
+      - env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: mvn -B -Prelease deploy

@@ -1,0 +1,1 @@
+{"aps":{"alert":{"title":"Example Hub","body":"New message"},"mutable-content":1,"interruption-level":"critical","sound":{"critical":1,"name":"ding.caf","volume":1},"thread-id":"ops-thread","category":"ops"},"c":{"v":1,"p":"pair_1","m":"msg_1","ct":"Y3Q","s":"c2ln","pg":1}}

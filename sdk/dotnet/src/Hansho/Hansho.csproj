@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Hansho</RootNamespace>
+    <AssemblyName>Hansho</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Members of the public records are named after the wire fields; the types and methods carry the docs. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <!-- NuGet metadata. Nothing in this repository publishes the package: that is left to the owner. -->
+  <PropertyGroup>
+    <PackageId>Hansho</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Recodive</Authors>
+    <Company>Recodive</Company>
+    <Product>Hansho</Product>
+    <Title>Hansho</Title>
+    <Description>Official .NET client for a Hansho hub: pair users, define channels, templates and sounds, send notifications, pages, Live Activities and widget feeds, and verify the hub's webhooks. No dependencies beyond the base class library.</Description>
+    <Copyright>Copyright (c) 2026 Recodive</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Recodive/hansho/tree/main/sdk/dotnet#readme</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Recodive/hansho.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>hansho;push-notifications;apns;live-activities;paging;alerting;webhooks</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>Initial release.</PackageReleaseNotes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Hansho.Tests" />
+  </ItemGroup>
+
+</Project>

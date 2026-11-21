@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- net8.0 is the floor the library supports; net10.0 runs on the current runtime. Pick one with: dotnet test -f net10.0 -->
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Hansho.Tests</RootNamespace>
+    <!-- Run net8.0 on a newer runtime when the 8 runtime is not installed; with it installed (CI) it runs on 8. -->
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Test-only packages. The library itself has no package dependencies. -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Hansho/Hansho.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The wire contract shared by every SDK. -->
+    <Content Include="../../../spec/api.json" Link="spec/api.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../spec/webhook-vectors.json" Link="spec/webhook-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

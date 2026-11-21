@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "type": "vstack",
+  "spacing": 10,
+  "align": "leading",
+  "tint": { "light": "#0A84FF", "dark": "#64D2FF" },
+  "background": { "light": "#F2F2F7", "dark": "#1C1C1E" },
+  "children": [
+    {
+      "type": "hstack",
+      "spacing": 8,
+      "children": [
+        { "type": "symbol", "name": "shippingbox.fill", "size": 28, "color": { "light": "#0A84FF", "dark": "#64D2FF" } },
+        { "type": "text", "text": "{{title}}", "style": "headline", "lines": 2 },
+        { "type": "spacer", "min": 8 },
+        { "type": "badge", "text": "{{status}}", "symbol": "checkmark.circle.fill", "color": { "light": "#248A3D", "dark": "#30D158" } }
+      ]
+    },
+    { "type": "image", "url": "{{image}}", "width": 320, "height": 120, "fit": "fill", "radius": 12 },
+    { "type": "progress", "value": { "bind": "progress" }, "label": "{{progress_label}}" },
+    { "type": "gauge", "value": { "bind": "temp" }, "min": 0, "max": 100, "label": "Temp {{temp}} C" },
+    { "type": "timer", "to": { "bind": "eta" }, "mode": "countdown", "style": "title" }
+  ]
+}

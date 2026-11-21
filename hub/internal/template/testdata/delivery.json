@@ -1,0 +1,20 @@
+{
+  "type": "hstack",
+  "spacing": 12,
+  "align": "center",
+  "tint": { "light": "#FF9F0A", "dark": "#FFD60A" },
+  "children": [
+    { "type": "image", "url": "https://cdn.example.com/{{courier}}.png", "width": 48, "height": 48, "fit": "fit", "radius": 8 },
+    {
+      "type": "vstack",
+      "spacing": 2,
+      "align": "leading",
+      "children": [
+        { "type": "text", "text": "{{items.0.name}}", "style": "headline" },
+        { "type": "text", "text": "Arriving", "style": "caption", "color": { "light": "#6C6C70", "dark": "#98989D" } }
+      ]
+    },
+    { "type": "spacer" },
+    { "type": "timer", "to": 1900000000, "mode": "countup", "style": "footnote" }
+  ]
+}

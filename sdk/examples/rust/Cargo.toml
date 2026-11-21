@@ -1,0 +1,9 @@
+[package]
+name = "hansho-pair-and-page"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Pair a user with the Hansho app and send them a page."
+
+[dependencies]
+hansho = { path = "../../rust" }

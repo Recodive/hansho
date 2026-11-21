@@ -1,0 +1,19 @@
+{
+    "name": "recodive/hansho-example",
+    "description": "Pair a user and send a page with the Hansho PHP SDK.",
+    "type": "project",
+    "license": "MIT",
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../../php",
+            "options": {
+                "symlink": true
+            }
+        }
+    ],
+    "require": {
+        "php": ">=8.1",
+        "recodive/hansho": "*@dev"
+    }
+}

@@ -1,0 +1,172 @@
+# app.hansho:hansho
+
+Java client for a Hansho hub. Java 17 or newer, built on `java.net.http.HttpClient`; the only
+runtime dependency is `jackson-databind`. It works from Kotlin and other JVM languages too.
+
+```xml
+<dependency>
+  <groupId>app.hansho</groupId>
+  <artifactId>hansho</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
+
+```kotlin
+implementation("app.hansho:hansho:0.1.0")
+```
+
+See [../README.md](../README.md) for the model shared with the other SDKs.
+
+## Quick start
+
+```java
+import app.hansho.sdk.*;
+
+Hansho hansho = Hansho.create("https://hub.example.com", System.getenv("HANSHO_API_KEY"));
+
+hansho.putChannel("ops", Channel.builder("Operations", Level.ACTIVE, Level.CRITICAL).build());
+
+MessageResult res = hansho.sendMessage(
+    Message.builder("user-42", "ops", "Disk full", "db-1 is at 97%").build());
+System.out.println(res.messageId() + " " + res.status()); // msg_... queued
+```
+
+`Hansho` is thread-safe; share one instance. Options on `Hansho.builder(baseUrl, apiKey)`:
+`maxRetries` (default 3, 0 disables), `timeout` (per attempt, default 30 s, `null` disables),
+`userAgent`, `httpClient` (proxy, TLS, executor). Calls are synchronous; wrap them in your own
+executor or `CompletableFuture.supplyAsync` if you need async. Levels are the enum `Level`
+(`PASSIVE, ACTIVE, TIME_SENSITIVE, CRITICAL, PAGE`); an invalid level does not compile.
+
+## Pairing
+
+```java
+PairingTicket ticket = hansho.createPairingTicket("user-42");
+// Render ticket.qr() as a QR code; the user scans it in the Hansho app.
+// ticket.expiresAt() is 10 minutes out; the ticket works once.
+// The hub then sends a pairing.created webhook.
+
+hansho.unpair("user-42"); // revokes every pairing of the user
+```
+
+## Sending
+
+```java
+// A notification. The level defaults to the channel's default and is capped at its max.
+hansho.sendMessage(Message.builder("user-42", "ops", "Deploy failed", "web-3 rolled back")
+    .level(Level.TIME_SENSITIVE)
+    .actions(List.of(Action.of("retry", "Retry")))
+    .collapseId("deploy-web") // a later message with the same id replaces this one
+    .build());
+
+// A page repeats every intervalSeconds until someone acknowledges it on any
+// device, then the hub sends message.acked. Defaults: 120 s, 5 resends.
+MessageResult page = hansho.sendMessage(Message.builder("user-42", "ops", "Primary DB down", "Failover did not complete")
+    .level(Level.PAGE).page(PageOptions.of(60, 10)).build());
+MessageStatus status = hansho.getMessage(page.messageId()); // queued, delivered, undeliverable, paging, acked, expired
+
+// A templated message; data is sent exactly as given (its keys are never renamed).
+hansho.putTemplate("status", 1, Map.of("type", "vstack", "children",
+    List.of(Map.of("type", "text", "style", "headline", "text", "{{title}}"))));
+hansho.sendMessage(Message.builder("user-42", "ops", "Uptime", "99.98%")
+    .templateId("status").data(Map.of("title", "Uptime")).build());
+
+// A Live Activity.
+ActivityStarted act = hansho.startActivity(Activity.of("user-42", "ops", "deploy", Map.of("progress", 0.1)));
+hansho.updateActivity(act.activityId(), ActivityUpdate.of(Map.of("progress", 0.6)).withPriority(10));
+hansho.endActivity(act.activityId());
+
+// A widget feed; leave out forUser(...) for one shared by all paired users. The title is the name the
+// app's feed picker shows (it lists the feeds published for that person plus the shared ones).
+hansho.putFeed("uptime", Feed.of("status", Map.of("title", "up")).forUser("user-42").withTitle("Uptime"));
+
+// A sound (audio/x-caf, audio/wav or audio/aiff, at most 1 MB).
+hansho.putSound("ding", "audio/wav", wavBytes);
+```
+
+`data` and template bodies take a `Map`, a `List`, a Jackson `JsonNode` or any Jackson-serializable
+object. Ids may contain any characters except `.` and `..`: they are path-escaped.
+
+## Webhooks
+
+Set `HUB_WEBHOOK_URL` and `HUB_WEBHOOK_SECRET` on the hub. Verify the **raw** request body as
+bytes: a body a framework parsed and you re-serialised will not match its signature.
+
+```java
+HttpServer server = HttpServer.create(new InetSocketAddress(8081), 0);
+server.createContext("/hansho-hook", ex -> {
+    byte[] body = ex.getRequestBody().readAllBytes();
+    int status = 200;
+    try {
+        WebhookEvent event = Webhook.verify(
+            System.getenv("HANSHO_WEBHOOK_SECRET"),
+            ex.getRequestHeaders().getFirst(Webhook.SIGNATURE_HEADER),
+            body);
+        if (event instanceof WebhookEvent.MessageAcked e) {
+            System.out.println("acknowledged: " + e.messageId());
+        } else if (event instanceof WebhookEvent.ActionTaken e) {
+            System.out.println("button " + e.actionId() + " on " + e.messageId());
+        } else if (event instanceof WebhookEvent.Unknown e) {
+            System.out.println("newer hub event: " + e.name());
+        }
+    } catch (WebhookException e) {
+        status = 400; // non-2xx: the hub retries
+    }
+    ex.sendResponseHeaders(status, -1);
+    ex.close();
+});
+server.start();
+```
+
+In Spring, take the body as `byte[]` (`@RequestBody byte[] body`) and the header with
+`@RequestHeader(value = "X-Hansho-Webhook-Signature", required = false)`; never a bound object. In Servlet
+code read `request.getInputStream().readAllBytes()` before anything parses it.
+
+`Webhook.verify` accepts several `v1=` signatures (secret rotation), compares in constant time and
+rejects timestamps more than 300 s from now (pass `now` and `tolerance` to change or inject them).
+`WebhookException.code()` is one of `MALFORMED_HEADER, BAD_SIGNATURE, STALE` (a valid signature, replayed too
+late), `MALFORMED_BODY, INVALID_BODY, INVALID_SECRET`; `code().wire()` spells it like the other SDKs
+(`"bad_signature"`). Events (records nested in the sealed interface `WebhookEvent`): `PairingCreated`,
+`PairingRevoked`, `MessageDelivered`, `MessageUndeliverable`, `MessageAcked`, `MessageDismissed`,
+`MessageExpired`, `ActionTaken`, `ActivityEnded`; anything else is `Unknown` with the event name and the
+parsed payload (Map, List, ...) in `data()`. Every event has `type()`, `id()`, `createdAt()` and `raw()`.
+
+## Errors
+
+```java
+try {
+    hansho.sendMessage(msg);
+} catch (HanshoException e) {
+    // e.status(), e.code() ("unknown_channel", "invalid_request", ...), e.field() ("title"), e.retryAfterMs()
+} catch (HanshoNetworkException e) {
+    // no answer at all: connection, timeout or interruption; see e.getCause()
+}
+```
+
+Both are unchecked. A bad argument (an empty id, `.` or `..` as an id, a sound over 1 MB) throws
+`IllegalArgumentException` before anything is sent. API keys, ticket values and message bodies never
+appear in an error message.
+
+## Retries
+
+`GET`, `PUT` and `DELETE` are retried on 429 and 503, up to `maxRetries` times, waiting for
+`Retry-After` (a wait over 60 s is thrown to you as the error) or an exponential backoff with jitter.
+`sendMessage` is never retried unless the message has an `idempotencyKey` (sent as the
+`Idempotency-Key` header); the hub does not deduplicate on it yet, so a retried send is at-least-once.
+Activity updates (`PATCH`) are not retried.
+
+## Building and testing
+
+```sh
+mvn verify                  # unit tests; they load ../spec/api.json and ../spec/webhook-vectors.json
+../scripts/run-integration.sh   # builds the hub, then runs IntegrationTest against it
+```
+
+`IntegrationTest` is skipped unless `HANSHO_HUB_URL` is set (the script also sets `HANSHO_API_KEY`,
+`HANSHO_WEBHOOK_SECRET`, `HANSHO_WEBHOOK_ADDR` and `HANSHO_FAKEDEVICE_BIN`).
+
+Not published yet. A release is `mvn -Prelease deploy` with a Sonatype Central token and a GPG key in
+the owner's `settings.xml`; nothing in this repository publishes.
+
+## Licence
+
+MIT, see [LICENSE](LICENSE). The hub itself is AGPL-3.0.

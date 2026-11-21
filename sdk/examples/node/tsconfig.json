@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "typeRoots": ["../../node/node_modules/@types"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@recodive/hansho": ["../../node/src/index.ts"],
+      "express": ["./express-shim.d.ts"]
+    }
+  },
+  "files": ["pair-and-page.ts", "webhook-express.ts"]
+}
