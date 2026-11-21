@@ -178,7 +178,6 @@ func TestPropertyValidation(t *testing.T) {
 		`{"type":"timer","to":{"bind":"eta"}}`,
 		`{"type":"badge","text":"NEW","symbol":"star"}`,
 		`{"schema":1,"type":"spacer"}`,
-		`{"schema":2,"type":"spacer"}`,
 	}
 	for _, body := range accepted {
 		if err := Validate(json.RawMessage(body)); err != nil {
@@ -248,6 +247,7 @@ func TestPropertyValidation(t *testing.T) {
 		{"too many placeholders", wrap(`{"type":"text","text":"` + many + `"}`), "children[1].text"},
 		{"placeholder in label", wrap(`{"type":"gauge","label":"{{"}`), "children[1].label"},
 		{"schema zero", `{"schema":0,"type":"spacer"}`, "schema"},
+		{"schema two", `{"schema":2,"type":"spacer"}`, "schema"},
 		{"schema fractional", `{"schema":1.5,"type":"spacer"}`, "schema"},
 		{"schema string", `{"schema":"1","type":"spacer"}`, "schema"},
 		{"schema nested", wrap(`{"type":"spacer","schema":1}`), "children[1].schema"},

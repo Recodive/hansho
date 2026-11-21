@@ -176,7 +176,7 @@
     "name": "unknown property on divider",
     "body": {
       "type": "vstack",
-      "schema": 2,
+      "schema": 1,
       "children": [
         {
           "type": "divider",
@@ -248,7 +248,7 @@
   {
     "name": "bad text weight",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {
@@ -362,7 +362,7 @@
   {
     "name": "padding above 32",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "padding": 33,
       "children": []
@@ -373,7 +373,7 @@
   {
     "name": "radius below 0",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "hstack",
       "radius": -1,
       "children": []
@@ -427,7 +427,7 @@
   {
     "name": "padding bind with a bad path",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "padding": {
         "bind": "a/b"
@@ -497,7 +497,7 @@
   {
     "name": "divider color bad hex",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {
@@ -515,7 +515,7 @@
   {
     "name": "nested background color bad",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {
@@ -621,7 +621,7 @@
     "msg": "only allowed on the template root"
   },
   {
-    "name": "background on a nested text in schema 1",
+    "name": "background on a nested text",
     "body": {
       "type": "vstack",
       "children": [
@@ -638,45 +638,9 @@
     "msg": "only allowed on the template root"
   },
   {
-    "name": "background on a nested stack in schema 1",
+    "name": "tint on a nested stack",
     "body": {
-      "type": "vstack",
-      "children": [
-        {
-          "type": "vstack",
-          "children": [],
-          "background": {
-            "light": "#000000",
-            "dark": "#000000"
-          }
-        }
-      ]
-    },
-    "path": "children[0].background",
-    "msg": "only allowed on the template root"
-  },
-  {
-    "name": "background on a nested text in schema 2",
-    "body": {
-      "schema": 2,
-      "type": "vstack",
-      "children": [
-        {
-          "type": "text",
-          "background": {
-            "light": "#000000",
-            "dark": "#000000"
-          }
-        }
-      ]
-    },
-    "path": "children[0].background",
-    "msg": "only allowed on the template root"
-  },
-  {
-    "name": "tint on a nested stack in schema 2",
-    "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {
@@ -713,7 +677,7 @@
       "type": "spacer"
     },
     "path": "schema",
-    "msg": "must be 1 or 2"
+    "msg": "must be 1"
   },
   {
     "name": "schema 1.5",
@@ -722,16 +686,16 @@
       "type": "spacer"
     },
     "path": "schema",
-    "msg": "must be 1 or 2"
+    "msg": "must be 1"
   },
   {
-    "name": "schema 3",
+    "name": "schema 2",
     "body": {
-      "schema": 3,
+      "schema": 2,
       "type": "spacer"
     },
     "path": "schema",
-    "msg": "must be 1 or 2"
+    "msg": "must be 1"
   },
   {
     "name": "schema as a string",
@@ -740,7 +704,7 @@
       "type": "spacer"
     },
     "path": "schema",
-    "msg": "must be 1 or 2"
+    "msg": "must be 1"
   },
   {
     "name": "schema null",
@@ -749,7 +713,7 @@
       "type": "spacer"
     },
     "path": "schema",
-    "msg": "must be 1 or 2"
+    "msg": "must be 1"
   },
   {
     "name": "foreach without each",
@@ -1018,101 +982,7 @@
     "msg": "more than 64 nodes"
   },
   {
-    "name": "padding in schema 1",
-    "body": {
-      "type": "vstack",
-      "padding": 8,
-      "children": []
-    },
-    "path": "padding",
-    "msg": "needs \"schema\": 2"
-  },
-  {
-    "name": "radius in schema 1",
-    "body": {
-      "type": "vstack",
-      "radius": 8,
-      "children": []
-    },
-    "path": "radius",
-    "msg": "needs \"schema\": 2"
-  },
-  {
-    "name": "nested padding in schema 1",
-    "body": {
-      "type": "vstack",
-      "children": [
-        {
-          "type": "hstack",
-          "padding": 8,
-          "children": []
-        }
-      ]
-    },
-    "path": "children[0].padding",
-    "msg": "needs \"schema\": 2"
-  },
-  {
-    "name": "weight in schema 1",
-    "body": {
-      "type": "vstack",
-      "children": [
-        {
-          "type": "text",
-          "weight": "bold"
-        }
-      ]
-    },
-    "path": "children[0].weight",
-    "msg": "needs \"schema\": 2"
-  },
-  {
-    "name": "divider in schema 1",
-    "body": {
-      "type": "vstack",
-      "children": [
-        {
-          "type": "divider"
-        }
-      ]
-    },
-    "path": "children[0].type",
-    "msg": "needs \"schema\": 2"
-  },
-  {
-    "name": "divider as schema 1 root",
-    "body": {
-      "type": "divider"
-    },
-    "path": "type",
-    "msg": "needs \"schema\": 2"
-  },
-  {
-    "name": "if in schema 1",
-    "body": {
-      "type": "vstack",
-      "children": [
-        {
-          "type": "text",
-          "if": "a"
-        }
-      ]
-    },
-    "path": "children[0].if",
-    "msg": "needs \"schema\": 2"
-  },
-  {
-    "name": "if on schema 1 root",
-    "body": {
-      "type": "vstack",
-      "if": "a",
-      "children": []
-    },
-    "path": "if",
-    "msg": "needs \"schema\": 2"
-  },
-  {
-    "name": "if with a bad value in schema 1 reports the gate",
+    "name": "if with a bad value",
     "body": {
       "type": "vstack",
       "children": [
@@ -1123,12 +993,12 @@
       ]
     },
     "path": "children[0].if",
-    "msg": "needs \"schema\": 2"
+    "msg": "must be a path of letters, digits, _ . -, optionally starting with !"
   },
   {
     "name": "if with spaces",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {
@@ -1146,7 +1016,7 @@
   {
     "name": "if empty",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {
@@ -1164,7 +1034,7 @@
   {
     "name": "if only a bang",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {
@@ -1182,7 +1052,7 @@
   {
     "name": "if double bang",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {
@@ -1200,7 +1070,7 @@
   {
     "name": "if with a placeholder",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {
@@ -1218,7 +1088,7 @@
   {
     "name": "if not a string",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {
@@ -1236,7 +1106,7 @@
   {
     "name": "if as a bind object",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {
@@ -1256,7 +1126,7 @@
   {
     "name": "if on a foreach body with a bad value",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "foreach",
       "each": "a",
       "body": {
@@ -1270,7 +1140,7 @@
   {
     "name": "divider with children",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {
@@ -1285,7 +1155,7 @@
   {
     "name": "divider counted against the node limit",
     "body": {
-      "schema": 2,
+      "schema": 1,
       "type": "vstack",
       "children": [
         {

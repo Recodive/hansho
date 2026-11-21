@@ -19,9 +19,6 @@ const (
 	maxTextChars      = 512
 	maxPlaceholders   = 16
 	maxImageDimension = 512
-	rootSchemaDefault = 1
-
-	needsSchema2 = `needs "schema": 2`
 )
 
 // FieldError locates a validation failure, e.g. Path "children[2].type".
@@ -62,11 +59,11 @@ var (
 	// root-only "tint"/"background"/"schema" and "children" (which is checked
 	// structurally). Anything else is rejected at save time.
 	props = map[string]map[string]propKind{
-		"vstack":   {"spacing": numRange(0, 64), "align": enum(aligns, "leading, center, trailing"), "padding": numRange(0, 32).v2(), "radius": numRange(0, 32).v2()},
-		"hstack":   {"spacing": numRange(0, 64), "align": enum(aligns, "leading, center, trailing"), "padding": numRange(0, 32).v2(), "radius": numRange(0, 32).v2()},
+		"vstack":   {"spacing": numRange(0, 64), "align": enum(aligns, "leading, center, trailing"), "padding": numRange(0, 32), "radius": numRange(0, 32)},
+		"hstack":   {"spacing": numRange(0, 64), "align": enum(aligns, "leading, center, trailing"), "padding": numRange(0, 32), "radius": numRange(0, 32)},
 		"divider":  {"color": colorProp()},
 		"spacer":   {"min": numRange(0, 256)},
-		"text":     {"text": textProp(), "style": enum(textStyles, "largeTitle, title, headline, body, caption, footnote"), "color": colorProp(), "lines": intRange(1, 10), "align": enum(aligns, "leading, center, trailing"), "weight": enum(weights, "regular, medium, semibold, bold").v2()},
+		"text":     {"text": textProp(), "style": enum(textStyles, "largeTitle, title, headline, body, caption, footnote"), "color": colorProp(), "lines": intRange(1, 10), "align": enum(aligns, "leading, center, trailing"), "weight": enum(weights, "regular, medium, semibold, bold")},
 		"symbol":   {"name": str(), "color": colorProp(), "size": numRange(8, 96)},
 		"image":    {"url": urlProp(), "width": numRange(0, maxImageDimension), "height": numRange(0, maxImageDimension), "fit": enum(fits, "fill, fit"), "radius": numRange(0, 64)},
 		"progress": {"value": numRange(0, 1), "color": colorProp(), "label": str()},
@@ -96,10 +93,7 @@ type propKind struct {
 	ranged   bool
 	enum     map[string]bool
 	enumDesc string
-	needsV2  bool // only allowed when the template root says "schema": 2
 }
-
-func (p propKind) v2() propKind { p.needsV2 = true; return p }
 
 func str() propKind       { return propKind{kind: kString} }
 func textProp() propKind  { return propKind{kind: kText} }
@@ -118,8 +112,7 @@ func enum(set map[string]bool, desc string) propKind {
 }
 
 type validator struct {
-	nodes  int
-	schema int
+	nodes int
 }
 
 // Validate checks a template body. Errors are *FieldError.
@@ -128,17 +121,15 @@ func Validate(body json.RawMessage) error {
 	if err := json.Unmarshal(body, &root); err != nil {
 		return &FieldError{Msg: "body is not valid JSON"}
 	}
-	schema := rootSchemaDefault
+	// "schema" is optional and 1 is the only version so far; a newer one is refused until the hub knows it.
 	if obj, ok := root.(map[string]any); ok {
 		if raw, present := obj["schema"]; present {
-			n, ok := raw.(float64)
-			if !ok || (n != 1 && n != 2) {
-				return &FieldError{Path: "schema", Msg: "must be 1 or 2"}
+			if n, ok := raw.(float64); !ok || n != 1 {
+				return &FieldError{Path: "schema", Msg: "must be 1"}
 			}
-			schema = int(n)
 		}
 	}
-	return (&validator{schema: schema}).node(root, "", 1, false)
+	return (&validator{}).node(root, "", 1, false)
 }
 
 func join(path, seg string) string {
@@ -162,9 +153,6 @@ func (v *validator) node(raw any, path string, depth int, inForeach bool) error 
 	if !ok || !components[typ] {
 		return &FieldError{Path: join(path, "type"), Msg: fmt.Sprintf("unknown component %v", obj["type"])}
 	}
-	if typ == "divider" && v.schema < 2 {
-		return &FieldError{Path: join(path, "type"), Msg: needsSchema2}
-	}
 	if depth > maxDepth {
 		return &FieldError{Path: path, Msg: fmt.Sprintf("nesting deeper than %d levels", maxDepth)}
 	}
@@ -181,8 +169,8 @@ func (v *validator) node(raw any, path string, depth int, inForeach bool) error 
 		return &FieldError{Path: join(path, "schema"), Msg: "only allowed on the template root"}
 	}
 	for _, k := range rootOnly {
-		// Schema 2 lets nested vstack/hstack carry a background.
-		nestedOK := k == "background" && v.schema >= 2 && containers[typ]
+		// Nested vstack/hstack may carry a background.
+		nestedOK := k == "background" && containers[typ]
 		if _, present := obj[k]; present && depth > 1 && !nestedOK {
 			return &FieldError{Path: join(path, k), Msg: "only allowed on the template root"}
 		}
@@ -266,9 +254,6 @@ func (v *validator) checkProps(obj map[string]any, typ, path string) error {
 				continue // checked structurally
 			}
 		case "if":
-			if v.schema < 2 {
-				return &FieldError{Path: join(path, k), Msg: needsSchema2}
-			}
 			if s, ok := obj[k].(string); !ok || !ifPath.MatchString(s) {
 				return &FieldError{Path: join(path, k), Msg: "must be a path of letters, digits, _ . -, optionally starting with !"}
 			}
@@ -277,9 +262,6 @@ func (v *validator) checkProps(obj map[string]any, typ, path string) error {
 		pk, ok := known[k]
 		if !ok {
 			return &FieldError{Path: join(path, k), Msg: "unknown property"}
-		}
-		if pk.needsV2 && v.schema < 2 {
-			return &FieldError{Path: join(path, k), Msg: needsSchema2}
 		}
 		if err := checkValue(obj[k], pk, join(path, k)); err != nil {
 			return err

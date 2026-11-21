@@ -133,21 +133,22 @@ expires. Encrypted alert payloads above 4096 bytes are rejected with
 ### Template reference
 
 A template `body` is a tree of `{"type": ...}` nodes (depth 8, 64 nodes). Root-only
-properties: `schema` (1 or 2, default 1), `tint` and `background`
+properties: `schema` (optional; 1 is the only version, anything else is rejected with `must be 1`), `tint` and `background`
 (`{"light":"#RRGGBB","dark":"#RRGGBB"}`). Unknown properties are rejected with
 `{"field":"body.children[1].colour","message":"unknown property"}`.
 
 | Component | Properties |
 |---|---|
-| `vstack`, `hstack` | `children` (required), `spacing` 0-64, `align` leading/center/trailing |
+| `vstack`, `hstack` | `children` (required), `spacing` 0-64, `align` leading/center/trailing, `padding` 0-32 (inner padding in points), `radius` 0-32 (corner radius of the fill), `background` (`{"light","dark"}`; on the root it is the card background) |
 | `spacer` | `min` 0-256 |
-| `text` | `text` (at most 512 characters), `style`, `color`, `lines` 1-10, `align` |
+| `text` | `text` (at most 512 characters), `style`, `color`, `lines` 1-10, `align`, `weight` regular/medium/semibold/bold |
 | `symbol` | `name` (SF Symbol), `color`, `size` 8-96 |
 | `image` | `url` (https), `width`/`height` at most 512, `fit` fill/fit, `radius` 0-64 |
 | `progress` | `value` 0-1, `color`, `label` |
 | `gauge` | `value`, `min`, `max`, `label`, `color` |
 | `timer` | `to` (unix seconds), `mode` countdown/countup, `style`, `color` |
 | `badge` | `text`, `color`, `symbol` |
+| `divider` | `color` (optional); a 1 pt hairline, horizontal in a vstack and vertical in an hstack |
 | `foreach` | `each` (data path to an array, required), `body` (one node, required), `max` 1-12 (default 6), `axis` vertical/horizontal (default vertical), `spacing` 0-64 |
 
 `style` is one of `largeTitle, title, headline, body, caption, footnote`.
@@ -158,8 +159,8 @@ indexes arrays). Malformed placeholders (`{{`, `{{ a }}`, `{{{{x}}}}`) and an
 `http://` `image.url` are rejected; an `image.url` starting with a placeholder
 is accepted and checked again when the image is fetched. Out-of-range literals
 are rejected with the path of the property; an invalid `bind` path is reported
-at `<property>.bind`. A missing path renders as empty. There are no expressions
-or conditionals in schema 1; schema 2 adds `if` (below).
+at `<property>.bind`. A missing path renders as empty. There are no expressions;
+`if` (below) leaves a node out.
 
 `foreach` repeats its `body` once per element of the array at `each` (at most
 `max` copies), laid out along `axis`. Inside the body, `{{item.<path>}}` and
@@ -179,30 +180,12 @@ from `item` are plain text (a `{{...}}` inside a value is never expanded).
           {"type":"text","text":"{{item.title}}"},{"type":"spacer"},
           {"type":"text","text":"{{item.value}}","style":"caption"}]}}]}
 
-#### Schema 2
+#### Padding, cards and `if`
 
-A template opts in with `"schema": 2` on its root. The hub accepts schema 1 and 2
-only (`must be 1 or 2`).
-
-| Where | Property | Values |
-|---|---|---|
-| `vstack`, `hstack` | `padding` | 0-32 or `{"bind":"path"}`, inner padding in points |
-| `vstack`, `hstack` | `background` | `{"light","dark"}` color; nested stacks only from schema 2 (the root's is the card background) |
-| `vstack`, `hstack` | `radius` | 0-32 or `{"bind":"path"}`, corner radius of the fill |
-| `text` | `weight` | `regular`, `medium`, `semibold`, `bold` |
-| `divider` (new) | `color` | optional color; a 1 pt hairline, no children |
-| any node | `if` | a data path, optionally prefixed with `!` (`^!?[A-Za-z0-9_.-]+$`); the node is left out unless the value is truthy (`!path`: unless falsy) |
-
-On the root, `padding` and `radius` style the card itself. Falsy values are
-missing, `null`, `false`, `0`, `""`, `[]` and `{}`. Inside a `foreach` body, `if`
-paths can read `item.<path>` and `index`.
-
-Gating: any schema-2 property or the `divider` component in a schema-1 (or
-unversioned) template is rejected with `needs "schema": 2`, at the property's path
-(for `divider`, at the node's `type`). Nested `background` in schema 1 keeps
-the `only allowed on the template root` error. Apps older than the next release
-only know schema 1 and fall back to the plain notification for schema 2
-templates; newer apps render them.
+On the root stack, `padding` and `radius` style the card itself. Any node may carry `if`: a data path, optionally
+prefixed with `!` (`^!?[A-Za-z0-9_.-]+$`); the node is left out unless the value is truthy (`!path`: unless falsy).
+Falsy values are missing, `null`, `false`, `0`, `""`, `[]` and `{}`. Inside a `foreach` body, `if` paths can read
+`item.<path>` and `index`.
 
 Errors are `{"error": "<code>"}`, with `field` and `message` for validation
 failures (template errors name the node, e.g. `body.children[2].type`).
