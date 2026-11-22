@@ -43,7 +43,40 @@ const ticket = await hansho.createPairingTicket("user-42");
 // The hub then sends a pairing.created webhook.
 
 await hansho.unpair("user-42"); // revokes every pairing of the user
+await hansho.kick("user-42"); // the same call; the app tells the person that you ended it
 ```
+
+## Audiences and groups
+
+A channel or feed is open to everyone unless it has an `audience`: `"only"` the listed users and groups, or `"except"`
+them. Users are your external user ids (they may not have paired yet); groups are named lists you keep on the hub. The hub
+decides who has access and checks it on every request, so a change applies at once.
+
+```ts
+await hansho.putGroup("oncall", ["alice", "bob"]); // replaces the whole member list
+await hansho.putChannel("pager", {
+  name: "Pager",
+  defaultLevel: "page",
+  maxLevel: "page",
+  audience: { mode: "only", groups: ["oncall"] },
+});
+// putChannel replaces the channel, except that leaving audience out keeps the stored one ({ mode: 'everyone' } opens it up).
+
+// A feed uses its channel's audience unless it sets its own. Send both with every update.
+await hansho.putFeed("queue", { templateId: "status", channel: "pager", data: { value: 3 } });
+const settings = await hansho.getFeed("queue"); // settings without the data
+
+// Send to several users, or to everyone in the channel's audience. People outside it are not delivered to.
+const res = await hansho.sendMessage({ toAudience: true, channel: "pager", title: "DB down", body: "..." });
+for (const r of res.recipients ?? []) {
+  if (r.status === RECIPIENT_NO_ACCESS) {
+    /* only with externalUserId(s): not in the audience, no message was created */
+  }
+}
+```
+
+Error codes in `ERROR_CODES`: `noAccess` (403, `startActivity` for a user outside the channel's audience) and
+`unknownGroup` (404).
 
 ## Sending
 

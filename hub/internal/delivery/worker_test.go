@@ -196,41 +196,44 @@ func TestOnlyDeviceUnregisteredMakesMessageUndeliverable(t *testing.T) {
 	}
 }
 
-// Review focus 3b: PairingRevoked marks the pairing revoked and tells the sender.
-func TestPairingRevokedFromRelay(t *testing.T) {
+// The relay's PairingRevoked covers one device's tokens (each device seals under its own relay pairing id, and
+// "Remove from this watch" revokes only the watch's): that device is retired, the rest of the pairing keeps working,
+// and the pairing is revoked, with one pairing.revoked, only when its last device goes.
+func TestPairingRevokedFromRelayRetiresOnlyThatDevice(t *testing.T) {
 	f := newFixture(t)
 	f.pairing("p1", "alice", "phone", "watch")
-	f.pairing("p2", "alice", "ipad")
-	f.relay.setErr("alert-phone", relay.ErrPairingRevoked)
+	f.relay.setErr("alert-watch", relay.ErrPairingRevoked)
 	res := f.enqueue("alice", "active")
 	f.run()
 
-	p1, _ := f.st.GetPairing("p1")
-	p2, _ := f.st.GetPairing("p2")
-	if p1.RevokedAt.IsZero() || !p2.RevokedAt.IsZero() {
-		t.Fatalf("revoked: p1=%v p2=%v", p1.RevokedAt, p2.RevokedAt)
+	if w, _ := f.st.GetDevice("watch"); w.RevokedAt.IsZero() {
+		t.Fatal("watch not retired")
+	}
+	if p, _ := f.st.GetPairing("p1"); !p.RevokedAt.IsZero() {
+		t.Fatal("pairing revoked although the phone is still active")
+	}
+	if len(f.events("pairing.revoked")) != 0 {
+		t.Fatal("pairing.revoked for a single device")
+	}
+	if len(f.pushesTo("alert-phone")) != 1 || f.msg(res.Message.ID).Status != store.MsgDelivered {
+		t.Fatal("phone not delivered")
+	}
+	res2 := f.enqueue("alice", "active")
+	if len(res2.Deliveries) != 1 || res2.Deliveries[0].DeviceID != "phone" {
+		t.Fatalf("%+v", res2.Deliveries)
+	}
+	f.run()
+
+	// The last device goes too: now the pairing is revoked, once.
+	f.relay.setErr("alert-phone", relay.ErrPairingRevoked)
+	f.enqueue("alice", "active")
+	f.run()
+	if p, _ := f.st.GetPairing("p1"); p.RevokedAt.IsZero() {
+		t.Fatal("pairing not revoked after its last device")
 	}
 	ev := f.events("pairing.revoked")
 	if len(ev) != 1 || ev[0]["pairing_id"] != "p1" || ev[0]["by"] != "relay" || ev[0]["external_user_id"] != "alice" {
 		t.Fatalf("events %v", ev)
-	}
-	if len(f.pushesTo("alert-watch")) != 0 {
-		t.Fatal("pushed to the revoked pairing's other device")
-	}
-	if len(f.pushesTo("alert-ipad")) != 1 {
-		t.Fatal("other pairing not delivered")
-	}
-	if f.msg(res.Message.ID).Status != store.MsgDelivered {
-		t.Fatal("message should be delivered through the other pairing")
-	}
-	// Next message no longer targets the revoked pairing.
-	res2 := f.enqueue("alice", "active")
-	if len(res2.Deliveries) != 1 || res2.Deliveries[0].DeviceID != "ipad" {
-		t.Fatalf("%+v", res2.Deliveries)
-	}
-	f.run()
-	if len(f.events("pairing.revoked")) != 1 {
-		t.Fatal("duplicate pairing.revoked")
 	}
 }
 
@@ -268,6 +271,53 @@ func TestRateLimitedStaysQueuedThenDelivers(t *testing.T) {
 	}
 	if len(f.relay.Pushes()) != 1 {
 		t.Fatalf("pushes %d", len(f.relay.Pushes()))
+	}
+}
+
+// countingRelay counts push attempts per sealed token, failed ones included.
+type countingRelay struct {
+	RelayClient
+	tries map[string]int
+}
+
+func (c *countingRelay) Push(ctx context.Context, p relay.PushRequest) (string, error) {
+	c.tries[p.Sealed]++
+	return c.RelayClient.Push(ctx, p)
+}
+
+// A 429 does not hold up the serial worker: the rest of that pairing's deliveries in the pass wait for a later pass
+// without another relay call, and other pairings are delivered.
+func TestRateLimitedPairingSkippedForTheRestOfThePass(t *testing.T) {
+	f := newFixture(t)
+	cr := &countingRelay{RelayClient: f.relay, tries: map[string]int{}}
+	f.w = NewWorker(f.st, cr, f.wh, f.cfg, f.hubKey, f.clk.Now)
+	f.pairing("p1", "alice", "phone", "watch")
+	f.pairing("p2", "bob", "bobphone")
+	f.relay.setErr("alert-phone", &relay.RateLimitedError{RetryAfter: 20 * time.Second})
+	m1 := f.enqueue("alice", "active")
+	m2 := f.enqueue("alice", "active")
+	m3 := f.enqueue("bob", "active")
+	f.run()
+
+	if cr.tries["alert-phone"] != 1 || cr.tries["alert-watch"] != 0 {
+		t.Fatalf("relay tries %v, want one for the phone and none for the watch", cr.tries)
+	}
+	for _, id := range []string{m1.Message.ID, m2.Message.ID} {
+		if m := f.msg(id); m.Status != store.MsgQueued || m.NextAttemptAt.Before(f.clk.Now().Add(20*time.Second)) {
+			t.Fatalf("%s: %+v, want queued for at least the Retry-After", id, m)
+		}
+	}
+	if f.msg(m3.Message.ID).Status != store.MsgDelivered {
+		t.Fatal("other pairing held up")
+	}
+
+	f.relay.setErr("alert-phone", nil)
+	f.clk.Advance(30 * time.Second)
+	f.run()
+	for _, id := range []string{m1.Message.ID, m2.Message.ID} {
+		if got := f.msg(id).Status; got != store.MsgDelivered {
+			t.Fatalf("%s: %s", id, got)
+		}
 	}
 }
 

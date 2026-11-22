@@ -162,6 +162,29 @@ func TestSendValidation(t *testing.T) {
 	if code, _, raw := e.send(m); code != 400 || !strings.Contains(raw, "sound") {
 		t.Errorf("unknown sound: %d %s", code, raw)
 	}
+	for field, bad := range map[string][]any{
+		"image_url":   {"http://example.com/i.png", "javascript:alert(1)", "https://", "//example.com/i.png", "data:image/png;base64,AA=="},
+		"collapse_id": {"has space", "tab\there", "nl\n", "del\x7f", "caf\xc3\xa9"},
+	} {
+		for _, v := range bad {
+			m := msg("alice", "ops")
+			m[field] = v
+			if code, _, raw := e.send(m); code != 400 || !strings.Contains(raw, field) {
+				t.Errorf("%s %q: %d %s", field, v, code, raw)
+			}
+		}
+	}
+	m = msg("alice", "ops")
+	m["actions"] = []any{map[string]any{"id": "open", "title": "Open", "kind": "url", "url": "http://example.com"}}
+	if code, _, raw := e.send(m); code != 400 || !strings.Contains(raw, "actions[0].url") {
+		t.Errorf("http url action: %d %s", code, raw)
+	}
+	m = msg("alice", "ops")
+	m["image_url"], m["collapse_id"] = "https://example.com/i.png", "disk-db-1:v2~"
+	m["actions"] = []any{map[string]any{"id": "open", "title": "Open", "kind": "url", "url": "https://example.com/runbook"}}
+	if code, _, raw := e.send(m); code != 202 {
+		t.Errorf("valid input refused: %d %s", code, raw)
+	}
 	if w := e.do("POST", "/api/v1/messages", msg("alice", "ops"), nil); w.Code != 401 {
 		t.Errorf("unauthenticated: %d", w.Code)
 	}

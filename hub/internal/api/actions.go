@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/recodive/hansho/hub/internal/crypto"
 	"github.com/recodive/hansho/hub/internal/level"
@@ -18,6 +20,46 @@ const maxActionText = 4096
 // not acknowledged yet: other swipes stay private.
 const dismissActionID = "_dismissed"
 
+// actionBurst and actionRefill bound POST /device/v1/actions per device: a burst of 10 presses, then one per second.
+// Every press (including a dismiss) becomes a webhook row, so an unbounded stream would flood the shared outbox.
+const (
+	actionBurst  = 10
+	actionRefill = time.Second
+)
+
+type actionBucket struct {
+	tokens float64
+	at     time.Time
+}
+
+// actionLimiter is a token bucket per device id, in memory (a restart refills every bucket). The zero value works.
+type actionLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]*actionBucket
+}
+
+func (l *actionLimiter) allow(id string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.buckets == nil {
+		l.buckets = map[string]*actionBucket{}
+	}
+	b := l.buckets[id]
+	if b == nil {
+		b = &actionBucket{tokens: actionBurst, at: now}
+		l.buckets[id] = b
+	}
+	if el := now.Sub(b.at); el > 0 {
+		b.tokens = min(actionBurst, b.tokens+float64(el)/float64(actionRefill))
+		b.at = now
+	}
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
 // POST /device/v1/actions
 //
 // A device reports a button press. Every press is forwarded to the sender as
@@ -26,6 +68,11 @@ const dismissActionID = "_dismissed"
 // message.acked, and for a page the cancel pushes); later acks and acks after
 // expiry are accepted and ignored.
 func (s *server) deviceAction(w http.ResponseWriter, r *http.Request, dev store.DeviceWithPairing, body []byte) {
+	if !s.actionLimit.allow(dev.ID, s.Now()) {
+		w.Header().Set("Retry-After", "1")
+		writeErr(w, http.StatusTooManyRequests, "rate_limited")
+		return
+	}
 	var req struct {
 		MessageID string `json:"message_id"`
 		ActionID  string `json:"action_id"`
@@ -56,7 +103,16 @@ func (s *server) deviceAction(w http.ResponseWriter, r *http.Request, dev store.
 		return
 	}
 	if m.ExternalUserID != dev.Pairing.ExternalUserID {
-		writeErr(w, http.StatusForbidden, "forbidden")
+		// The same answer as an unknown id: a device must not learn that another user's message exists.
+		writeErr(w, http.StatusNotFound, "unknown_message")
+		return
+	}
+	if !s.offersAction(m, req.ActionID) {
+		writeFieldErr(w, http.StatusBadRequest, "invalid_request", "action_id", "not an action of this message")
+		return
+	}
+	// Losing access to a channel ends acknowledging and answering its messages, though they stay in the inbox.
+	if !s.channelAccess(w, m.ExternalUserID, m.ChannelID) {
 		return
 	}
 
@@ -100,6 +156,31 @@ func (s *server) deviceAction(w http.ResponseWriter, r *http.Request, dev store.
 	}
 	s.emit(r.Context(), webhook.EventActionTaken, action)
 	w.WriteHeader(http.StatusOK)
+}
+
+// offersAction reports whether actionID can be pressed on m: the built-ins "ack" and "_dismissed", an action the
+// message was sent with, or an action of its channel (the app builds its buttons from the channel it last synced, which
+// may have changed since the message was sent).
+func (s *server) offersAction(m store.Message, actionID string) bool {
+	if actionID == "ack" || actionID == dismissActionID {
+		return true
+	}
+	for _, a := range s.messageActions(m) {
+		if a.ID == actionID {
+			return true
+		}
+	}
+	if ch, err := s.Store.GetChannel(m.ChannelID); err == nil {
+		var list []messageAction
+		if json.Unmarshal([]byte(ch.ActionsJSON), &list) == nil {
+			for _, a := range list {
+				if a.ID == actionID {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // isAckAction reports whether pressing actionID acknowledges m: the built-in

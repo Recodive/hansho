@@ -39,7 +39,12 @@ func (w *Worker) processPage(ctx context.Context, m store.Message) error {
 	if err != nil {
 		return err
 	}
-	if !ch.DeletedAt.IsZero() || m.Attempts >= m.PageMaxRetries {
+	// A user who lost access to the channel is not paged again.
+	allowed, err := w.canAccess(m.ExternalUserID, ch)
+	if err != nil {
+		return err
+	}
+	if !ch.DeletedAt.IsZero() || m.Attempts >= m.PageMaxRetries || !allowed {
 		changed, err := w.st.TransitionMessage(m.ID, store.MsgPaging, store.MsgExpired)
 		if err != nil {
 			return err
@@ -95,6 +100,11 @@ func (w *Worker) processPage(ctx context.Context, m store.Message) error {
 	return nil
 }
 
+// maxCancelTitleRunes bounds the page title quoted in the cancel banner. The title can fill most of an alert payload, and the
+// cancel body repeats it with more text around it: a cancel that no longer fits would never be sent and the alarm would
+// keep ringing on the device.
+const maxCancelTitleRunes = 100
+
 // CancelPage tells every active device of the message's user that the page
 // was acknowledged. It is an alert push (a silent background push cannot wake a
 // force-quit app) collapsed onto the page banner; its encrypted plaintext tells
@@ -114,6 +124,9 @@ func (w *Worker) CancelPage(ctx context.Context, m store.Message) (int, error) {
 		var orig Plaintext
 		if json.Unmarshal(pt, &orig) == nil && orig.Title != "" {
 			title = orig.Title
+			if r := []rune(title); len(r) > maxCancelTitleRunes {
+				title = string(r[:maxCancelTitleRunes]) + "…"
+			}
 		}
 	}
 	plaintext, err := json.Marshal(Plaintext{

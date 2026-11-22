@@ -2,6 +2,12 @@
 /hub/hub
 /hub/*.db
 /hub/*.key
+# Secrets and local databases, at any depth
+*.key
+*.db
+.env
+*.p8
+*.pem
 # Node
 node_modules/
 sdk/node/dist/

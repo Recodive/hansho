@@ -16,6 +16,25 @@ export interface PairingTicket {
   expiresAt: Date;
 }
 
+/** How an {@link Audience} reads its lists: everyone, only the listed, or everyone except the listed. */
+export type AudienceMode = "everyone" | "only" | "except";
+
+/**
+ * Who may use a channel or feed. `users` are your external user ids (they may not have paired yet) and `groups` are
+ * group ids (see `putGroup`; a group that does not exist has no members). Both must be empty for `"everyone"`.
+ */
+export interface Audience {
+  mode: AudienceMode;
+  users?: string[];
+  groups?: string[];
+}
+
+/** A named list of users, used in audiences. */
+export interface Group {
+  id: string;
+  members: string[];
+}
+
 export interface Channel {
   name: string;
   defaultLevel: Level;
@@ -24,6 +43,11 @@ export interface Channel {
   templateId?: string;
   thread?: string;
   actions?: Action[];
+  /**
+   * Who may use the channel. Leaving this out keeps the stored audience; send `{ mode: "everyone" }` to open the channel
+   * up. `getChannel` always returns it.
+   */
+  audience?: Audience;
 }
 
 export interface PageOptions {
@@ -34,7 +58,12 @@ export interface PageOptions {
 }
 
 export interface Message {
-  externalUserId: string;
+  /** Exactly one of `externalUserId`, `externalUserIds` and `toAudience` is required. */
+  externalUserId?: string;
+  /** Send to several users at once (at most 1000). */
+  externalUserIds?: string[];
+  /** Send to every paired user in the channel's audience, resolved when you send. */
+  toAudience?: boolean;
   channel: string;
   level?: Level;
   title: string;
@@ -62,12 +91,31 @@ export interface Delivery {
   error?: string;
 }
 
+/** The `status` of a {@link Recipient} outside the channel's audience: it got no message. */
+export const RECIPIENT_NO_ACCESS = "no_access";
+
+/** The outcome of a send for one user. `status` is the message status (queued, undeliverable) or `"no_access"`, with no `messageId`. */
+export interface Recipient {
+  externalUserId: string;
+  messageId?: string;
+  status: string;
+  devices?: number;
+  deliveries?: Delivery[];
+}
+
+/**
+ * For a send to `externalUserId` the fields describe that one recipient (`messageId` is `""`, `status` is
+ * `"no_access"` and `devices` is 0 when the user is outside the audience). For several users or an audience
+ * `messageId`, `devices` and `deliveries` are empty and each message is under `recipients`.
+ */
 export interface MessageResult {
   messageId: string;
   level: Level;
   devices: number;
   status: string;
   deliveries: Delivery[];
+  /** One entry per user. Absent when talking to a hub that predates audiences. */
+  recipients?: Recipient[];
 }
 
 /** `status` is one of queued, delivered, undeliverable, paging, acked, expired. */
@@ -116,7 +164,22 @@ export interface Feed {
   templateId: string;
   /** The name the app's feed picker shows instead of the id (at most 64 bytes). */
   title?: string;
+  /** The feed uses this channel's audience unless it sets its own. Like `title`, replaced by every `putFeed`. */
+  channel?: string;
+  /** Who may see the feed. With neither this nor `channel` it is for everyone. */
+  audience?: Audience;
   data: unknown;
+}
+
+/** A feed without its data, from `getFeed`. `audience` is absent while the feed inherits its channel's. */
+export interface FeedSettings {
+  feedId: string;
+  externalUserId?: string;
+  templateId: string;
+  title?: string;
+  channel?: string;
+  audience?: Audience;
+  updatedAt: number;
 }
 
 export interface FeedResult {

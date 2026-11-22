@@ -90,6 +90,15 @@ func (s *Store) ListWebhooks(event string) ([]Webhook, error) {
 	return out, rows.Err()
 }
 
+// PruneWebhooks deletes finished (delivered or dropped) outbox rows created before cutoff and returns how many.
+func (s *Store) PruneWebhooks(cutoff time.Time) (int64, error) {
+	res, err := s.exec(`DELETE FROM webhook_outbox WHERE (delivered_at IS NOT NULL OR dropped_at IS NOT NULL) AND created_at < ?`, unix(cutoff))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // MarkWebhookDelivered records a successful delivery.
 func (s *Store) MarkWebhookDelivered(id int64, now time.Time) error {
 	_, err := s.exec(`UPDATE webhook_outbox SET delivered_at = ?, attempts = attempts + 1 WHERE id = ?`, unix(now), id)

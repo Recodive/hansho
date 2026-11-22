@@ -320,8 +320,13 @@ func TestTokenAuthorisation(t *testing.T) {
 	id := l.start(map[string]any{})
 	bob := e.newDevice("bobphone")
 	bob.pair("bob")
-	if code := l.registerToken(bob, id, "la-bob"); code != 403 {
-		t.Fatalf("other user's activity: %d", code)
+	if code := l.registerToken(bob, id, "la-bob"); code != 404 {
+		t.Fatalf("other user's activity must look unknown: %d", code)
+	}
+	foreign := bob.request("POST", "/device/v1/activities/"+id+"/token", map[string]string{"sealed_update": "la-bob"})
+	unknown := bob.request("POST", "/device/v1/activities/act_nope/token", map[string]string{"sealed_update": "la-bob"})
+	if foreign.Body.String() != unknown.Body.String() {
+		t.Fatalf("different bodies: %s vs %s", foreign.Body, unknown.Body)
 	}
 	if code := l.registerToken(l.phone, "act_nope", "x"); code != 404 {
 		t.Fatalf("unknown activity: %d", code)

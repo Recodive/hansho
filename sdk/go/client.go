@@ -41,11 +41,16 @@ type Client struct {
 	now   func() time.Time
 }
 
+// noRedirect surfaces a 3xx response as an API error instead of following it.
+func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
 // Option configures a Client.
 type Option func(*Client)
 
 // WithHTTPClient sets the HTTP client (timeouts, proxies, TLS). The default has
-// a 30 second timeout.
+// a 30 second timeout and does not follow redirects (the hub never redirects, and
+// following one would hand the API key to another host); a client you pass in
+// keeps its own redirect policy.
 func WithHTTPClient(hc *http.Client) Option { return func(c *Client) { c.hc = hc } }
 
 // WithUserAgent overrides the User-Agent header.
@@ -69,7 +74,7 @@ func New(baseURL, apiKey string, opts ...Option) *Client {
 	c := &Client{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		apiKey:     apiKey,
-		hc:         &http.Client{Timeout: 30 * time.Second},
+		hc:         &http.Client{Timeout: 30 * time.Second, CheckRedirect: noRedirect},
 		userAgent:  Name + "-go/" + Version,
 		maxRetries: defaultMaxRetries,
 		sleep:      sleepCtx,

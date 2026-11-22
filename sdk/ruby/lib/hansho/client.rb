@@ -71,14 +71,25 @@ module Hansho
       nil
     end
 
+    # Ends the user's whole pairing, on every device: +unpair+ under its sender-side name. The app tells the person
+    # that the sender ended it (a 401 pairing_revoked with reason "kicked"), where an unpair they did themselves
+    # carries no reason. There is no block list; a new ticket pairs them again.
+    def kick(external_user_id)
+      unpair(external_user_id)
+    end
+
     # --- catalog -----------------------------------------------------------
 
     # Creates or replaces a channel. +actions+ is an Array of Hashes
-    # (`{ id: "ack", title: "Acknowledge", ack: true }`).
-    def put_channel(id, name:, default_level:, max_level:, sound: nil, template_id: nil, thread: nil, actions: nil)
+    # (`{ id: "ack", title: "Acknowledge", ack: true }`). +audience+ says who may use the channel:
+    # `{ mode: :only, users: ["alice"], groups: ["oncall"] }` (+mode+ is :everyone, :only or :except; users are your
+    # external user ids, groups must exist). Leaving it out keeps the audience stored on the hub (a new channel is
+    # open to everyone); pass `{ mode: :everyone }` to open a channel up again.
+    def put_channel(id, name:, default_level:, max_level:, sound: nil, template_id: nil, thread: nil, actions: nil, audience: nil)
       wire = {
         name: name, default_level: level_to_wire(default_level), max_level: level_to_wire(max_level),
-        sound: sound, template_id: template_id, thread: thread, actions: actions_to_wire(actions)
+        sound: sound, template_id: template_id, thread: thread, actions: actions_to_wire(actions),
+        audience: audience_to_wire(audience)
       }.compact
       json(:put, "/api/v1/channels/#{seg(id)}", wire)
       nil
@@ -89,8 +100,30 @@ module Hansho
       w = json(:get, "/api/v1/channels/#{seg(id)}")
       Channel.new(
         name: w["name"], default_level: w["default_level"], max_level: w["max_level"], sound: w["sound"],
-        template_id: w["template_id"], thread: w["thread"], actions: actions_from_wire(w["actions"])
+        template_id: w["template_id"], thread: w["thread"], actions: actions_from_wire(w["actions"]),
+        audience: audience_from_wire(w["audience"])
       )
+    end
+
+    # --- groups ------------------------------------------------------------
+
+    # Creates a group or replaces its whole member list (external user ids, who may not have paired yet).
+    # Audiences that name the group follow at once. Ids match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`. Returns a Group.
+    def put_group(id, members)
+      raise ArgumentError, "hansho: members must be an Array" unless members.is_a?(Array)
+
+      group_from_wire(json(:put, "/api/v1/groups/#{seg(id)}", { members: members }), id)
+    end
+
+    # Returns a Group; a missing one is an APIError with code APIError::UNKNOWN_GROUP.
+    def get_group(id)
+      group_from_wire(json(:get, "/api/v1/groups/#{seg(id)}"), id)
+    end
+
+    # An audience that still names the group matches nobody through it.
+    def delete_group(id)
+      json(:delete, "/api/v1/groups/#{seg(id)}")
+      nil
     end
 
     def delete_channel(id)
@@ -126,11 +159,21 @@ module Hansho
     # It is never retried automatically (a repeat would notify twice) unless you pass
     # an +idempotency_key+, which is sent as the Idempotency-Key header, never in the
     # body. The hub does not deduplicate on it yet, so a retried send is at-least-once.
+    #
+    # Give exactly one target: +external_user_id+, +external_user_ids+ (an Array, at most 1000) or +to_audience: true+
+    # (every paired user in the channel's audience, resolved when you send). Users outside the audience are not
+    # delivered to: their MessageResult#recipients entry has status RECIPIENT_NO_ACCESS.
     # Returns a MessageResult.
-    def send_message(external_user_id:, channel:, title:, body:, level: nil, subtitle: nil, image_url: nil, template_id: nil,
-                     data: nil, sound: nil, actions: nil, collapse_id: nil, page: nil, idempotency_key: nil)
+    def send_message(channel:, title:, body:, external_user_id: nil, external_user_ids: nil, to_audience: nil, level: nil,
+                     subtitle: nil, image_url: nil, template_id: nil, data: nil, sound: nil, actions: nil, collapse_id: nil,
+                     page: nil, idempotency_key: nil)
+      unless external_user_ids.nil? || external_user_ids.is_a?(Array)
+        raise ArgumentError, "hansho: external_user_ids must be an Array"
+      end
+
       wire = {
-        external_user_id: external_user_id, channel: channel, level: level_to_wire(level), title: title, subtitle: subtitle,
+        external_user_id: external_user_id, external_user_ids: external_user_ids, to_audience: to_audience ? true : nil,
+        channel: channel, level: level_to_wire(level), title: title, subtitle: subtitle,
         body: body, image_url: image_url, template_id: template_id, data: data, sound: sound,
         actions: actions_to_wire(actions), collapse_id: collapse_id, page: page_to_wire(page)
       }.compact
@@ -143,7 +186,7 @@ module Hansho
       end
       w = send_call(call)
       MessageResult.new(message_id: w["message_id"], level: w["level"], devices: w["devices"], status: w["status"],
-                        deliveries: deliveries_from_wire(w["deliveries"]))
+                        deliveries: deliveries_from_wire(w["deliveries"]), recipients: recipients_from_wire(w["recipients"]))
     end
 
     # Returns a MessageStatus.
@@ -176,11 +219,22 @@ module Hansho
     end
 
     # Publishes a widget feed; omit +external_user_id+ for one shared by all paired
-    # users. +title+ is the name the app's feed picker shows. Returns a FeedResult.
-    def put_feed(id, template_id:, data:, external_user_id: nil, title: nil)
-      wire = { external_user_id: external_user_id, template_id: template_id, title: title, data: data }.compact
+    # users. +title+ is the name the app's feed picker shows. The feed uses the audience of +channel+ unless it sets its
+    # own +audience+ (see #put_channel); leaving both out keeps the values stored on the hub. Returns a FeedResult.
+    def put_feed(id, template_id:, data:, external_user_id: nil, title: nil, channel: nil, audience: nil)
+      wire = { external_user_id: external_user_id, template_id: template_id, title: title, channel: channel,
+               audience: audience_to_wire(audience), data: data }.compact
       w = json(:put, "/api/v1/feeds/#{seg(id)}", wire)
       FeedResult.new(feed_id: w["feed_id"], devices: w["devices"])
+    end
+
+    # A feed's settings without its data; omit +external_user_id+ for the feed shared by all users. Returns a FeedSettings.
+    def get_feed(id, external_user_id: nil)
+      query = external_user_id.nil? || external_user_id == "" ? "" : "?external_user_id=#{URI.encode_www_form_component(external_user_id.to_s)}"
+      w = json(:get, "/api/v1/feeds/#{seg(id)}#{query}")
+      FeedSettings.new(feed_id: w["feed_id"], external_user_id: w["external_user_id"], template_id: w["template_id"],
+                       title: w["title"], channel: w["channel"], audience: audience_from_wire(w["audience"]),
+                       updated_at: w["updated_at"])
     end
 
     private
@@ -236,6 +290,39 @@ module Hansho
 
       a = symbolize(alert, "alert")
       { title: a[:title], body: a[:body] }.compact
+    end
+
+    def audience_to_wire(audience)
+      return nil if audience.nil?
+
+      a = symbolize(audience, "audience")
+      %i[users groups].each do |key|
+        raise ArgumentError, "hansho: audience #{key} must be an Array" unless a[key].nil? || a[key].is_a?(Array)
+      end
+      { mode: a[:mode]&.to_s, users: non_empty(a[:users]), groups: non_empty(a[:groups]) }.compact
+    end
+
+    def non_empty(list)
+      list.nil? || list.empty? ? nil : list
+    end
+
+    def audience_from_wire(raw)
+      return nil unless raw.is_a?(Hash)
+
+      { mode: raw["mode"], users: raw["users"].is_a?(Array) ? raw["users"] : [], groups: raw["groups"].is_a?(Array) ? raw["groups"] : [] }
+    end
+
+    def group_from_wire(w, id)
+      Group.new(id: w["id"] || id, members: w["members"].is_a?(Array) ? w["members"] : [])
+    end
+
+    def recipients_from_wire(raw)
+      return [] unless raw.is_a?(Array)
+
+      raw.select { |r| r.is_a?(Hash) }.map do |r|
+        Recipient.new(external_user_id: r["external_user_id"], message_id: r["message_id"], status: r["status"],
+                      devices: r["devices"] || 0, deliveries: deliveries_from_wire(r["deliveries"]))
+      end
     end
 
     def deliveries_from_wire(raw)

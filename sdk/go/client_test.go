@@ -176,6 +176,28 @@ func TestOtherStatusesNotRetried(t *testing.T) {
 	}
 }
 
+// The hub never redirects; following one would send the API key to another host.
+func TestDefaultClientDoesNotFollowRedirects(t *testing.T) {
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	t.Cleanup(target.Close)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(srv.Close)
+	err := New(srv.URL, testKey).PutChannel(ctx(), "ops", specChannel)
+	if ae, ok := IsAPIError(err); !ok || ae.Status != http.StatusTemporaryRedirect {
+		t.Fatalf("got %T %v", err, err)
+	}
+	if hits.Load() != 0 {
+		t.Fatal("the redirect was followed")
+	}
+	// A client the caller supplies keeps its own policy.
+	if err := New(srv.URL, testKey, WithHTTPClient(&http.Client{})).PutChannel(ctx(), "ops", specChannel); err != nil || hits.Load() != 1 {
+		t.Fatalf("custom client: %v, %d hits", err, hits.Load())
+	}
+}
+
 // Review focus 4: POST /messages 429 is surfaced untouched.
 func TestPostMessageIsNotRetried(t *testing.T) {
 	for _, st := range []int{429, 503} {
