@@ -8,7 +8,7 @@ go get github.com/recodive/hansho/sdk/go
 import hansho "github.com/recodive/hansho/sdk/go"
 ```
 
-Go 1.26 or newer, standard library only. See [../README.md](../README.md) for
+Go 1.26 or newer, standard library only. See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) for
 the model shared with the Node SDK.
 
 ## Quick start
