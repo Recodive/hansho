@@ -104,7 +104,18 @@ jobs:
           WANT: ${{ needs.meta.outputs.version }}
         run: grep -q "VERSION = \"$WANT\"" lib/hansho/version.rb
       - run: bundle install && bundle exec rake test && gem build hansho.gemspec
-      - uses: rubygems/configure-rubygems-credentials@bc6dd217f8a4f919d6835fcfefd470ef821f5c44 # v1.0.0
+      # Done by hand instead of rubygems/configure-rubygems-credentials: the first push of a gem must name the account
+      # whose pending trusted publisher may create it (owner = the Recodive account's immutable id), and the
+      # action has no input for that yet.
+      - name: exchange the OIDC token for a short-lived RubyGems key
+        env:
+          RUBYGEMS_OWNER_ID: "256573"
+        run: |
+          jwt=$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=rubygems.org" | jq -r .value)
+          key=$(jq -nc --arg jwt "$jwt" --arg owner "$RUBYGEMS_OWNER_ID" '{jwt: $jwt, owner: $owner}' \
+            | curl -fsS -X POST -H 'Content-Type: application/json' -d @- https://rubygems.org/api/v1/oidc/trusted_publisher/exchange_token | jq -r .rubygems_api_key)
+          echo "::add-mask::$key"
+          echo "GEM_HOST_API_KEY=$key" >> "$GITHUB_ENV"
       - run: gem push hansho-*.gem
 
   dotnet:
@@ -120,7 +131,7 @@ jobs:
         working-directory: sdk/dotnet
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: |
             8.0.x
@@ -196,3 +207,29 @@ jobs:
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: mvn -B -Prelease deploy
+
+  php:
+    name: Mirror to Recodive/hansho-php (Packagist reads that repository)
+    needs: meta
+    if: needs.meta.outputs.lang == 'php'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: split sdk/php and push it with the version tag
+        env:
+          DEPLOY_KEY: ${{ secrets.HANSHO_PHP_DEPLOY_KEY }}
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          install -m 600 /dev/null ~/.deploy_key
+          printf '%s\n' "$DEPLOY_KEY" > ~/.deploy_key
+          export GIT_SSH_COMMAND="ssh -i $HOME/.deploy_key -o StrictHostKeyChecking=accept-new"
+          git subtree split --prefix=sdk/php -b php-split
+          git push git@github.com:Recodive/hansho-php.git php-split:refs/heads/main
+          git push git@github.com:Recodive/hansho-php.git "php-split:refs/tags/v$VERSION"
