@@ -20,9 +20,8 @@ dependencies beyond their standard library (PHP: ext-curl and ext-json). Java
 uses Jackson for JSON; Rust uses ureq (rustls), serde, serde_json, hmac and sha2.
 Licence: MIT. The hub itself is AGPL-3.0.
 
-> Go is published (`go get github.com/recodive/hansho/sdk/go`). The others are
-> not on npm, PyPI, RubyGems, Packagist, Maven Central, NuGet or crates.io yet;
-> until they are, build them from their directory here.
+> Published: Go (`go get github.com/recodive/hansho/sdk/go`), npm, RubyGems, NuGet, crates.io, Maven Central and
+> Packagist. Python is not on PyPI yet; build it from its directory here until it is.
 
 ## The flow
 
@@ -36,7 +35,7 @@ Licence: MIT. The hub itself is AGPL-3.0.
    Live Activity or a widget feed. Channels and feeds can be limited to an
    *audience* of users and groups; a send can target one user, several or the
    channel's audience (every SDK covers audiences, groups and kick, see their
-   READMEs; the Java, PHP and Rust ones are not yet compiled or tested).
+   READMEs).
 5. **Listen** for webhooks (`message.delivered`, `message.acked`, `action`, ...)
    and verify every one against the raw request body.
 

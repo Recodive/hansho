@@ -8,7 +8,7 @@ Dependencies: `ureq` (rustls), `serde`, `serde_json`, `hmac`, `sha2`.
 hansho = "0.1"
 ```
 
-See [../README.md](../README.md) for the model shared with the Go and Node SDKs.
+See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) for the model shared with the Go and Node SDKs.
 
 ## Quick start
 

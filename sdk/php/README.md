@@ -7,8 +7,8 @@ PHP client for a Hansho hub. PHP 8.1 or newer, no runtime dependencies beyond
 composer require recodive/hansho
 ```
 
-See [../README.md](../README.md) for the model shared with the other SDKs.
-Licence: MIT (see [../LICENSE](../LICENSE)). The hub itself is AGPL-3.0.
+See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) for the model shared with the other SDKs.
+Licence: MIT (see [../LICENSE](https://github.com/Recodive/hansho/blob/main/sdk/LICENSE)). The hub itself is AGPL-3.0.
 
 ## Quick start
 

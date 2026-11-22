@@ -7,7 +7,7 @@ Ruby client for a Hansho hub. Ruby 3.1 or newer, no runtime dependencies (`net/h
 gem install hansho        # or: gem "hansho" in your Gemfile
 ```
 
-See [../README.md](../README.md) for the model shared with the Go and Node SDKs.
+See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) for the model shared with the Go and Node SDKs.
 
 ## Quick start
 

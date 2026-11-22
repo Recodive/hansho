@@ -7,7 +7,7 @@ dependencies (global `fetch`, `node:crypto`). ESM and CommonJS builds with types
 npm install @recodive/hansho
 ```
 
-See [../README.md](../README.md) for the model shared with the Go SDK.
+See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) for the model shared with the Go SDK.
 
 ## Quick start
 

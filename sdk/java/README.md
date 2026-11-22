@@ -15,7 +15,7 @@ runtime dependency is `jackson-databind`. It works from Kotlin and other JVM lan
 implementation("app.hansho:hansho:0.1.0")
 ```
 
-See [../README.md](../README.md) for the model shared with the other SDKs.
+See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) for the model shared with the other SDKs.
 
 ## Quick start
 
@@ -202,8 +202,7 @@ mvn verify                  # unit tests; they load ../spec/api.json and ../spec
 `IntegrationTest` is skipped unless `HANSHO_HUB_URL` is set (the script also sets `HANSHO_API_KEY`,
 `HANSHO_WEBHOOK_SECRET`, `HANSHO_WEBHOOK_ADDR` and `HANSHO_FAKEDEVICE_BIN`).
 
-Not published yet. A release is `mvn -Prelease deploy` with a Sonatype Central token and a GPG key in
-the owner's `settings.xml`; nothing in this repository publishes.
+Published on Maven Central as `app.hansho:hansho`. A release is a `sdk/java/v<version>` tag; see [RELEASING.md](https://github.com/Recodive/hansho/blob/main/sdk/RELEASING.md).
 
 ## Licence
 

@@ -8,7 +8,7 @@ fully type-hinted (ships `py.typed`).
 pip install hansho
 ```
 
-See [../README.md](../README.md) for the model shared with the Go and Node SDKs.
+See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) for the model shared with the Go and Node SDKs.
 
 ## Quick start
 
@@ -235,4 +235,4 @@ no packages. `tests/test_integration.py` is skipped unless `HANSHO_HUB_URL` is s
 
 MIT, see [LICENSE](LICENSE) (the same licence as the other SDKs; the hub itself is AGPL-3.0).
 
-This package is not published yet; see [../README.md](../README.md).
+Not published on PyPI yet.
