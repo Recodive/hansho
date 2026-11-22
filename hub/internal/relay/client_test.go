@@ -198,6 +198,20 @@ func TestRateLimitRetriedThenTyped(t *testing.T) {
 	}
 }
 
+// Under NoWait (the delivery worker) a 429 comes back at once with the relay's Retry-After, without sleeping.
+func TestRateLimitNoWaitReturnsAtOnce(t *testing.T) {
+	c, f := newFake(t, func(n int, w http.ResponseWriter, r *http.Request, b []byte) {
+		w.Header().Set("Retry-After", "7")
+		reply(429, `{"error":"rate_limited"}`)(n, w, r, b)
+	})
+	c.sleep = func(d time.Duration) { t.Fatalf("slept %v", d) }
+	_, err := c.Push(NoWait(context.Background()), PushRequest{Sealed: "s", Kind: "alert", Payload: json.RawMessage(`{}`)})
+	var rl *RateLimitedError
+	if !errors.As(err, &rl) || rl.RetryAfter != 7*time.Second || len(f.reqs) != 1 {
+		t.Fatalf("%v after %d requests", err, len(f.reqs))
+	}
+}
+
 func TestRateLimitRecovers(t *testing.T) {
 	c, f := newFake(t, func(n int, w http.ResponseWriter, r *http.Request, b []byte) {
 		if n < 2 {

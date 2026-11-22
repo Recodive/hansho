@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -56,6 +57,66 @@ func TestAPIKeyCreatePrintsAcceptedKey(t *testing.T) {
 	k, err := st.LookupAPIKey(key)
 	if err != nil || k.Name != "ci" {
 		t.Fatalf("LookupAPIKey: %+v %v", k, err)
+	}
+}
+
+func TestAPIKeyListAndRevoke(t *testing.T) {
+	env := testEnv(t, nil)
+	runOK := func(args ...string) string {
+		t.Helper()
+		var out, errb bytes.Buffer
+		if code := run(args, env, &out, &errb); code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, errb.String())
+		}
+		return out.String()
+	}
+	keyA, keyB := strings.TrimSpace(runOK("apikey", "create", "ci")), strings.TrimSpace(runOK("apikey", "create", "backend"))
+
+	rows := strings.Split(strings.TrimSpace(runOK("apikey", "list")), "\n")
+	if len(rows) != 3 || rows[0] != "ID\tNAME\tCREATED\tREVOKED" {
+		t.Fatalf("list: %q", rows)
+	}
+	for i, name := range []string{"ci", "backend"} {
+		f := strings.Split(rows[i+1], "\t")
+		if len(f) != 4 || f[0] != strconv.Itoa(i+1) || f[1] != name || f[3] != "-" {
+			t.Fatalf("row %q", rows[i+1])
+		}
+		if strings.Contains(rows[i+1], "ck_") {
+			t.Fatal("list must not print key material")
+		}
+	}
+
+	if got := strings.TrimSpace(runOK("apikey", "revoke", "1")); got != "revoked 1" {
+		t.Fatalf("revoke: %q", got)
+	}
+	runOK("apikey", "revoke", "1") // idempotent
+	rows = strings.Split(strings.TrimSpace(runOK("apikey", "list")), "\n")
+	if f := strings.Split(rows[1], "\t"); f[3] == "-" {
+		t.Fatalf("revoked_at not shown: %q", rows[1])
+	}
+	if f := strings.Split(rows[2], "\t"); f[3] != "-" {
+		t.Fatalf("the other key must stay active: %q", rows[2])
+	}
+	cfg, _ := config.Load(env)
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.LookupAPIKey(keyA); err != store.ErrNotFound {
+		t.Fatalf("revoked key still authenticates: %v", err)
+	}
+	if _, err := st.LookupAPIKey(keyB); err != nil {
+		t.Fatalf("other key broken: %v", err)
+	}
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"apikey", "revoke", "99"}, env, &out, &errb); code != 1 || !strings.Contains(errb.String(), "no API key with id 99") {
+		t.Fatalf("unknown id: exit %d %s", code, errb.String())
+	}
+	errb.Reset()
+	if code := run([]string{"apikey", "revoke", "abc"}, env, &out, &errb); code != 2 || !strings.Contains(errb.String(), "usage") {
+		t.Fatalf("bad id: exit %d %s", code, errb.String())
 	}
 }
 

@@ -9,25 +9,31 @@ Webhooks are verified with :func:`verify_webhook`. Standard library only.
 """
 
 from ._client import NAME, VERSION, Hansho, urllib_transport
-from ._errors import HanshoError, HanshoNetworkError
+from ._errors import CODE_NO_ACCESS, CODE_UNKNOWN_GROUP, HanshoError, HanshoNetworkError
 from ._types import (
     LEVELS,
+    RECIPIENT_NO_ACCESS,
     Action,
     Activity,
     ActivityAlert,
     ActivityStarted,
     ActivityUpdate,
     ActivityUpdated,
+    Audience,
+    AudienceMode,
     Channel,
     Delivery,
     Feed,
     FeedResult,
+    FeedSettings,
+    Group,
     Level,
     Message,
     MessageResult,
     MessageStatus,
     PageOptions,
     PairingTicket,
+    Recipient,
     SoundResult,
     Transport,
     TransportRequest,
@@ -53,7 +59,10 @@ from ._webhook import (
 )
 
 __all__ = [
+    "CODE_NO_ACCESS",
+    "CODE_UNKNOWN_GROUP",
     "LEVELS",
+    "RECIPIENT_NO_ACCESS",
     "DEFAULT_TOLERANCE",
     "NAME",
     "VERSION",
@@ -66,11 +75,15 @@ __all__ = [
     "ActivityStarted",
     "ActivityUpdate",
     "ActivityUpdated",
+    "Audience",
+    "AudienceMode",
     "Channel",
     "Delivery",
     "Event",
     "Feed",
     "FeedResult",
+    "FeedSettings",
+    "Group",
     "Hansho",
     "HanshoError",
     "HanshoNetworkError",
@@ -88,6 +101,7 @@ __all__ = [
     "PairingRevoked",
     "PairingTicket",
     "Payload",
+    "Recipient",
     "SoundResult",
     "Transport",
     "TransportRequest",

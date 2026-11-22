@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, TypeVar, Union
 
 from ._errors import HanshoError, HanshoNetworkError
 from ._retry import (
@@ -25,14 +25,18 @@ from ._types import (
     ActivityStarted,
     ActivityUpdate,
     ActivityUpdated,
+    Audience,
     Channel,
     Delivery,
     Feed,
     FeedResult,
+    FeedSettings,
+    Group,
     Message,
     MessageResult,
     MessageStatus,
     PairingTicket,
+    Recipient,
     SoundResult,
     Transport,
     TransportRequest,
@@ -162,6 +166,32 @@ def _deliveries(raw: Any) -> List[Delivery]:
     return [Delivery(_s(d.get("device_id")), _s(d.get("status")), _s(d.get("error")) or None) for d in raw]
 
 
+def _audience_to_wire(a: Optional[Audience]) -> Optional[Wire]:
+    if a is None:
+        return None
+    return _drop_none({"mode": a.mode, "users": list(a.users) or None, "groups": list(a.groups) or None})
+
+
+def _audience_from_wire(raw: Any) -> Optional[Audience]:
+    if not isinstance(raw, dict):
+        return None
+    return Audience(_s(raw.get("mode")), _strs(raw.get("users")), _strs(raw.get("groups")))  # type: ignore[arg-type]
+
+
+def _strs(raw: Any) -> List[str]:
+    return [x for x in raw if isinstance(x, str)] if isinstance(raw, list) else []
+
+
+def _recipients(raw: Any) -> List[Recipient]:
+    if not isinstance(raw, list):
+        return []
+    return [
+        Recipient(_s(r.get("external_user_id")), _s(r.get("status")), _opt_s(r.get("message_id")), _i(r.get("devices")), _deliveries(r.get("deliveries")))
+        for r in raw
+        if isinstance(r, dict)
+    ]
+
+
 def _channel_to_wire(c: Channel) -> Wire:
     return _drop_none(
         {
@@ -172,6 +202,7 @@ def _channel_to_wire(c: Channel) -> Wire:
             "template_id": c.template_id,
             "thread": c.thread,
             "actions": _actions_to_wire(c.actions),
+            "audience": _audience_to_wire(c.audience),
         }
     )
 
@@ -185,7 +216,12 @@ def _channel_from_wire(w: Wire) -> Channel:
         template_id=_opt_s(w.get("template_id")),
         thread=_opt_s(w.get("thread")),
         actions=_actions_from_wire(w.get("actions")),
+        audience=_audience_from_wire(w.get("audience")),
     )
+
+
+def _group(w: Wire, id: str) -> Group:
+    return Group(_s(w.get("id")) or id, _strs(w.get("members")))
 
 
 def _message_to_wire(m: Message) -> Wire:
@@ -195,6 +231,8 @@ def _message_to_wire(m: Message) -> Wire:
     return _drop_none(
         {
             "external_user_id": m.external_user_id,
+            "external_user_ids": None if m.external_user_ids is None else list(m.external_user_ids),
+            "to_audience": True if m.to_audience else None,
             "channel": m.channel,
             "level": m.level,
             "title": m.title,
@@ -294,6 +332,14 @@ class Hansho:
         """Revokes every pairing of the user."""
         self._json_void("DELETE", f"/api/v1/users/{_seg(external_user_id)}/pairings")
 
+    def kick(self, external_user_id: str) -> None:
+        """Ends the user's whole pairing, on every device: :meth:`unpair` under its sender-side name.
+
+        The app tells the person that the sender ended it (a 401 ``pairing_revoked`` with reason ``"kicked"``),
+        where an unpair they did themselves carries no reason. There is no block list; a new ticket pairs them again.
+        """
+        self.unpair(external_user_id)
+
     # --- catalog -------------------------------------------------------------
 
     def put_channel(self, id: str, channel: Channel) -> None:
@@ -304,6 +350,23 @@ class Hansho:
 
     def delete_channel(self, id: str) -> None:
         self._json_void("DELETE", f"/api/v1/channels/{_seg(id)}")
+
+    # --- groups --------------------------------------------------------------
+
+    def put_group(self, id: str, members: Sequence[str]) -> Group:
+        """Creates a group or replaces its whole member list (external user ids, who may not have paired yet).
+
+        Audiences that name the group follow at once. Ids match ``[A-Za-z0-9][A-Za-z0-9_-]{0,63}``.
+        """
+        return self._json("PUT", f"/api/v1/groups/{_seg(id)}", {"members": list(members)}, lambda w: _group(w, id))
+
+    def get_group(self, id: str) -> Group:
+        """A missing group is a :class:`HanshoError` with code ``"unknown_group"``."""
+        return self._json("GET", f"/api/v1/groups/{_seg(id)}", None, lambda w: _group(w, id))
+
+    def delete_group(self, id: str) -> None:
+        """An audience that still names the group matches nobody through it."""
+        self._json_void("DELETE", f"/api/v1/groups/{_seg(id)}")
 
     def put_template(self, id: str, version: int, body: Any) -> None:
         """Stores a template version; the version must increase."""
@@ -333,7 +396,12 @@ class Hansho:
         return self._do(
             call,
             lambda w: MessageResult(
-                _s(w.get("message_id")), _s(w.get("level")), _i(w.get("devices")), _s(w.get("status")), _deliveries(w.get("deliveries"))
+                _s(w.get("message_id")),
+                _s(w.get("level")),
+                _i(w.get("devices")),
+                _s(w.get("status")),
+                _deliveries(w.get("deliveries")),
+                _recipients(w.get("recipients")),
             ),
         )
 
@@ -391,10 +459,30 @@ class Hansho:
                     "external_user_id": feed.external_user_id,
                     "template_id": feed.template_id,
                     "title": feed.title,
+                    "channel": feed.channel,
+                    "audience": _audience_to_wire(feed.audience),
                     "data": feed.data,
                 }
             ),
             lambda w: FeedResult(_s(w.get("feed_id")), _i(w.get("devices"))),
+        )
+
+    def get_feed(self, id: str, external_user_id: Optional[str] = None) -> FeedSettings:
+        """A feed's settings without its data. Omit ``external_user_id`` for the feed shared by all users."""
+        query = f"?external_user_id={urllib.parse.quote(external_user_id, safe='')}" if external_user_id else ""
+        return self._json(
+            "GET",
+            f"/api/v1/feeds/{_seg(id)}{query}",
+            None,
+            lambda w: FeedSettings(
+                _s(w.get("feed_id")),
+                _s(w.get("template_id")),
+                _i(w.get("updated_at")),
+                _opt_s(w.get("external_user_id")) or None,
+                _opt_s(w.get("title")) or None,
+                _opt_s(w.get("channel")) or None,
+                _audience_from_wire(w.get("audience")),
+            ),
         )
 
     # --- plumbing ------------------------------------------------------------

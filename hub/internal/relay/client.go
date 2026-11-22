@@ -55,6 +55,13 @@ type PushRequest struct {
 	Payload      json.RawMessage
 }
 
+// noWaitKey marks a context under which a 429 is not retried in-line (see NoWait).
+type noWaitKey struct{}
+
+// NoWait returns a context under which a 429 comes back at once as a RateLimitedError instead of being retried after
+// an in-line sleep, for callers that reschedule the work themselves (the delivery worker).
+func NoWait(ctx context.Context) context.Context { return context.WithValue(ctx, noWaitKey{}, true) }
+
 const (
 	maxRateLimitRetries = 3
 	maxResponseBytes    = 64 << 10
@@ -135,7 +142,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, signe
 	return resp, b, err
 }
 
-// call performs a request, retrying 429s with backoff, and maps failures to typed errors.
+// call performs a request, retrying 429s with backoff (unless ctx is NoWait), and maps failures to typed errors.
 func (c *Client) call(ctx context.Context, method, path string, body []byte, signed bool) ([]byte, error) {
 	backoff := 500 * time.Millisecond
 	for attempt := 0; ; attempt++ {
@@ -164,7 +171,7 @@ func (c *Client) call(ctx context.Context, method, path string, body []byte, sig
 			if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s > 0 {
 				wait = time.Duration(s) * time.Second
 			}
-			if attempt >= maxRateLimitRetries {
+			if attempt >= maxRateLimitRetries || ctx.Value(noWaitKey{}) != nil {
 				return nil, &RateLimitedError{RetryAfter: wait}
 			}
 			c.sleep(wait)

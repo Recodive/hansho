@@ -214,10 +214,16 @@ func (s *Store) SoundFilename(id string) (string, error) {
 	return f, err
 }
 
-// AckedAtForUser returns the acknowledgement time of each of ids that is an acknowledged message of userID. Ids that
+// Acked is the acknowledgement of one message.
+type Acked struct {
+	At        time.Time
+	ChannelID string
+}
+
+// AckedForUser returns the acknowledgement of each of ids that is an acknowledged message of userID. Ids that
 // are unknown, unacknowledged or belong to another user are simply absent, so a caller learns nothing about them.
-func (s *Store) AckedAtForUser(userID string, ids []string) (map[string]time.Time, error) {
-	out := map[string]time.Time{}
+func (s *Store) AckedForUser(userID string, ids []string) (map[string]Acked, error) {
+	out := map[string]Acked{}
 	if len(ids) == 0 {
 		return out, nil
 	}
@@ -230,19 +236,19 @@ func (s *Store) AckedAtForUser(userID string, ids []string) (map[string]time.Tim
 		marks = append(marks, '?')
 		args = append(args, id)
 	}
-	rows, err := s.query(`SELECT id, acked_at FROM messages
+	rows, err := s.query(`SELECT id, acked_at, channel_id FROM messages
 		WHERE external_user_id = ? AND status = ? AND acked_at IS NOT NULL AND id IN (`+string(marks)+`)`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id string
+		var id, channel string
 		var at int64
-		if err := rows.Scan(&id, &at); err != nil {
+		if err := rows.Scan(&id, &at, &channel); err != nil {
 			return nil, err
 		}
-		out[id] = fromUnix(at)
+		out[id] = Acked{At: fromUnix(at), ChannelID: channel}
 	}
 	return out, rows.Err()
 }

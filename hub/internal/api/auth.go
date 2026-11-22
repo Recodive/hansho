@@ -17,8 +17,9 @@ import (
 const (
 	// maxSkew is the accepted difference between a signed timestamp and now.
 	maxSkew = 300 * time.Second
-	// nonceTTL must exceed twice maxSkew so a replay can never outlive its cache entry.
-	nonceTTL = 600 * time.Second
+	// nonceTTL must exceed twice maxSkew so a replay can never outlive its cache entry: a timestamp is accepted for
+	// 2*maxSkew, and the cache works in whole seconds, so it gets a margin on top.
+	nonceTTL = 2*maxSkew + time.Minute
 )
 
 var (
@@ -71,7 +72,7 @@ func (s *server) checkTimestamp(ts string) bool {
 type deviceHandler func(w http.ResponseWriter, r *http.Request, dev store.DeviceWithPairing, body []byte)
 
 // withDevice authenticates a request signed by a paired device: ECDSA P-256 over
-// the canonical string, +-300 s skew, replay cache keyed by the signature's value (600 s, see
+// the canonical string, +-300 s skew, replay cache keyed by the signature's value (nonceTTL, see
 // crypto.SignatureReplayKey).
 func (s *server) withDevice(h deviceHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +108,12 @@ func (s *server) withDevice(h deviceHandler) http.HandlerFunc {
 		// revoked pairing: the app re-registers in the first case and discards the pairing only in the second.
 		switch {
 		case !dev.Pairing.RevokedAt.IsZero():
-			writeErr(w, http.StatusUnauthorized, "pairing_revoked")
+			// A sender's kick says so; an unpair from a device, or any older revocation, carries no reason.
+			resp := map[string]string{"error": "pairing_revoked"}
+			if dev.Pairing.RevokedBy == "sender" {
+				resp["reason"] = "kicked"
+			}
+			writeJSON(w, http.StatusUnauthorized, resp)
 			return
 		case !dev.RevokedAt.IsZero():
 			writeErr(w, http.StatusUnauthorized, "device_revoked")

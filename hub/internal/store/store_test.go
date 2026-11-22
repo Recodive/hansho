@@ -40,7 +40,7 @@ func TestMigrationsIdempotentOnReopen(t *testing.T) {
 	}
 	defer st.Close()
 	var n int
-	if err := st.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil || n != 3 { // 001_init, 002_unique_active_device and 003_feed_title, each applied once
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil || n != 4 { // 001_init, 002_unique_active_device, 003_feed_title and 004_audiences, each applied once
 		t.Fatalf("migrations applied %d times (%v)", n, err)
 	}
 	var fk int
@@ -136,6 +136,34 @@ func TestConsumeTicketConcurrent(t *testing.T) {
 	}
 }
 
+// A redeem that consumed its ticket just before the user was unpaired must not create the pairing after it.
+func TestTicketExpiredForUserRefusesARedeemInFlight(t *testing.T) {
+	st := openTest(t)
+	tk, _ := st.CreateTicket("user-1", time.Hour)
+	unused, _ := st.CreateTicket("user-1", time.Hour)
+	other, _ := st.CreateTicket("user-2", time.Hour)
+	if _, err := st.ConsumeTicket(tk, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ExpireTicketsForUser("user-1"); err != nil {
+		t.Fatal(err)
+	}
+	err := st.CreatePairingWithDevice(tk, Pairing{ID: "p1", ExternalUserID: "user-1", KeyWrapped: []byte("w"), CreatedAt: t0},
+		Device{ID: "d1", PairingID: "p1", SignPub: []byte("s"), Platform: "ios", Name: "d1", CreatedAt: t0})
+	if !errors.Is(err, ErrTicketExpired) {
+		t.Fatalf("create after unpair: %v", err)
+	}
+	if _, err := st.GetPairing("p1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("pairing created: %v", err)
+	}
+	if _, err := st.ConsumeTicket(unused, t0); !errors.Is(err, ErrTicketExpired) {
+		t.Fatalf("unused ticket: %v", err)
+	}
+	if _, err := st.ConsumeTicket(other, t0); err != nil {
+		t.Fatalf("other user's ticket: %v", err)
+	}
+}
+
 func TestAPIKeyLookup(t *testing.T) {
 	st := openTest(t)
 	key, err := st.CreateAPIKey("backend")
@@ -217,11 +245,11 @@ func TestActiveDevicesForUserExcludesRevoked(t *testing.T) {
 	if err := st.RevokeDevice("d2"); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := st.RevokePairing("p2")
+	changed, err := st.RevokePairing("p2", "")
 	if err != nil || !changed {
 		t.Fatalf("revoke pairing: %v %v", changed, err)
 	}
-	if changed, _ := st.RevokePairing("p2"); changed {
+	if changed, _ := st.RevokePairing("p2", ""); changed {
 		t.Fatal("second revoke reported a change")
 	}
 	ds, _ = st.ActiveDevicesForUser("alice")

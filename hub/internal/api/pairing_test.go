@@ -15,6 +15,7 @@ import (
 
 	"github.com/recodive/hansho/hub/internal/identity"
 	"github.com/recodive/hansho/hub/internal/relay"
+	"github.com/recodive/hansho/hub/internal/store"
 	"net/http/httptest"
 )
 
@@ -305,7 +306,24 @@ func TestDeviceSignatureAuth(t *testing.T) {
 	if w := e.do("PUT", path, body, nil); w.Code != 401 {
 		t.Fatalf("no headers: %d", w.Code)
 	}
-	// Replay cache expires after 600 s, but then the timestamp is stale too.
+}
+
+// A timestamp is accepted from maxSkew before it to maxSkew after it, so its signature must stay in the replay cache for
+// all of that: signed 300 s ahead, first used now and replayed 600 s later is still a replay.
+func TestReplayAtTheFarEdgeOfTheSkewWindow(t *testing.T) {
+	e := newEnv(t)
+	d := e.newDevice("phone")
+	d.pair("alice")
+	path := "/device/v1/devices/" + d.ID + "/tokens"
+	body := []byte(`{"alert":"a2","background":"b2"}`)
+	hdr := d.signedHeaders("PUT", path, body, e.clk.Now().Add(maxSkew))
+	if w := e.do("PUT", path, body, hdr); w.Code != 204 {
+		t.Fatalf("first: %d %s", w.Code, w.Body)
+	}
+	e.clk.Advance(2 * maxSkew)
+	if w := e.do("PUT", path, body, hdr); w.Code != 409 {
+		t.Fatalf("replay at the edge: want 409, got %d %s", w.Code, w.Body)
+	}
 }
 
 func TestUpdateTokens(t *testing.T) {
@@ -462,6 +480,46 @@ func TestUnpairFromSender(t *testing.T) {
 	}
 }
 
+// A ticket issued before the sender unpaired the user cannot pair them again afterwards.
+func TestUnpairUserExpiresOutstandingTickets(t *testing.T) {
+	e := newEnv(t)
+	tk := decode[struct{ Ticket string }](t, e.api("POST", "/api/v1/pairing-tickets", map[string]string{"external_user_id": "alice"})).Ticket
+	if w := e.api("DELETE", "/api/v1/users/alice/pairings", nil); w.Code != 200 {
+		t.Fatalf("unpair: %d %s", w.Code, w.Body)
+	}
+	w := e.do("POST", "/device/v1/pairings", e.newDevice("phone").redeemBody(tk), nil)
+	if w.Code != 410 {
+		t.Fatalf("redeem after unpair: %d %s", w.Code, w.Body)
+	}
+	if ds, _ := e.st.ActiveDevicesForUser("alice"); len(ds) != 0 {
+		t.Fatalf("%d active devices", len(ds))
+	}
+	// A ticket minted after the unpair works.
+	e.newDevice("laptop").pair("alice")
+}
+
+// A pairing takes at most store.MaxDevicesPerPairing active devices; a device already in it can still re-join.
+func TestDevicesPerPairingCapped(t *testing.T) {
+	e := newEnv(t)
+	phone := e.newDevice("phone")
+	phone.pair("alice")
+	for i := 1; i < store.MaxDevicesPerPairing; i++ {
+		if w := e.newDevice("d").addTo(phone.PairingID, phone.PairingKey); w.Code != 201 {
+			t.Fatalf("device %d: %d %s", i+1, w.Code, w.Body)
+		}
+	}
+	w := e.newDevice("extra").addTo(phone.PairingID, phone.PairingKey)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), `"too_many_devices"`) {
+		t.Fatalf("over the cap: %d %s", w.Code, w.Body)
+	}
+	if ds, _ := e.st.ActiveDevicesForPairing(phone.PairingID); len(ds) != store.MaxDevicesPerPairing {
+		t.Fatalf("%d active devices", len(ds))
+	}
+	if w := phone.addTo(phone.PairingID, phone.PairingKey); w.Code != 201 {
+		t.Fatalf("re-join at the cap: %d %s", w.Code, w.Body)
+	}
+}
+
 func TestUnpairSurvivesRelayRevokeFailure(t *testing.T) {
 	e := newEnv(t)
 	d := e.newDevice("phone")
@@ -563,7 +621,7 @@ func TestAuthFailureNamesTheCauseOnlyToTheKeyHolder(t *testing.T) {
 	}
 
 	// Revoked pairing.
-	if _, err := e.st.RevokePairing(phone.PairingID); err != nil {
+	if _, err := e.st.RevokePairing(phone.PairingID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if w := phone.request("GET", "/device/v1/sync", nil); w.Code != 401 || code(w) != "pairing_revoked" {

@@ -49,6 +49,9 @@ var (
 	// ifPath is the grammar of an "if" condition: a data path, optionally negated.
 	ifPath = regexp.MustCompile(`^!?[A-Za-z0-9_.-]+$`)
 
+	// wholePlaceholder matches a value that is exactly one {{path}}.
+	wholePlaceholder = regexp.MustCompile(`^\{\{[A-Za-z0-9_.-]+\}\}$`)
+
 	weights = map[string]bool{"regular": true, "medium": true, "semibold": true, "bold": true}
 
 	aligns = map[string]bool{"leading": true, "center": true, "trailing": true}
@@ -290,7 +293,9 @@ func checkValue(v any, pk propKind, path string) error {
 		if pk.kind == kText && len([]rune(s)) > maxTextChars {
 			return &FieldError{Path: path, Msg: fmt.Sprintf("longer than %d characters", maxTextChars)}
 		}
-		if pk.kind == kURL && !strings.HasPrefix(s, "{{") && !strings.HasPrefix(s, "https://") {
+		// A leading placeholder may supply the whole URL, but only when it is the entire value: "{{a}}.png" or
+		// "{{a}}{{b}}" would leave the scheme to the data.
+		if pk.kind == kURL && !strings.HasPrefix(s, "https://") && !wholePlaceholder.MatchString(s) {
 			return &FieldError{Path: path, Msg: "url must use https"}
 		}
 	case kEnum:

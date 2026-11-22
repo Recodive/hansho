@@ -6,6 +6,11 @@ module Hansho
 
   # A non-2xx answer from the hub. The API key never appears in it.
   class APIError < Error
+    # 403: the user is outside the channel's audience (+start_activity+ for such a user).
+    NO_ACCESS = "no_access"
+    # 404: the group does not exist (+get_group+, +delete_group+).
+    UNKNOWN_GROUP = "unknown_group"
+
     # HTTP status code.
     attr_reader :status
     # The hub's error code, e.g. "invalid_request"; "" when the body was not JSON.

@@ -583,6 +583,15 @@
     "msg": "url must use https"
   },
   {
+    "name": "url starting with a placeholder",
+    "body": {
+      "type": "image",
+      "url": "{{host}}/y.png"
+    },
+    "path": "url",
+    "msg": "url must use https"
+  },
+  {
     "name": "url not a string",
     "body": {
       "type": "image",

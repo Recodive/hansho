@@ -7,6 +7,7 @@ import (
 	"errors"
 	"mime"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 
@@ -37,6 +38,16 @@ func viewOf(c store.Channel) channelView {
 	return channelView{c.ID, c.Name, c.DefaultLevel, c.MaxLevel, c.Sound, c.TemplateID, c.Thread, json.RawMessage(c.ActionsJSON)}
 }
 
+// senderChannelView is what the sender API returns. Devices never get the audience: it names other people.
+type senderChannelView struct {
+	channelView
+	Audience store.Audience `json:"audience"`
+}
+
+func senderViewOf(c store.Channel) senderChannelView {
+	return senderChannelView{viewOf(c), c.Audience.Normalized()}
+}
+
 // PUT /api/v1/channels/{id}
 func (s *server) putChannel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -56,6 +67,7 @@ func (s *server) putChannel(w http.ResponseWriter, r *http.Request) {
 		TemplateID   string          `json:"template_id"`
 		Thread       string          `json:"thread"`
 		Actions      json.RawMessage `json:"actions"`
+		Audience     *store.Audience `json:"audience"`
 	}
 	if !decodeJSON(w, body, &req) {
 		return
@@ -107,13 +119,36 @@ func (s *server) putChannel(w http.ResponseWriter, r *http.Request) {
 	if thread == "" {
 		thread = id
 	}
+	// Leaving the audience out keeps the stored one, so a republish from a client that does not know audiences never
+	// widens access; send {"mode":"everyone"} to open a channel up again.
+	var audience store.Audience
+	if req.Audience == nil {
+		if old, err := s.Store.GetChannel(id); err == nil {
+			audience = old.Audience
+		}
+	} else {
+		var field, msg string
+		if audience, field, msg = checkAudience(*req.Audience, "audience"); field != "" {
+			bad(field, msg)
+			return
+		}
+		field, msg, err := s.checkGroupsExist(audience, "audience")
+		if err != nil {
+			s.internal(w, "group lookup failed", err)
+			return
+		}
+		if field != "" {
+			bad(field, msg)
+			return
+		}
+	}
 	c := store.Channel{ID: id, Name: req.Name, DefaultLevel: req.DefaultLevel, MaxLevel: req.MaxLevel,
-		Sound: req.Sound, TemplateID: req.TemplateID, Thread: thread, ActionsJSON: actions}
+		Sound: req.Sound, TemplateID: req.TemplateID, Thread: thread, ActionsJSON: actions, Audience: audience.Normalized()}
 	if err := s.Store.UpsertChannel(c); err != nil {
 		s.internal(w, "upsert channel failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, viewOf(c))
+	writeJSON(w, http.StatusOK, senderViewOf(c))
 }
 
 // GET /api/v1/channels/{id}
@@ -127,7 +162,7 @@ func (s *server) getChannel(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, "channel lookup failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, viewOf(c))
+	writeJSON(w, http.StatusOK, senderViewOf(c))
 }
 
 // DELETE /api/v1/channels/{id}
@@ -251,10 +286,17 @@ func (s *server) putSound(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /device/v1/sync
-func (s *server) sync(w http.ResponseWriter, _ *http.Request, _ store.DeviceWithPairing, _ []byte) {
+//
+// Channels the device's user cannot access are left out, not marked: the app learns nothing about them.
+func (s *server) sync(w http.ResponseWriter, _ *http.Request, dev store.DeviceWithPairing, _ []byte) {
 	channels, err := s.Store.ListChannels()
 	if err != nil {
 		s.internal(w, "list channels failed", err)
+		return
+	}
+	acc, err := s.Store.AccessFor(dev.Pairing.ExternalUserID)
+	if err != nil {
+		s.internal(w, "access check failed", err)
 		return
 	}
 	templates, err := s.Store.ListTemplates()
@@ -284,7 +326,9 @@ func (s *server) sync(w http.ResponseWriter, _ *http.Request, _ store.DeviceWith
 		Sounds    []snd             `json:"sounds"`
 	}{Hub: s.hubInfo(), Channels: []channelView{}, Templates: []tpl{}, Sounds: []snd{}}
 	for _, c := range channels {
-		out.Channels = append(out.Channels, viewOf(c))
+		if acc.Allows(c.Audience) {
+			out.Channels = append(out.Channels, viewOf(c))
+		}
 	}
 	for _, t := range templates {
 		out.Templates = append(out.Templates, tpl{t.ID, t.Version, t.Body})
@@ -312,8 +356,14 @@ func (s *server) downloadSound(w http.ResponseWriter, r *http.Request, _ store.D
 	w.Write(snd.Data)
 }
 
+// isHTTPSURL reports whether s is an https URL with a host.
+func isHTTPSURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme == "https" && u.Hostname() != ""
+}
+
 // checkActions validates an actions array (each entry needs string id and
-// title; ack, if present, is a boolean). It returns the JSON to store, or the
+// title; ack, if present, is a boolean; a "url" action needs an https url). It returns the JSON to store, or the
 // failing field path and a message.
 func checkActions(raw json.RawMessage) (norm, field, msg string) {
 	if len(raw) == 0 || string(raw) == "null" {
@@ -332,6 +382,11 @@ func checkActions(raw json.RawMessage) (norm, field, msg string) {
 		if v, present := a["ack"]; present {
 			if _, ok := v.(bool); !ok {
 				return "", "actions[" + strconv.Itoa(i) + "].ack", "must be a boolean"
+			}
+		}
+		if a["kind"] == "url" {
+			if u, ok := a["url"].(string); !ok || !isHTTPSURL(u) {
+				return "", "actions[" + strconv.Itoa(i) + "].url", "must be an https URL with a host"
 			}
 		}
 	}
