@@ -31,6 +31,7 @@ jobs:
         with:
           go-version-file: hub/go.mod
           cache-dependency-path: hub/go.sum
+          cache: false
       - name: gofmt
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...
