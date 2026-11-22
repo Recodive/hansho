@@ -157,8 +157,22 @@ public final class Hansho {
         json("DELETE", "/api/v1/users/" + seg(externalUserId) + "/pairings", null);
     }
 
+    /**
+     * Ends the user's whole pairing, on every device: {@link #unpair} under its sender-side name. The app tells the
+     * person that the sender ended it (a 401 {@code pairing_revoked} with reason {@code kicked}), where an unpair they
+     * did themselves carries no reason. There is no block list; a new ticket pairs them again.
+     */
+    public void kick(String externalUserId) {
+        unpair(externalUserId);
+    }
+
     // --- catalog -------------------------------------------------------------
 
+    /**
+     * Creates or replaces a channel. A {@code null} {@link Channel#audience()} keeps the audience stored on the hub (a
+     * new channel starts open to everyone); send {@link Audience#everyone()} to open an existing channel up. The groups
+     * an audience names must exist, or the hub answers 400 (field {@code audience.groups}).
+     */
     public void putChannel(String id, Channel channel) {
         Objects.requireNonNull(channel, "channel");
         ObjectNode w = Json.MAPPER.createObjectNode();
@@ -169,6 +183,9 @@ public final class Hansho {
         Json.put(w, "template_id", channel.templateId());
         Json.put(w, "thread", channel.thread());
         putActions(w, channel.actions());
+        if (channel.audience() != null) {
+            w.set("audience", audienceToWire(channel.audience()));
+        }
         json("PUT", "/api/v1/channels/" + seg(id), w);
     }
 
@@ -181,11 +198,35 @@ public final class Hansho {
                 Json.optStr(w.get("sound")),
                 Json.optStr(w.get("template_id")),
                 Json.optStr(w.get("thread")),
-                actionsFromWire(w.get("actions")));
+                actionsFromWire(w.get("actions")),
+                audienceFromWire(w.get("audience")));
     }
 
     public void deleteChannel(String id) {
         json("DELETE", "/api/v1/channels/" + seg(id), null);
+    }
+
+    // --- groups --------------------------------------------------------------
+
+    /**
+     * Creates a group or replaces its whole member list (external user ids, who may not have paired yet). Audiences
+     * that name the group follow at once. Ids match {@code [A-Za-z0-9][A-Za-z0-9_-]{0,63}}.
+     */
+    public Group putGroup(String id, List<String> members) {
+        Objects.requireNonNull(members, "members");
+        ObjectNode w = Json.MAPPER.createObjectNode();
+        putStrings(w, "members", members);
+        return groupFromWire(json("PUT", "/api/v1/groups/" + seg(id), w));
+    }
+
+    /** A missing group is a {@link HanshoException} with code {@link HanshoException#UNKNOWN_GROUP}. */
+    public Group getGroup(String id) {
+        return groupFromWire(json("GET", "/api/v1/groups/" + seg(id), null));
+    }
+
+    /** An audience that still names the group matches nobody through it. */
+    public void deleteGroup(String id) {
+        json("DELETE", "/api/v1/groups/" + seg(id), null);
     }
 
     /**
@@ -222,6 +263,12 @@ public final class Hansho {
         Objects.requireNonNull(m, "message");
         ObjectNode w = Json.MAPPER.createObjectNode();
         Json.put(w, "external_user_id", m.externalUserId());
+        if (m.externalUserIds() != null) {
+            putStrings(w, "external_user_ids", m.externalUserIds());
+        }
+        if (m.toAudience()) {
+            w.put("to_audience", true);
+        }
         Json.put(w, "channel", m.channel());
         Json.put(w, "level", wire(m.level()));
         Json.put(w, "title", m.title());
@@ -252,7 +299,8 @@ public final class Hansho {
                 Level.fromWire(Json.optStr(r.get("level"))),
                 (int) Json.num(r.get("devices")),
                 Json.str(r.get("status")),
-                deliveriesFromWire(r.get("deliveries")));
+                deliveriesFromWire(r.get("deliveries")),
+                recipientsFromWire(r.get("recipients")));
     }
 
     public MessageStatus getMessage(String id) {
@@ -307,11 +355,34 @@ public final class Hansho {
         Json.put(w, "external_user_id", f.externalUserId());
         Json.put(w, "template_id", f.templateId());
         Json.put(w, "title", f.title());
+        Json.put(w, "channel", f.channel());
+        if (f.audience() != null) {
+            w.set("audience", audienceToWire(f.audience()));
+        }
         if (f.data() != null) {
             w.set("data", tree(f.data()));
         }
         JsonNode r = json("PUT", "/api/v1/feeds/" + seg(id), w);
         return new FeedResult(Json.str(r.get("feed_id")), (int) Json.num(r.get("devices")));
+    }
+
+    /** A feed's settings without its data; for the feed shared by all users. */
+    public FeedSettings getFeed(String id) {
+        return getFeed(id, null);
+    }
+
+    /** A feed's settings without its data. Pass {@code null} as {@code externalUserId} for the feed shared by all users. */
+    public FeedSettings getFeed(String id, String externalUserId) {
+        String query = externalUserId == null || externalUserId.isEmpty() ? "" : "?external_user_id=" + escape(externalUserId);
+        JsonNode w = json("GET", "/api/v1/feeds/" + seg(id) + query, null);
+        return new FeedSettings(
+                Json.str(w.get("feed_id")),
+                Json.optStr(w.get("external_user_id")),
+                Json.str(w.get("template_id")),
+                Json.optStr(w.get("title")),
+                Json.optStr(w.get("channel")),
+                audienceFromWire(w.get("audience")),
+                Json.num(w.get("updated_at")));
     }
 
     // --- wire mapping --------------------------------------------------------
@@ -352,6 +423,25 @@ public final class Hansho {
         }
     }
 
+    private static void putStrings(ObjectNode w, String key, List<String> values) {
+        ArrayNode arr = w.putArray(key);
+        for (String v : values) {
+            arr.add(v);
+        }
+    }
+
+    private static ObjectNode audienceToWire(Audience a) {
+        ObjectNode o = Json.MAPPER.createObjectNode();
+        o.put("mode", Objects.requireNonNull(a.mode(), "audience mode").wire());
+        if (!a.users().isEmpty()) {
+            putStrings(o, "users", a.users());
+        }
+        if (!a.groups().isEmpty()) {
+            putStrings(o, "groups", a.groups());
+        }
+        return o;
+    }
+
     private static void putAlert(ObjectNode w, ActivityAlert alert) {
         if (alert == null) {
             return;
@@ -370,6 +460,45 @@ public final class Hansho {
                         Json.str(a.get("title")),
                         a.path("ack").isBoolean() ? a.get("ack").asBoolean() : null,
                         Json.optStr(a.get("kind"))));
+            }
+        }
+        return out;
+    }
+
+    private static List<String> stringsFromWire(JsonNode raw) {
+        List<String> out = new ArrayList<>();
+        if (raw != null && raw.isArray()) {
+            for (JsonNode s : raw) {
+                if (s.isTextual()) {
+                    out.add(s.asText());
+                }
+            }
+        }
+        return out;
+    }
+
+    private static Audience audienceFromWire(JsonNode raw) {
+        if (raw == null || !raw.isObject()) {
+            return null;
+        }
+        return new Audience(
+                AudienceMode.fromWire(Json.optStr(raw.get("mode"))), stringsFromWire(raw.get("users")), stringsFromWire(raw.get("groups")));
+    }
+
+    private static Group groupFromWire(JsonNode w) {
+        return new Group(Json.str(w.get("id")), stringsFromWire(w.get("members")));
+    }
+
+    private static List<Recipient> recipientsFromWire(JsonNode raw) {
+        List<Recipient> out = new ArrayList<>();
+        if (raw != null && raw.isArray()) {
+            for (JsonNode r : raw) {
+                out.add(new Recipient(
+                        Json.str(r.get("external_user_id")),
+                        Json.optStr(r.get("message_id")),
+                        Json.str(r.get("status")),
+                        (int) Json.num(r.get("devices")),
+                        deliveriesFromWire(r.get("deliveries"))));
             }
         }
         return out;
@@ -412,8 +541,13 @@ public final class Hansho {
         if (id.equals(".") || id.equals("..")) {
             throw new IllegalArgumentException("hansho: id must not be \"" + id + "\"");
         }
+        return escape(id);
+    }
+
+    /** Percent-escapes every byte but the unreserved ones (a path segment or a query value). */
+    private static String escape(String s) {
         StringBuilder sb = new StringBuilder();
-        for (byte b : id.getBytes(StandardCharsets.UTF_8)) {
+        for (byte b : s.getBytes(StandardCharsets.UTF_8)) {
             int c = b & 0xff;
             if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
                     || c == '-' || c == '.' || c == '_' || c == '~') {

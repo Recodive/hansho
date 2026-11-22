@@ -117,6 +117,45 @@ const calls: Record<string, { call: (c: Hansho) => Promise<unknown>; want: unkno
     call: (c) => c.putFeed("uptime", { externalUserId: "user-42", templateId: "status", title: "Uptime", data: { up: true, ms: 41 } }),
     want: { feedId: "uptime", devices: 2 },
   },
+  putGroup: { call: (c) => c.putGroup("oncall", ["alice", "bob"]), want: { id: "oncall", members: ["alice", "bob"] } },
+  getGroup: { call: (c) => c.getGroup("oncall"), want: { id: "oncall", members: ["alice", "bob"] } },
+  deleteGroup: { call: (c) => c.deleteGroup("oncall"), want: undefined },
+  kick: { call: (c) => c.kick("user-42"), want: undefined },
+  putChannelWithAudience: {
+    call: (c) =>
+      c.putChannel("ops", {
+        name: "Operations",
+        defaultLevel: "active",
+        maxLevel: "critical",
+        audience: { mode: "only", users: ["alice"], groups: ["oncall"] },
+      }),
+    want: undefined,
+  },
+  putFeedWithChannel: {
+    call: (c) =>
+      c.putFeed("uptime", {
+        templateId: "status",
+        channel: "ops",
+        audience: { mode: "only", users: ["alice"], groups: ["oncall"] },
+        data: { up: true },
+      }),
+    want: { feedId: "uptime", devices: 1 },
+  },
+  sendToAudience: {
+    call: (c) => c.sendMessage({ channel: "ops", toAudience: true, title: "Deploy done", body: "v1.2.3 is live" }),
+    // For an audience the top-level message fields are empty; each message is under recipients.
+    want: {
+      messageId: "",
+      level: "active",
+      devices: 0,
+      status: "",
+      deliveries: [],
+      recipients: [
+        { externalUserId: "alice", messageId: "msg_7", status: "queued", devices: 1, deliveries: [{ deviceId: "dev_1", status: "queued" }] },
+        { externalUserId: "carol", status: "no_access" },
+      ],
+    },
+  },
 };
 
 describe("shared spec operations", () => {

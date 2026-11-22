@@ -8,8 +8,8 @@ use serde_json::{json, Map, Value};
 use crate::error::{ApiError, Error, NetworkError, Result};
 use crate::retry::{backoff, is_idempotent, is_retryable_status, parse_retry_after, DEFAULT_MAX_RETRIES, MAX_RETRY_WAIT};
 use crate::types::{
-    Activity, ActivityStarted, ActivityUpdate, ActivityUpdated, Channel, Feed, FeedResult, Message, MessageResult, MessageStatus,
-    PairingTicket, SoundResult,
+    Activity, ActivityStarted, ActivityUpdate, ActivityUpdated, Channel, Feed, FeedResult, FeedSettings, Group, Message, MessageResult,
+    MessageStatus, PairingTicket, SoundResult,
 };
 
 /// Product codename.
@@ -178,6 +178,13 @@ impl Client {
         self.json::<serde::de::IgnoredAny>("DELETE", format!("/api/v1/users/{}/pairings", seg(external_user_id)?), None).map(drop)
     }
 
+    /// Ends the user's whole pairing, on every device. It is [`unpair`](Client::unpair) under its sender-side name: the app
+    /// tells the person that the sender ended it (a 401 `pairing_revoked` with reason `kicked`), where an unpair they did
+    /// themselves carries no reason. There is no block list; a new ticket pairs them again.
+    pub fn kick(&self, external_user_id: &str) -> Result<()> {
+        self.unpair(external_user_id)
+    }
+
     // --- catalog -------------------------------------------------------------
 
     /// Creates or replaces a channel.
@@ -194,6 +201,22 @@ impl Client {
     /// Deletes a channel.
     pub fn delete_channel(&self, id: &str) -> Result<()> {
         self.json::<serde::de::IgnoredAny>("DELETE", format!("/api/v1/channels/{}", seg(id)?), None).map(drop)
+    }
+
+    /// Creates a group or replaces its whole member list (external user ids, who may not have paired yet). Audiences that
+    /// name the group follow at once. Ids match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`.
+    pub fn put_group(&self, id: &str, members: &[&str]) -> Result<Group> {
+        self.json("PUT", format!("/api/v1/groups/{}", seg(id)?), Some(json!({ "members": members })))
+    }
+
+    /// Reads a group; a missing one is an API error with code `unknown_group` ([`CODE_UNKNOWN_GROUP`](crate::CODE_UNKNOWN_GROUP)).
+    pub fn get_group(&self, id: &str) -> Result<Group> {
+        self.json("GET", format!("/api/v1/groups/{}", seg(id)?), None)
+    }
+
+    /// Deletes a group. An audience that still names it matches nobody through it.
+    pub fn delete_group(&self, id: &str) -> Result<()> {
+        self.json::<serde::de::IgnoredAny>("DELETE", format!("/api/v1/groups/{}", seg(id)?), None).map(drop)
     }
 
     /// Stores a template version; the version must increase.
@@ -261,6 +284,16 @@ impl Client {
     /// Ends a Live Activity.
     pub fn end_activity(&self, id: &str) -> Result<()> {
         self.json::<serde::de::IgnoredAny>("DELETE", format!("/api/v1/activities/{}", seg(id)?), None).map(drop)
+    }
+
+    /// Reads a feed's settings without its data. Pass `None` for the feed shared by all users; a missing feed is an API
+    /// error with code `unknown_feed`.
+    pub fn get_feed(&self, id: &str, external_user_id: Option<&str>) -> Result<FeedSettings> {
+        let mut path = format!("/api/v1/feeds/{}", seg(id)?);
+        if let Some(user) = external_user_id.filter(|u| !u.is_empty()) {
+            path.push_str(&format!("?external_user_id={}", seg(user)?));
+        }
+        self.json("GET", path, None)
     }
 
     /// Publishes a widget feed.

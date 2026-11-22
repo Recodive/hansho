@@ -175,6 +175,46 @@ var calls = map[string]struct {
 		},
 		FeedResult{FeedID: "uptime", Devices: 2},
 	},
+	"putGroup": {
+		func(c *Client) (any, error) { return c.PutGroup(ctx(), "oncall", []string{"alice", "bob"}) },
+		Group{ID: "oncall", Members: []string{"alice", "bob"}},
+	},
+	"getGroup": {
+		func(c *Client) (any, error) { return c.GetGroup(ctx(), "oncall") },
+		Group{ID: "oncall", Members: []string{"alice", "bob"}},
+	},
+	"deleteGroup": {
+		func(c *Client) (any, error) { return nil, c.DeleteGroup(ctx(), "oncall") }, nil,
+	},
+	"kick": {
+		func(c *Client) (any, error) { return nil, c.Kick(ctx(), "user-42") }, nil,
+	},
+	"putChannelWithAudience": {
+		func(c *Client) (any, error) {
+			return nil, c.PutChannel(ctx(), "ops", Channel{
+				Name: "Operations", DefaultLevel: LevelActive, MaxLevel: LevelCritical,
+				Audience: &Audience{Mode: AudienceOnly, Users: []string{"alice"}, Groups: []string{"oncall"}},
+			})
+		}, nil,
+	},
+	"putFeedWithChannel": {
+		func(c *Client) (any, error) {
+			return c.PutFeed(ctx(), "uptime", Feed{TemplateID: "status", Channel: "ops",
+				Audience: &Audience{Mode: AudienceOnly, Users: []string{"alice"}, Groups: []string{"oncall"}},
+				Data:     map[string]any{"up": true}})
+		},
+		FeedResult{FeedID: "uptime", Devices: 1},
+	},
+	"sendToAudience": {
+		func(c *Client) (any, error) {
+			return c.SendMessage(ctx(), Message{Channel: "ops", ToAudience: true, Title: "Deploy done", Body: "v1.2.3 is live"})
+		},
+		MessageResult{Level: LevelActive, Recipients: []Recipient{
+			{ExternalUserID: "alice", MessageID: "msg_7", Status: "queued", Devices: 1,
+				Deliveries: []Delivery{{DeviceID: "dev_1", Status: "queued"}}},
+			{ExternalUserID: "carol", Status: RecipientNoAccess},
+		}},
+	},
 }
 
 var specChannel = Channel{

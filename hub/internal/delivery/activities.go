@@ -156,6 +156,15 @@ func (w *Worker) stateFor(a store.Activity, dev store.DeviceWithPairing) (json.R
 	return ContentState(a.TemplateID, json.RawMessage(a.DataJSON), key)
 }
 
+// canAccessChannel reports whether the user may use the channel now.
+func (w *Worker) canAccessChannel(user, channelID string) (bool, error) {
+	ch, err := w.st.GetChannel(channelID)
+	if err != nil {
+		return false, err
+	}
+	return w.canAccess(user, ch)
+}
+
 func (w *Worker) usable(dev store.DeviceWithPairing) bool {
 	return dev.RevokedAt.IsZero() && dev.Pairing.RevokedAt.IsZero()
 }
@@ -163,6 +172,10 @@ func (w *Worker) usable(dev store.DeviceWithPairing) bool {
 // StartActivity sends push-to-start to every active device of the activity's
 // user that registered a push-to-start token. It returns how many accepted.
 func (w *Worker) StartActivity(ctx context.Context, a store.Activity, alert *ActivityAlert) (int, error) {
+	allowed, err := w.canAccessChannel(a.ExternalUserID, a.ChannelID)
+	if err != nil || !allowed {
+		return 0, err
+	}
 	devices, err := w.st.ActiveDevicesForUser(a.ExternalUserID)
 	if err != nil {
 		return 0, err
@@ -197,9 +210,21 @@ func (w *Worker) StartActivity(ctx context.Context, a store.Activity, alert *Act
 
 // pushActivityTo sends one event payload to a device's update token.
 func (w *Worker) pushActivityTo(ctx context.Context, a store.Activity, tok store.ActivityToken, dev store.DeviceWithPairing, cache *envCache,
-	build func(state json.RawMessage) ([]byte, error), priority int) bool {
+	build func(state json.RawMessage) ([]byte, error), priority int, end bool) bool {
 	if !w.usable(dev) || cache.revoked[dev.Pairing.ID] {
 		return false
+	}
+	allowed, err := w.canAccessChannel(dev.Pairing.ExternalUserID, a.ChannelID)
+	if err != nil {
+		w.log.Error("activity access check failed", "activity_id", a.ID, "err", err)
+		return false
+	}
+	if !allowed {
+		if !end {
+			return false // no more updates for someone who lost access
+		}
+		// The end still goes out, so the activity leaves their screen, but without the state they no longer may see.
+		a.DataJSON = "null"
 	}
 	state, err := w.stateFor(a, dev)
 	if err != nil {
@@ -239,7 +264,7 @@ func (w *Worker) PushActivityUpdate(ctx context.Context, a store.Activity, seq i
 		}
 		ok := w.pushActivityTo(ctx, a, tok, dev, cache, func(st json.RawMessage) ([]byte, error) {
 			return UpdatePayload(w.now(), st, alert)
-		}, a.Priority)
+		}, a.Priority, false)
 		if ok {
 			if err := w.st.MarkActivityTokenSent(a.ID, tok.DeviceID, seq); err != nil {
 				return err
@@ -262,7 +287,7 @@ func (w *Worker) SyncActivityToken(ctx context.Context, a store.Activity, tok st
 	alert := w.alertFor(a, parseAlert(a.AlertJSON))
 	if w.pushActivityTo(ctx, a, tok, dev, newEnvCache(), func(st json.RawMessage) ([]byte, error) {
 		return UpdatePayload(w.now(), st, alert)
-	}, a.Priority) {
+	}, a.Priority, false) {
 		return w.st.MarkActivityTokenSent(a.ID, tok.DeviceID, a.UpdateSeq)
 	}
 	return nil
@@ -287,7 +312,7 @@ func (w *Worker) FinishActivity(ctx context.Context, a store.Activity) (bool, er
 		}
 		w.pushActivityTo(ctx, a, tok, dev, cache, func(st json.RawMessage) ([]byte, error) {
 			return EndPayload(w.now(), st)
-		}, 10)
+		}, 10, true)
 	}
 	return true, nil
 }

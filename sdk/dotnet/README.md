@@ -48,7 +48,46 @@ var ticket = await hansho.CreatePairingTicketAsync("user-42");
 // The hub then sends a pairing.created webhook.
 
 await hansho.UnpairAsync("user-42"); // revokes every pairing of the user
+await hansho.KickAsync("user-42");   // the same call; the app tells the person that you ended it
 ```
+
+## Audiences and groups
+
+A channel or feed is open to everyone unless it has an `Audience`: `AudienceMode.Only` the listed users and groups, or
+`AudienceMode.Except` them. Users are your external user ids (they may not have paired yet); groups are named lists you
+keep on the hub. The hub decides who has access and checks it on every request, so a change applies at once.
+
+```csharp
+await hansho.PutGroupAsync("oncall", new[] { "alice", "bob" }); // replaces the whole member list
+await hansho.PutChannelAsync("pager", new Channel
+{
+    Name = "Pager", DefaultLevel = Level.Page, MaxLevel = Level.Page,
+    Audience = new Audience { Mode = AudienceMode.Only, Groups = new[] { "oncall" } },
+});
+// An absent Audience keeps the one stored on the hub (a new channel starts open to everyone);
+// send new Audience { Mode = AudienceMode.Everyone } to open an existing channel up.
+// The groups an audience names must exist: otherwise the hub answers 400 (Field "audience.groups", Detail "unknown group").
+
+// A feed uses its Channel's audience unless it sets its own; like Title, send them with every update
+// (an absent Audience keeps the stored one here too).
+await hansho.PutFeedAsync("queue", new Feed { TemplateId = "status", Channel = "pager", Data = new { value = 3 } });
+var settings = await hansho.GetFeedAsync("queue"); // settings without the data
+
+// Send to several users, or to everyone in the channel's audience. People outside it are not delivered to.
+var res = await hansho.SendMessageAsync(new Message { ToAudience = true, Channel = "pager", Title = "DB down", Body = "..." });
+foreach (var r in res.Recipients ?? Array.Empty<Recipient>())
+{
+    if (r.Status == Recipient.NoAccess) { /* only with ExternalUserId(s): not in the audience, no message was created */ }
+}
+```
+
+Give a message exactly one of `ExternalUserId`, `ExternalUserIds` (at most 1000) and `ToAudience`. For a send to
+`ExternalUserId` the top-level `MessageId`, `Status`, `Devices` and `Deliveries` describe that user (`MessageId` is
+empty and `Status` is `Recipient.NoAccess` if they are outside the audience). For several users or an audience the
+top-level `MessageId`, `Devices` and `Deliveries` are empty and every message is under `Recipients`.
+
+Error codes in `ErrorCodes`: `NoAccess` (403, `StartActivityAsync` for a user outside the channel's audience) and
+`UnknownGroup` (404).
 
 ## Sending
 

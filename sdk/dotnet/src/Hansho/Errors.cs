@@ -45,6 +45,15 @@ public sealed class HanshoApiException : HanshoException
     }
 }
 
+/// <summary>Error codes of the hub that callers commonly branch on (<see cref="HanshoApiException.Code"/>).</summary>
+public static class ErrorCodes
+{
+    /// <summary>403: the user is outside the channel's audience (<c>StartActivityAsync</c> for such a user).</summary>
+    public const string NoAccess = "no_access";
+    /// <summary>404: the group does not exist (<c>GetGroupAsync</c>, <c>DeleteGroupAsync</c>).</summary>
+    public const string UnknownGroup = "unknown_group";
+}
+
 /// <summary>
 /// No HTTP answer arrived: the connection failed, the request timed out or the caller's token was cancelled.
 /// See <see cref="Exception.InnerException"/>.

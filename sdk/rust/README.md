@@ -49,7 +49,56 @@ let ticket = hansho.create_pairing_ticket("user-42")?;
 // The hub then sends a pairing.created webhook.
 
 hansho.unpair("user-42")?; // revokes every pairing of the user
+hansho.kick("user-42")?; // the same call; the app tells the person that you ended it
 ```
+
+## Audiences and groups
+
+A channel or feed is open to everyone unless it has an `Audience`: `AudienceMode::Only` the listed users and groups, or
+`AudienceMode::Except` them. Users are your external user ids (they may not have paired yet); groups are named lists you
+keep on the hub. The hub decides who has access and checks it on every request, so a change applies at once.
+
+```rust
+use hansho::{json, Audience, AudienceMode, Channel, Feed, Level, Message, RECIPIENT_NO_ACCESS};
+
+hansho.put_group("oncall", &["alice", "bob"])?; // replaces the whole member list; also get_group, delete_group
+hansho.put_channel("pager", &Channel {
+    name: "Pager".into(),
+    default_level: Level::Page,
+    max_level: Level::Page,
+    audience: Some(Audience { mode: AudienceMode::Only, groups: vec!["oncall".into()], ..Default::default() }),
+    ..Default::default()
+})?;
+// `audience: None` keeps the audience stored on the hub; `Audience::default()` (everyone) opens the channel up again.
+
+// A feed uses its channel's audience unless it sets its own. Leaving both out keeps what is stored; naming a channel
+// without an audience makes the feed use the channel's.
+hansho.put_feed("queue", &Feed {
+    template_id: "status".into(),
+    channel: Some("pager".into()),
+    data: json!({"value": 3}),
+    ..Default::default()
+})?;
+let settings = hansho.get_feed("queue", None)?; // settings without the data; Some("user-42") for a per-user feed
+
+// Send to several users, or to everyone in the channel's audience. People outside it are not delivered to.
+let res = hansho.send_message(&Message {
+    to_audience: true, // or external_user_ids: vec![...]; give exactly one target
+    channel: "pager".into(),
+    title: "DB down".into(),
+    body: "...".into(),
+    ..Default::default()
+})?;
+for r in &res.recipients {
+    if r.status == RECIPIENT_NO_ACCESS { /* only with external_user(_ids): not in the audience, no message_id */ }
+}
+```
+
+`MessageResult::recipients` has one entry per user. A send to one `external_user_id` keeps filling the top-level
+`message_id`, `devices`, `status` and `deliveries` too (for a user without access: empty `message_id`, `devices` 0, status
+`no_access`); for several users or an audience the top-level `message_id` is empty and each message is under `recipients`.
+An audience that names a group that does not exist is refused with `400 invalid_request`. Error codes: `CODE_NO_ACCESS`
+(403, `start_activity` for a user outside the channel's audience) and `CODE_UNKNOWN_GROUP` (404, `get_group`, `delete_group`).
 
 ## Sending
 

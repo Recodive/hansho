@@ -621,7 +621,7 @@ func TestAuthFailureNamesTheCauseOnlyToTheKeyHolder(t *testing.T) {
 	}
 
 	// Revoked pairing.
-	if _, err := e.st.RevokePairing(phone.PairingID); err != nil {
+	if _, err := e.st.RevokePairing(phone.PairingID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if w := phone.request("GET", "/device/v1/sync", nil); w.Code != 401 || code(w) != "pairing_revoked" {

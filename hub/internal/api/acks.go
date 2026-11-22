@@ -14,7 +14,8 @@ const maxAckIDs = 100
 //
 // The app asks which of its pages were acknowledged elsewhere (the cancel push can be missed). The answer is
 // {"acked": {"<id>": <unix seconds>}} and lists only acknowledged messages of the calling device's user: unknown,
-// unacknowledged and other users' ids are omitted alike, so the endpoint cannot be used to probe for messages.
+// unacknowledged and other users' ids are omitted alike, so the endpoint cannot be used to probe for messages. So
+// are messages of a channel the user can no longer access.
 func (s *server) deviceAcks(w http.ResponseWriter, r *http.Request, dev store.DeviceWithPairing, _ []byte) {
 	var ids []string
 	seen := map[string]bool{}
@@ -32,14 +33,21 @@ func (s *server) deviceAcks(w http.ResponseWriter, r *http.Request, dev store.De
 			ids = append(ids, id)
 		}
 	}
-	at, err := s.Store.AckedAtForUser(dev.Pairing.ExternalUserID, ids)
+	found, err := s.Store.AckedForUser(dev.Pairing.ExternalUserID, ids)
 	if err != nil {
 		s.internal(w, "ack lookup failed", err)
 		return
 	}
-	acked := make(map[string]int64, len(at))
-	for id, t := range at {
-		acked[id] = t.Unix()
+	acc, err := s.Store.AccessFor(dev.Pairing.ExternalUserID)
+	if err != nil {
+		s.internal(w, "access check failed", err)
+		return
+	}
+	acked := make(map[string]int64, len(found))
+	for id, a := range found {
+		if s.channelAllows(acc, a.ChannelID) {
+			acked[id] = a.At.Unix()
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"acked": acked})
 }

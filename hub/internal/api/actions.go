@@ -111,6 +111,10 @@ func (s *server) deviceAction(w http.ResponseWriter, r *http.Request, dev store.
 		writeFieldErr(w, http.StatusBadRequest, "invalid_request", "action_id", "not an action of this message")
 		return
 	}
+	// Losing access to a channel ends acknowledging and answering its messages, though they stay in the inbox.
+	if !s.channelAccess(w, m.ExternalUserID, m.ChannelID) {
+		return
+	}
 
 	action := map[string]string{
 		"message_id": m.ID, "action_id": req.ActionID, "device_id": dev.ID, "external_user_id": m.ExternalUserID,
