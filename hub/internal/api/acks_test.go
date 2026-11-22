@@ -135,7 +135,7 @@ func TestAcksRespectsRevokedDeviceAndPairing(t *testing.T) {
 	if w := p.phone.request("GET", path, nil); w.Code != 200 {
 		t.Fatalf("phone: %d %s", w.Code, w.Body)
 	}
-	if _, err := e.st.RevokePairing(p.phone.PairingID); err != nil {
+	if _, err := e.st.RevokePairing(p.phone.PairingID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if w := p.phone.request("GET", path, nil); w.Code != 401 || errCode(w.Body.String()) != "pairing_revoked" {

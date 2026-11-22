@@ -109,10 +109,54 @@ impl Default for PairingTicket {
     }
 }
 
+/// How an [`Audience`] reads its lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AudienceMode {
+    /// Every paired user is let in.
+    #[default]
+    Everyone,
+    /// Only the listed users and the members of the listed groups.
+    Only,
+    /// Everyone but the listed users and the members of the listed groups.
+    Except,
+}
+
+/// Who may use a channel or feed. `users` are your external user ids (they may not have paired yet) and `groups` are
+/// group ids (see [`Client::put_group`](crate::Client::put_group); a group that does not exist has no members). Both
+/// must be empty for [`AudienceMode::Everyone`].
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Audience {
+    /// How the lists are read.
+    pub mode: AudienceMode,
+    /// External user ids.
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_as_default")]
+    pub users: Vec<String>,
+    /// Group ids.
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_as_default")]
+    pub groups: Vec<String>,
+}
+
+/// A named list of users, used in audiences.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[serde(default)]
+pub struct Group {
+    /// The group id.
+    pub id: String,
+    /// External user ids (they may not have paired yet).
+    #[serde(deserialize_with = "null_as_default")]
+    pub members: Vec<String>,
+}
+
 /// A channel: the defaults and ceiling for a stream of messages.
 ///
 /// The hub answers an unset `sound`, `template_id` or `thread` with an empty string;
 /// that reads back as `None`.
+///
+/// `audience` decides who may use the channel. `None` keeps the audience stored on the hub (a new channel is open to
+/// everyone); send `AudienceMode::Everyone` to open a channel up again. [`Client::get_channel`](crate::Client::get_channel)
+/// always returns one.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Channel {
@@ -134,6 +178,9 @@ pub struct Channel {
     /// Buttons shown with every message of the channel.
     #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_as_default")]
     pub actions: Vec<Action>,
+    /// Who may use the channel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audience: Option<Audience>,
 }
 
 /// Resend schedule of a page.
@@ -148,10 +195,20 @@ pub struct PageOptions {
 }
 
 /// A notification, or a page when `level` is [`Level::Page`].
+///
+/// Give exactly one target: `external_user_id`, `external_user_ids` or `to_audience`. Users outside the channel's
+/// audience are not delivered to: their entry in [`MessageResult::recipients`] has status `no_access`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct Message {
-    /// The paired user to notify.
+    /// The paired user to notify. Leave empty when using `external_user_ids` or `to_audience`.
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub external_user_id: String,
+    /// Several users at once (at most 1000).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub external_user_ids: Vec<String>,
+    /// Every paired user in the channel's audience, resolved when you send.
+    #[serde(skip_serializing_if = "is_false")]
+    pub to_audience: bool,
     /// Channel id.
     pub channel: String,
     /// Defaults to the channel's default level and is capped at its maximum.
@@ -217,7 +274,34 @@ pub struct Delivery {
     pub error: Option<String>,
 }
 
+/// The `status` of a [`Recipient`] outside the channel's audience: it got no message.
+pub const RECIPIENT_NO_ACCESS: &str = "no_access";
+
+/// The outcome of a send for one user. `status` is the message's status (`queued`, `undeliverable`) or
+/// [`RECIPIENT_NO_ACCESS`], in which case there is no `message_id`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[serde(default)]
+pub struct Recipient {
+    /// The user.
+    pub external_user_id: String,
+    /// The message created for the user; `None` without access.
+    #[serde(deserialize_with = "empty_as_none")]
+    pub message_id: Option<String>,
+    /// `queued`, `undeliverable` or `no_access`.
+    pub status: String,
+    /// Devices the message was queued for.
+    pub devices: u32,
+    /// Per-device state.
+    #[serde(deserialize_with = "null_as_default")]
+    pub deliveries: Vec<Delivery>,
+}
+
 /// What the hub answers to a send.
+///
+/// `recipients` has one entry per user. For a send to `external_user_id` the other fields describe that one recipient
+/// (`message_id` is empty, `status` is `no_access` and `devices` is 0 when the user is outside the audience); for
+/// several users or an audience, `message_id`, `devices` and `deliveries` are empty and each message is under
+/// `recipients`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(default)]
 pub struct MessageResult {
@@ -231,6 +315,9 @@ pub struct MessageResult {
     pub status: String,
     /// Per-device state.
     pub deliveries: Vec<Delivery>,
+    /// One entry per recipient.
+    #[serde(deserialize_with = "null_as_default")]
+    pub recipients: Vec<Recipient>,
 }
 
 /// State of a sent message. `status` is one of queued, delivered, undeliverable, paging, acked, expired.
@@ -313,6 +400,10 @@ pub struct ActivityUpdated {
 }
 
 /// A widget feed.
+///
+/// `channel` and `audience` say who may see it: without an `audience` it uses the audience of its `channel`, and with
+/// neither it is for everyone. Leaving both out keeps what is stored on the hub; naming a `channel` without an
+/// `audience` makes the feed use that channel's audience.
 #[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct Feed {
     /// Leave unset for a feed shared by all paired users.
@@ -323,8 +414,38 @@ pub struct Feed {
     /// The name the app's feed picker shows instead of the id (at most 64 bytes).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// The channel whose audience the feed uses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    /// The feed's own audience, instead of its channel's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audience: Option<Audience>,
     /// Template data.
     pub data: Value,
+}
+
+/// A feed's settings without its data, from [`Client::get_feed`](crate::Client::get_feed). `audience` is `None` while
+/// the feed inherits the audience of its `channel`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[serde(default)]
+pub struct FeedSettings {
+    /// The feed.
+    pub feed_id: String,
+    /// The user it is published for; `None` for a shared feed.
+    #[serde(deserialize_with = "empty_as_none")]
+    pub external_user_id: Option<String>,
+    /// Template rendering the feed.
+    pub template_id: String,
+    /// The name the app's feed picker shows.
+    #[serde(deserialize_with = "empty_as_none")]
+    pub title: Option<String>,
+    /// The channel whose audience the feed uses.
+    #[serde(deserialize_with = "empty_as_none")]
+    pub channel: Option<String>,
+    /// The feed's own audience.
+    pub audience: Option<Audience>,
+    /// Unix seconds of the last update.
+    pub updated_at: u64,
 }
 
 /// Answer to publishing a feed.
@@ -349,6 +470,10 @@ pub struct SoundResult {
     pub sha256: String,
     /// Size in bytes.
     pub size: u64,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 fn empty_as_none<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {

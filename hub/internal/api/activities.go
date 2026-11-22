@@ -99,6 +99,9 @@ func (s *server) startActivity(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if !s.channelAccess(w, req.ExternalUserID, ch.ID) {
+		return
+	}
 	if err := s.dw.CheckContentState(req.TemplateID, req.Data); err != nil {
 		s.contentStateErr(w, err)
 		return
@@ -227,6 +230,9 @@ func (s *server) activityToken(w http.ResponseWriter, r *http.Request, dev store
 	}
 	if a.ExternalUserID != dev.Pairing.ExternalUserID {
 		writeErr(w, http.StatusNotFound, "unknown_activity") // same answer as an unknown id: no existence oracle
+		return
+	}
+	if !s.channelAccess(w, a.ExternalUserID, a.ChannelID) {
 		return
 	}
 	if !a.EndedAt.IsZero() {

@@ -40,7 +40,7 @@ func TestMigrationsIdempotentOnReopen(t *testing.T) {
 	}
 	defer st.Close()
 	var n int
-	if err := st.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil || n != 3 { // 001_init, 002_unique_active_device and 003_feed_title, each applied once
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil || n != 4 { // 001_init, 002_unique_active_device, 003_feed_title and 004_audiences, each applied once
 		t.Fatalf("migrations applied %d times (%v)", n, err)
 	}
 	var fk int
@@ -245,11 +245,11 @@ func TestActiveDevicesForUserExcludesRevoked(t *testing.T) {
 	if err := st.RevokeDevice("d2"); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := st.RevokePairing("p2")
+	changed, err := st.RevokePairing("p2", "")
 	if err != nil || !changed {
 		t.Fatalf("revoke pairing: %v %v", changed, err)
 	}
-	if changed, _ := st.RevokePairing("p2"); changed {
+	if changed, _ := st.RevokePairing("p2", ""); changed {
 		t.Fatal("second revoke reported a change")
 	}
 	ds, _ = st.ActiveDevicesForUser("alice")

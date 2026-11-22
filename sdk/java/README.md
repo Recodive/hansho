@@ -46,7 +46,45 @@ PairingTicket ticket = hansho.createPairingTicket("user-42");
 // The hub then sends a pairing.created webhook.
 
 hansho.unpair("user-42"); // revokes every pairing of the user
+hansho.kick("user-42");   // the same call; the app tells the person that you ended it
 ```
+
+## Audiences and groups
+
+A channel or feed is open to everyone unless it has an `Audience`: `Audience.only(users, groups)` the listed users and
+groups, or `Audience.except(users, groups)` them. Users are your external user ids (they may not have paired yet); groups
+are named lists you keep on the hub. The hub decides who has access and checks it on every request, so a change applies at
+once.
+
+```java
+hansho.putGroup("oncall", List.of("alice", "bob")); // replaces the whole member list
+hansho.putChannel("pager", Channel.builder("Pager", Level.PAGE, Level.PAGE)
+    .audience(Audience.only(List.of(), List.of("oncall"))).build());
+// An absent audience keeps the one stored on the hub (a new channel starts open to everyone);
+// send Audience.everyone() to open an existing channel up.
+// The groups an audience names must exist: otherwise the hub answers 400 (e.field() "audience.groups", e.detail() "unknown group").
+
+// A feed uses its channel's audience unless it sets its own; like the title, send them with every update
+// (an absent audience keeps the stored one here too).
+hansho.putFeed("queue", Feed.of("status", Map.of("value", 3)).withChannel("pager"));
+FeedSettings settings = hansho.getFeed("queue"); // settings without the data
+
+// Send to several users, or to everyone in the channel's audience. People outside it are not delivered to.
+MessageResult res = hansho.sendMessage(Message.forAudience("pager", "DB down", "...").build());
+// Message.forUsers(List.of("alice", "carol"), "pager", "DB down", "...") is the several-users form.
+for (Recipient r : res.recipients()) {
+    if (Recipient.NO_ACCESS.equals(r.status())) { /* only with forUsers: not in the audience, no message was created */ }
+}
+```
+
+A message has exactly one target: `Message.builder(userId, ...)`, `Message.forUsers(ids, ...)` (at most 1000) or
+`Message.forAudience(...)`. For a send to one user the top-level `messageId()`, `status()`, `devices()` and
+`deliveries()` describe that user (`messageId()` is empty and `status()` is `Recipient.NO_ACCESS` if they are outside the
+audience). For several users or an audience the top-level `messageId()`, `status()`, `devices()` and `deliveries()` are
+empty and every message is under `recipients()` (an empty list for a hub that predates audiences).
+
+Error codes: `HanshoException.NO_ACCESS` (403, `startActivity` for a user outside the channel's audience) and
+`HanshoException.UNKNOWN_GROUP` (404).
 
 ## Sending
 

@@ -107,6 +107,13 @@ public sealed class HanshoClient : IDisposable
         await JsonCallAsync("DELETE", $"/api/v1/users/{Seg(externalUserId)}/pairings", null, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Ends the user's whole pairing, on every device: <see cref="UnpairAsync"/> under its sender-side name. The app
+    /// tells the person that the sender ended it (a 401 <c>pairing_revoked</c> with reason <c>kicked</c>), where an
+    /// unpair they did themselves carries no reason. There is no block list; a new ticket pairs them again.
+    /// </summary>
+    public Task KickAsync(string externalUserId, CancellationToken cancellationToken = default) => UnpairAsync(externalUserId, cancellationToken);
+
     // --- catalog -------------------------------------------------------------
 
     public async Task PutChannelAsync(string id, Channel channel, CancellationToken cancellationToken = default)
@@ -120,6 +127,7 @@ public sealed class HanshoClient : IDisposable
         Put(body, "template_id", channel.TemplateId);
         Put(body, "thread", channel.Thread);
         if (channel.Actions is not null) body["actions"] = ActionsToWire(channel.Actions);
+        if (channel.Audience is { } audience) body["audience"] = AudienceToWire(audience);
         await JsonCallAsync("PUT", $"/api/v1/channels/{Seg(id)}", body, cancellationToken).ConfigureAwait(false);
     }
 
@@ -135,12 +143,41 @@ public sealed class HanshoClient : IDisposable
             TemplateId = OptStr(w, "template_id"),
             Thread = OptStr(w, "thread"),
             Actions = ActionsFromWire(w),
+            Audience = AudienceFromWire(w),
         };
     }
 
     public async Task DeleteChannelAsync(string id, CancellationToken cancellationToken = default)
     {
         await JsonCallAsync("DELETE", $"/api/v1/channels/{Seg(id)}", null, cancellationToken).ConfigureAwait(false);
+    }
+
+    // --- groups --------------------------------------------------------------
+
+    /// <summary>
+    /// Creates a group or replaces its whole member list (external user ids, who may not have paired yet). Audiences
+    /// that name the group follow at once. Ids match <c>[A-Za-z0-9][A-Za-z0-9_-]{0,63}</c>.
+    /// </summary>
+    public async Task<Group> PutGroupAsync(string id, IEnumerable<string> members, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(members);
+        var list = new JsonArray();
+        foreach (var m in members) list.Add(JsonValue.Create(m));
+        var w = await JsonCallAsync("PUT", $"/api/v1/groups/{Seg(id)}", new JsonObject { ["members"] = list }, cancellationToken).ConfigureAwait(false);
+        return GroupFromWire(w);
+    }
+
+    /// <summary>A missing group is a <see cref="HanshoApiException"/> with code <see cref="ErrorCodes.UnknownGroup"/>.</summary>
+    public async Task<Group> GetGroupAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var w = await JsonCallAsync("GET", $"/api/v1/groups/{Seg(id)}", null, cancellationToken).ConfigureAwait(false);
+        return GroupFromWire(w);
+    }
+
+    /// <summary>An audience that still names the group matches nobody through it.</summary>
+    public async Task DeleteGroupAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await JsonCallAsync("DELETE", $"/api/v1/groups/{Seg(id)}", null, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -175,6 +212,8 @@ public sealed class HanshoClient : IDisposable
         ArgumentNullException.ThrowIfNull(message);
         var body = new JsonObject();
         Put(body, "external_user_id", message.ExternalUserId);
+        if (message.ExternalUserIds is { } ids) body["external_user_ids"] = StringsToWire(ids);
+        if (message.ToAudience) body["to_audience"] = true;
         Put(body, "channel", message.Channel);
         Put(body, "level", message.Level?.ToString());
         Put(body, "title", message.Title);
@@ -198,7 +237,7 @@ public sealed class HanshoClient : IDisposable
         if (!string.IsNullOrEmpty(message.IdempotencyKey))
             call = call with { Retry = true, Headers = new[] { ("Idempotency-Key", message.IdempotencyKey) } };
         var w = await SendAsync(call, cancellationToken).ConfigureAwait(false);
-        return new MessageResult(Str(w, "message_id"), new Level(Str(w, "level")), Int(w, "devices"), Str(w, "status"), DeliveriesFromWire(w));
+        return new MessageResult(Str(w, "message_id"), new Level(Str(w, "level")), Int(w, "devices"), Str(w, "status"), DeliveriesFromWire(w), RecipientsFromWire(w));
     }
 
     public async Task<MessageStatus> GetMessageAsync(string id, CancellationToken cancellationToken = default)
@@ -246,9 +285,20 @@ public sealed class HanshoClient : IDisposable
         Put(body, "external_user_id", feed.ExternalUserId);
         Put(body, "template_id", feed.TemplateId);
         Put(body, "title", feed.Title);
+        Put(body, "channel", feed.Channel);
+        if (feed.Audience is { } audience) body["audience"] = AudienceToWire(audience);
         body["data"] = ToNode(feed.Data);
         var w = await JsonCallAsync("PUT", path, body, cancellationToken).ConfigureAwait(false);
         return new FeedResult(Str(w, "feed_id"), Int(w, "devices"));
+    }
+
+    /// <summary>A feed's settings without its data. Leave <paramref name="externalUserId"/> null for the feed shared by all users.</summary>
+    public async Task<FeedSettings> GetFeedAsync(string id, string? externalUserId = null, CancellationToken cancellationToken = default)
+    {
+        var path = $"/api/v1/feeds/{Seg(id)}";
+        if (!string.IsNullOrEmpty(externalUserId)) path += "?external_user_id=" + Uri.EscapeDataString(externalUserId);
+        var w = await JsonCallAsync("GET", path, null, cancellationToken).ConfigureAwait(false);
+        return new FeedSettings(Str(w, "feed_id"), OptStr(w, "external_user_id"), Str(w, "template_id"), OptStr(w, "title"), OptStr(w, "channel"), AudienceFromWire(w), Long(w, "updated_at"));
     }
 
     // --- wire helpers --------------------------------------------------------
@@ -288,6 +338,21 @@ public sealed class HanshoClient : IDisposable
         return arr;
     }
 
+    private static JsonArray StringsToWire(IEnumerable<string> values)
+    {
+        var arr = new JsonArray();
+        foreach (var v in values) arr.Add(JsonValue.Create(v)); // not Add<T>: that needs reflection-based serialization
+        return arr;
+    }
+
+    private static JsonObject AudienceToWire(Audience a)
+    {
+        var o = new JsonObject { ["mode"] = a.Mode.ToString() };
+        if (a.Users.Count > 0) o["users"] = StringsToWire(a.Users);
+        if (a.Groups.Count > 0) o["groups"] = StringsToWire(a.Groups);
+        return o;
+    }
+
     private static JsonObject AlertToWire(ActivityAlert alert)
     {
         var o = new JsonObject();
@@ -313,6 +378,35 @@ public sealed class HanshoClient : IDisposable
                 Ack = a.TryGetProperty("ack", out var ack) && ack.ValueKind is JsonValueKind.True or JsonValueKind.False ? ack.GetBoolean() : null,
                 Kind = OptStr(a, "kind"),
             });
+        }
+        return list;
+    }
+
+    private static List<string> StringsFromWire(JsonElement w, string key)
+    {
+        var list = new List<string>();
+        if (w.ValueKind == JsonValueKind.Object && w.TryGetProperty(key, out var raw) && raw.ValueKind == JsonValueKind.Array)
+            foreach (var s in raw.EnumerateArray())
+                if (s.ValueKind == JsonValueKind.String) list.Add(s.GetString()!);
+        return list;
+    }
+
+    private static Audience? AudienceFromWire(JsonElement w)
+    {
+        if (w.ValueKind != JsonValueKind.Object || !w.TryGetProperty("audience", out var a) || a.ValueKind != JsonValueKind.Object) return null;
+        return new Audience { Mode = new AudienceMode(Str(a, "mode")), Users = StringsFromWire(a, "users"), Groups = StringsFromWire(a, "groups") };
+    }
+
+    private static Group GroupFromWire(JsonElement w) => new(Str(w, "id"), StringsFromWire(w, "members"));
+
+    private static IReadOnlyList<Recipient>? RecipientsFromWire(JsonElement w)
+    {
+        if (w.ValueKind != JsonValueKind.Object || !w.TryGetProperty("recipients", out var raw) || raw.ValueKind != JsonValueKind.Array) return null;
+        var list = new List<Recipient>();
+        foreach (var r in raw.EnumerateArray())
+        {
+            if (r.ValueKind != JsonValueKind.Object) continue;
+            list.Add(new Recipient(Str(r, "external_user_id"), OptStr(r, "message_id"), Str(r, "status"), Int(r, "devices"), DeliveriesFromWire(r)));
         }
         return list;
     }

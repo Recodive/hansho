@@ -326,6 +326,51 @@ func TestIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("audiences", func(t *testing.T) {
+		g, ac := p+"-oncall", p+"-aud"
+		in := hansho.Channel{Name: "Audience " + p, DefaultLevel: hansho.LevelActive, MaxLevel: hansho.LevelActive,
+			Audience: &hansho.Audience{Mode: hansho.AudienceOnly, Groups: []string{g}}}
+		err := c.PutChannel(ctx, ac, in)
+		if ae, ok := hansho.IsAPIError(err); !ok || ae.Status != 400 || ae.Field != "audience.groups" {
+			t.Fatalf("an unknown group: %v", err)
+		}
+		if _, err := c.PutGroup(ctx, g, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.PutChannel(ctx, ac, in); err != nil {
+			t.Fatal(err)
+		}
+		res, err := c.SendMessage(ctx, hansho.Message{ExternalUserID: user, Channel: ac, Title: "Hidden", Body: "b"})
+		if err != nil || res.Status != hansho.RecipientNoAccess || res.MessageID != "" || res.Devices != 0 {
+			t.Fatalf("outside the group: %+v %v", res, err)
+		}
+		if _, err := c.PutGroup(ctx, g, []string{user}); err != nil {
+			t.Fatal(err)
+		}
+		res, err = c.SendMessage(ctx, hansho.Message{ExternalUserID: user, Channel: ac, Title: "Visible", Body: "b"})
+		if err != nil || res.MessageID == "" || res.Devices < 1 {
+			t.Fatalf("inside the group: %+v %v", res, err)
+		}
+		// A republish without an audience keeps the stored one.
+		in.Audience = nil
+		if err := c.PutChannel(ctx, ac, in); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := c.GetChannel(ctx, ac); err != nil || got.Audience == nil || got.Audience.Mode != hansho.AudienceOnly {
+			t.Fatalf("%+v %v", got, err)
+		}
+		res, err = c.SendMessage(ctx, hansho.Message{ToAudience: true, Channel: ac, Title: "Everyone in", Body: "b"})
+		if err != nil || len(res.Recipients) != 1 || res.Recipients[0].ExternalUserID != user || res.Recipients[0].MessageID == "" {
+			t.Fatalf("to the audience: %+v %v", res, err)
+		}
+		if err := c.DeleteChannel(ctx, ac); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.DeleteGroup(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+	})
+
 	t.Run("unpair", func(t *testing.T) {
 		if err := c.Unpair(ctx, user); err != nil {
 			t.Fatal(err)

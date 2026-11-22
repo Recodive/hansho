@@ -181,7 +181,7 @@ func TestPageResendReachesNewDevicesAndSkipsRevoked(t *testing.T) {
 		SealedAlert: "alert-watch", SealedBackground: "bg-watch", CreatedAt: f.clk.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	f.st.RevokePairing("p2")
+	f.st.RevokePairing("p2", "")
 	f.clk.Advance(120 * time.Second)
 	f.run()
 	if len(f.pushesTo("alert-watch")) != 1 {
