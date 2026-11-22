@@ -402,7 +402,8 @@ export class Hansho {
     const signals: AbortSignal[] = [];
     if (opts?.signal) signals.push(opts.signal);
     if (this.#timeoutMs > 0) signals.push(AbortSignal.timeout(this.#timeoutMs));
-    const init: RequestInit = { method: call.method, headers };
+    // The hub never redirects; following one could hand the API key to another host.
+    const init: RequestInit = { method: call.method, headers, redirect: "manual" };
     if (call.body !== undefined) init.body = call.body;
     if (signals.length > 0) init.signal = signals.length === 1 ? signals[0]! : AbortSignal.any(signals);
     try {

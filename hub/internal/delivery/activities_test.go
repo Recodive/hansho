@@ -304,3 +304,64 @@ func TestStartActivityPlaintextStateWhenEncryptOff(t *testing.T) {
 		t.Fatalf("%v", w.APS.CS)
 	}
 }
+
+// A channel capped at passive must never produce a sound or banner, so its Live Activities go out without an alert
+// (push-to-start, update and the catch-up push for a newly registered token); a louder channel keeps it.
+func TestActivityAlertDroppedOnPassiveChannel(t *testing.T) {
+	alertOf := func(p relay.PushRequest) *ActivityAlert {
+		var w struct {
+			APS struct {
+				Alert *ActivityAlert `json:"alert"`
+			} `json:"aps"`
+		}
+		if err := json.Unmarshal(p.Payload, &w); err != nil {
+			t.Fatal(err)
+		}
+		return w.APS.Alert
+	}
+	for _, tc := range []struct {
+		maxLevel string
+		want     bool
+	}{{"passive", false}, {"active", true}} {
+		t.Run(tc.maxLevel, func(t *testing.T) {
+			f := newFixture(t)
+			if err := f.st.UpsertChannel(store.Channel{ID: "ops", Name: "Ops", DefaultLevel: "passive", MaxLevel: tc.maxLevel, Thread: "ops-thread"}); err != nil {
+				t.Fatal(err)
+			}
+			f.pairing("p1", "alice", "phone", "watch")
+			a := newActivity(f, "alice", "phone")
+			if _, err := f.w.StartActivity(t.Context(), a, &ActivityAlert{Title: "T", Body: "B"}); err != nil {
+				t.Fatal(err)
+			}
+			ps := f.pushesTo("p2s-phone")
+			if len(ps) != 1 || (alertOf(ps[0]) != nil) != tc.want {
+				t.Fatalf("start alert present = %v, want %v: %s", alertOf(ps[0]) != nil, tc.want, ps[0].Payload)
+			}
+
+			if _, err := f.st.UpdateActivityState(a.ID, `{"progress":0.5}`, 5, `{"title":"T","body":"B"}`); err != nil {
+				t.Fatal(err)
+			}
+			cur, err := f.st.GetActivity(a.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.w.PushActivityUpdate(t.Context(), cur, cur.UpdateSeq); err != nil {
+				t.Fatal(err)
+			}
+			if ps := f.pushesTo("la-phone"); len(ps) != 1 || (alertOf(ps[0]) != nil) != tc.want {
+				t.Fatalf("update alert wrong: %+v", ps)
+			}
+
+			tok, err := f.st.UpsertActivityToken(a.ID, "watch", "la-watch")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.w.SyncActivityToken(t.Context(), cur, tok); err != nil {
+				t.Fatal(err)
+			}
+			if ps := f.pushesTo("la-watch"); len(ps) != 1 || (alertOf(ps[0]) != nil) != tc.want {
+				t.Fatalf("sync alert wrong: %+v", ps)
+			}
+		})
+	}
+}

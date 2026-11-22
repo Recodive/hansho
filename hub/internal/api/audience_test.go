@@ -358,10 +358,10 @@ func TestDeviceCallsOnAnInaccessibleChannelAreRefused(t *testing.T) {
 		t.Fatalf("start: %d %s", w.Code, w.Body)
 	}
 
-	// Another user's message is still plain forbidden, not no_access: the ownership check comes first.
+	// Another user's message is still unknown to them, not no_access: the ownership check comes first.
 	bob := e.newDevice("bob-phone")
 	bob.pair("bob")
-	if w := bob.request("POST", "/device/v1/actions", map[string]any{"message_id": sent.MessageID, "action_id": "ack"}); w.Code != 403 || errCode(t, w) != "forbidden" {
+	if w := bob.request("POST", "/device/v1/actions", map[string]any{"message_id": sent.MessageID, "action_id": "ack"}); w.Code != 404 || errCode(t, w) != "unknown_message" {
 		t.Fatalf("other user's message: %d %s", w.Code, w.Body)
 	}
 

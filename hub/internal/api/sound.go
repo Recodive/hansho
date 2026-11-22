@@ -20,7 +20,7 @@ func wavDuration(b []byte) (time.Duration, error) {
 	if len(b) < 12 || string(b[0:4]) != "RIFF" || string(b[8:12]) != "WAVE" {
 		return 0, errBadAudio
 	}
-	var byteRate uint32
+	var byteRate uint64 // from sample rate and block align: the declared byte_rate field is not trusted
 	pos := 12
 	for pos+8 <= len(b) {
 		id, size := string(b[pos:pos+4]), int(binary.LittleEndian.Uint32(b[pos+4:pos+8]))
@@ -30,7 +30,7 @@ func wavDuration(b []byte) (time.Duration, error) {
 			if size < 16 || body+16 > len(b) {
 				return 0, errBadAudio
 			}
-			byteRate = binary.LittleEndian.Uint32(b[body+8 : body+12])
+			byteRate = uint64(binary.LittleEndian.Uint32(b[body+4:body+8])) * uint64(binary.LittleEndian.Uint16(b[body+12:body+14]))
 		case "data":
 			if byteRate == 0 {
 				return 0, errBadAudio
@@ -68,9 +68,9 @@ func aiffDuration(b []byte) (time.Duration, error) {
 			if rate <= 0 || math.IsInf(rate, 0) || math.IsNaN(rate) || channels <= 0 || bits <= 0 {
 				return 0, errBadAudio
 			}
-			// Also count the sample frames actually present in the SSND chunk.
-			if i := bytes.Index(b[body+size:], []byte("SSND")); i >= 0 {
-				p := body + size + i
+			// Also count the sample frames actually present in the SSND chunk, wherever it sits.
+			if i := bytes.Index(b[12:], []byte("SSND")); i >= 0 {
+				p := 12 + i
 				if p+8 <= len(b) {
 					bytesPer := channels * ((bits + 7) / 8)
 					actual := float64(max(len(b)-(p+16), 0) / bytesPer)

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/recodive/hansho/hub/internal/relay"
 	"github.com/recodive/hansho/hub/internal/store"
@@ -310,5 +311,39 @@ func TestCancelPageSkipsDevicesWithoutAlertToken(t *testing.T) {
 	n, err := f.w.CancelPage(context.Background(), f.msg(m.ID))
 	if err != nil || n != 0 {
 		t.Fatalf("sent %d err %v", n, err)
+	}
+}
+
+// A title that nearly fills the alert payload would make the cancel push (which repeats it in its body, with more
+// text around it) too big to send, and the alarm on the device would keep ringing after the acknowledgement.
+func TestCancelPageWithHugeTitleIsStillSent(t *testing.T) {
+	f := newFixture(t)
+	f.pairing("p1", "alice", "phone")
+	title := strings.Repeat("a", 2700) // fits as an alert; "<title> was acknowledged" plus the cancel envelope does not
+	m := f.enqueue("alice", "passive", func(in *EnqueueInput) { in.Plaintext.Title, in.Plaintext.Body = title, "x" }).Message
+	n, err := f.w.CancelPage(context.Background(), f.msg(m.ID))
+	if err != nil || n != 1 {
+		t.Fatalf("sent %d err %v", n, err)
+	}
+	p := f.relay.Pushes()[len(f.relay.Pushes())-1]
+	if len(p.Payload) > MaxPayloadBytes {
+		t.Fatalf("payload %d bytes", len(p.Payload))
+	}
+	_, pt := f.openPush(p, "p1")
+	if pt.Cancel != m.ID || !strings.HasSuffix(pt.Body, "… was acknowledged") || len(pt.Body) > 200 {
+		t.Fatalf("cancel plaintext %q", pt.Body)
+	}
+}
+
+func TestCancelTitleIsTruncatedOnARuneBoundary(t *testing.T) {
+	f := newFixture(t)
+	f.pairing("p1", "alice", "phone")
+	m := page(f, "alice", func(in *EnqueueInput) { in.Plaintext.Title = strings.Repeat("é", 300) })
+	if n, err := f.w.CancelPage(context.Background(), f.msg(m.ID)); err != nil || n != 1 {
+		t.Fatalf("sent %d err %v", n, err)
+	}
+	_, pt := f.openPush(f.relay.Pushes()[len(f.relay.Pushes())-1], "p1")
+	if want := strings.Repeat("é", maxCancelTitleRunes) + "… was acknowledged"; pt.Body != want || !utf8.ValidString(pt.Body) {
+		t.Fatalf("body %q", pt.Body)
 	}
 }

@@ -24,6 +24,13 @@ func (s *Store) CreateTicket(userID string, ttl time.Duration) (string, error) {
 	return ticket, nil
 }
 
+// ExpireTicketsForUser invalidates every ticket of a user, redeemed ones included: an unused one can no longer be
+// redeemed, and a redeem already past ConsumeTicket is refused by CreatePairingWithDevice.
+func (s *Store) ExpireTicketsForUser(userID string) error {
+	_, err := s.exec(`UPDATE tickets SET expires_at = 0 WHERE external_user_id = ?`, userID)
+	return err
+}
+
 // ConsumeTicket atomically redeems a ticket. Of any number of concurrent calls
 // exactly one succeeds; the rest get ErrTicketUsed (or ErrTicketExpired /
 // ErrNotFound).

@@ -81,11 +81,27 @@ func (s *Store) AddDevice(d Device) error {
 	return err
 }
 
+// MaxDevicesPerPairing caps the active devices of one pairing.
+const MaxDevicesPerPairing = 10
+
 // UpsertDevice registers a device in an existing pairing, or refreshes the registration it already has: one active
 // device per pairing and signing key. It returns the device's ID (the existing one when the device re-joined) and
-// whether a new device was created.
+// whether a new device was created. A new device beyond MaxDevicesPerPairing is refused with ErrTooManyDevices.
 func (s *Store) UpsertDevice(d Device) (id string, created bool, err error) {
-	err = s.queryRow(`INSERT INTO devices(id, pairing_id, sign_pub, platform, name,
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", false, err
+	}
+	defer tx.Rollback()
+	var active, same int
+	if err := tx.QueryRow(`SELECT COUNT(*), COALESCE(SUM(sign_pub = ?), 0) FROM devices WHERE pairing_id = ? AND revoked_at IS NULL`,
+		d.SignPub, d.PairingID).Scan(&active, &same); err != nil {
+		return "", false, err
+	}
+	if same == 0 && active >= MaxDevicesPerPairing {
+		return "", false, ErrTooManyDevices
+	}
+	err = tx.QueryRow(`INSERT INTO devices(id, pairing_id, sign_pub, platform, name,
 		sealed_alert, sealed_background, sealed_pushtostart, sealed_widgets, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(pairing_id, sign_pub) WHERE revoked_at IS NULL DO UPDATE SET
@@ -98,16 +114,28 @@ func (s *Store) UpsertDevice(d Device) (id string, created bool, err error) {
 	if err != nil {
 		return "", false, err
 	}
-	return id, id == d.ID, nil
+	return id, id == d.ID, tx.Commit()
 }
 
-// CreatePairingWithDevice inserts a pairing and its first device atomically.
-func (s *Store) CreatePairingWithDevice(p Pairing, d Device) error {
+// CreatePairingWithDevice inserts a pairing and its first device atomically, for a ticket ConsumeTicket redeemed.
+// It returns ErrTicketExpired when the ticket was expired since (ExpireTicketsForUser: the user was unpaired).
+func (s *Store) CreatePairingWithDevice(ticket string, p Pairing, d Device) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	var expires int64
+	err = tx.QueryRow(`SELECT expires_at FROM tickets WHERE ticket = ?`, hashSecret(ticket)).Scan(&expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if expires == 0 {
+		return ErrTicketExpired
+	}
 	if _, err := tx.Exec(`INSERT INTO pairings(id, external_user_id, key_wrapped, created_at) VALUES (?, ?, ?, ?)`,
 		p.ID, p.ExternalUserID, p.KeyWrapped, unix(p.CreatedAt)); err != nil {
 		return err
@@ -250,6 +278,18 @@ func (s *Store) ActivePairingsForUser(userID string) ([]Pairing, error) {
 // false when it already was (or does not exist), so callers emit side effects only once.
 func (s *Store) RevokePairing(id, by string) (changed bool, err error) {
 	res, err := s.exec(`UPDATE pairings SET revoked_at = ?, revoked_by = ? WHERE id = ? AND revoked_at IS NULL`, unix(s.Now()), by, id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// RevokePairingIfNoActiveDevices revokes a pairing whose last active device is gone. changed is false when it
+// still has an active device or was already revoked.
+func (s *Store) RevokePairingIfNoActiveDevices(id string) (changed bool, err error) {
+	res, err := s.exec(`UPDATE pairings SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL
+		AND NOT EXISTS (SELECT 1 FROM devices WHERE pairing_id = pairings.id AND revoked_at IS NULL)`, unix(s.Now()), id)
 	if err != nil {
 		return false, err
 	}

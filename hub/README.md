@@ -92,8 +92,8 @@ curl -H "Authorization: Bearer $KEY" https://hub.example.com/api/v1/messages/msg
 | `HUB_KEY_PATH` | | `./hub.key` (`/data/hub.key` in Docker) | Ed25519 hub key (PEM PKCS#8, created with mode 0600) |
 | `HUB_ID` | yes (`hub serve` refuses to start without it) | | `hub_id` from `hub relay register`; run that command before the first start |
 | `HUB_CHALLENGE_TOKEN` | until verified | | Served at `/.well-known/hansho-challenge` |
-| `HUB_WEBHOOK_URL` | | | Where events are POSTed; empty disables webhooks |
-| `HUB_WEBHOOK_SECRET` | | | HMAC key for webhook signatures |
+| `HUB_WEBHOOK_URL` | | | Where events are POSTed; empty disables webhooks. Must be `https://`, except for a loopback address or an in-cluster name (a single-label host such as `demo`, `*.svc`, `*.cluster.local`), which may use `http://`. Redirects are not followed (a 3xx counts as a failed attempt). Finished rows (delivered or dropped) are deleted from the outbox after 7 days |
+| `HUB_WEBHOOK_SECRET` | with `HUB_WEBHOOK_URL` | | HMAC key for webhook signatures; the hub refuses to start with a webhook URL and no secret. Each attempt is signed with the time of that attempt |
 | `HUB_LA_ENCRYPT` | | `true` | Encrypt Live Activity content-state as `{"blob":...}` with a per-pairing key derived from the pairing key; `false` sends plaintext `{"t","d"}`. Verified on a device with the app force-quit; push-to-start attributes always carry `pairing_id` so the app can pick the key |
 | `HUB_HOME_URL` | | `https://hansho.app` | The project site the status page at `GET /` links to (https only). `GET /` shows what the hub is (its name, domain and public key fingerprint) so that someone who opens the address in a browser is not left with a bare 404 |
 
@@ -103,6 +103,8 @@ curl -H "Authorization: Bearer $KEY" https://hub.example.com/api/v1/messages/msg
 |---|---|
 | `hub serve` | HTTP API, delivery worker (1 s tick), webhook loop (1 s tick); graceful shutdown on SIGTERM |
 | `hub apikey create <name>` | Print a new sender API key once |
+| `hub apikey list` | List sender API keys: id, name, created, revoked (never the key itself) |
+| `hub apikey revoke <id>` | Stop the key with that id from working; safe to repeat. Get the id from `hub apikey list` |
 | `hub relay register` | Register with the relay for the host of `HUB_PUBLIC_URL` |
 | `hub relay verify` | Ask the relay to check the domain challenge |
 
@@ -166,6 +168,8 @@ in the audience. A send is never refused for `no_access` as a whole.
 devices then get `401 {"error":"pairing_revoked","reason":"kicked"}`; when the person unpaired from the app themselves
 (or the relay revoked it) `reason` is absent. There is no block list: the user can pair again with a new ticket. A kick
 differs from leaving an audience, which only hides one channel or feed.
+
+`image_url` and the `url` of a `"kind": "url"` action (in a message or a channel's `actions`) must be `https://` with a host, and `collapse_id` at most 64 bytes of printable ASCII without spaces; otherwise `400`. A Live Activity's `alert` is dropped when its channel's `max_level` is `passive`.
 
 Levels, lowest to highest: `passive`, `active`, `time-sensitive`, `critical`,
 `page`. The delivered level is `min(requested ?? channel default, channel max)`.
@@ -275,6 +279,10 @@ other users' ids are omitted, so it cannot be used to probe for messages. The
 signature covers the path only, not the query string. A retired device or a
 revoked pairing is refused with `401 device_revoked` / `pairing_revoked` like
 every other device call.
+
+`POST /device/v1/actions` takes `{message_id, action_id, text?}`. The action id must be `ack`, `_dismissed`, or an
+action of the message (or of its channel), else `400`. Each device may press at most 10 times in a burst, then one per
+second (`429` with `Retry-After`). A message or activity of another user answers `404` exactly like an unknown id.
 
 ### Widget feeds: who sees which feed
 

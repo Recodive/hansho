@@ -229,7 +229,7 @@ func (s *server) activityToken(w http.ResponseWriter, r *http.Request, dev store
 		return
 	}
 	if a.ExternalUserID != dev.Pairing.ExternalUserID {
-		writeErr(w, http.StatusForbidden, "forbidden")
+		writeErr(w, http.StatusNotFound, "unknown_activity") // same answer as an unknown id: no existence oracle
 		return
 	}
 	if !s.channelAccess(w, a.ExternalUserID, a.ChannelID) {

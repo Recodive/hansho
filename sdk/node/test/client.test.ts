@@ -162,6 +162,18 @@ describe("retries", () => {
     );
   });
 
+  it("does not follow redirects", async () => {
+    await withHub(undefined, async (target) => {
+      await withHub(
+        (_r, reply) => Object.assign(reply, { status: 307, headers: { location: target.url + "/elsewhere" } }),
+        async (h) => {
+          await assert.rejects(h.client.putChannel("ops", channel), (e: unknown) => e instanceof HanshoError && e.status === 307);
+          assert.equal(target.requests.length, 0);
+        },
+      );
+    });
+  });
+
   it("does not retry statuses other than 429/503", async () => {
     for (const status of [400, 401, 404, 409, 500, 502]) {
       await withHub(

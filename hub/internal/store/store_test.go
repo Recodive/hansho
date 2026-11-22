@@ -136,6 +136,34 @@ func TestConsumeTicketConcurrent(t *testing.T) {
 	}
 }
 
+// A redeem that consumed its ticket just before the user was unpaired must not create the pairing after it.
+func TestTicketExpiredForUserRefusesARedeemInFlight(t *testing.T) {
+	st := openTest(t)
+	tk, _ := st.CreateTicket("user-1", time.Hour)
+	unused, _ := st.CreateTicket("user-1", time.Hour)
+	other, _ := st.CreateTicket("user-2", time.Hour)
+	if _, err := st.ConsumeTicket(tk, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ExpireTicketsForUser("user-1"); err != nil {
+		t.Fatal(err)
+	}
+	err := st.CreatePairingWithDevice(tk, Pairing{ID: "p1", ExternalUserID: "user-1", KeyWrapped: []byte("w"), CreatedAt: t0},
+		Device{ID: "d1", PairingID: "p1", SignPub: []byte("s"), Platform: "ios", Name: "d1", CreatedAt: t0})
+	if !errors.Is(err, ErrTicketExpired) {
+		t.Fatalf("create after unpair: %v", err)
+	}
+	if _, err := st.GetPairing("p1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("pairing created: %v", err)
+	}
+	if _, err := st.ConsumeTicket(unused, t0); !errors.Is(err, ErrTicketExpired) {
+		t.Fatalf("unused ticket: %v", err)
+	}
+	if _, err := st.ConsumeTicket(other, t0); err != nil {
+		t.Fatalf("other user's ticket: %v", err)
+	}
+}
+
 func TestAPIKeyLookup(t *testing.T) {
 	st := openTest(t)
 	key, err := st.CreateAPIKey("backend")

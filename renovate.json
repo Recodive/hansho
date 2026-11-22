@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":semanticCommits", ":dependencyDashboard"],
+  "extends": ["config:recommended", ":semanticCommits", ":dependencyDashboard", "helpers:pinGitHubActionDigests"],
   "labels": ["dependencies"],
   "minimumReleaseAge": "3 days",
   "vulnerabilityAlerts": { "labels": ["dependencies", "security"], "minimumReleaseAge": null },

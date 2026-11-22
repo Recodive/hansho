@@ -40,6 +40,9 @@ var knownEvents = map[string]bool{
 }
 
 const (
+	// retention is how long finished (delivered or dropped) outbox rows are kept; the outbox is pruned once a minute.
+	retention     = 7 * 24 * time.Hour
+	pruneInterval = time.Minute
 	baseBackoff   = 10 * time.Second
 	maxAttempts   = 8
 	batchSize     = 100
@@ -56,12 +59,15 @@ type Dispatcher struct {
 	secret []byte
 	hc     *http.Client
 	now    func() time.Time
+
+	lastPrune time.Time // only touched by RunOnce
 }
 
 // New creates a dispatcher. An empty url disables webhooks. hc and now may be nil.
 func New(st *store.Store, url string, secret []byte, hc *http.Client, now func() time.Time) *Dispatcher {
 	if hc == nil {
-		hc = &http.Client{Timeout: requestTimout}
+		// A redirect would carry the signed body to a host the operator never configured.
+		hc = &http.Client{Timeout: requestTimout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
 	if now == nil {
 		now = time.Now
@@ -98,6 +104,7 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (sent int, err error) {
 		return 0, nil
 	}
 	now := d.now()
+	d.prune(now)
 	due, err := d.st.DueWebhooks(now, batchSize)
 	if err != nil {
 		return 0, err
@@ -106,14 +113,28 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (sent int, err error) {
 		if ctx.Err() != nil {
 			return sent, ctx.Err()
 		}
-		if d.deliver(ctx, w, now) {
+		if d.deliver(ctx, w) {
 			sent++
 		}
 	}
 	return sent, nil
 }
 
-func (d *Dispatcher) deliver(ctx context.Context, w store.Webhook, now time.Time) bool {
+// prune deletes finished rows older than the retention period, at most once per pruneInterval.
+func (d *Dispatcher) prune(now time.Time) {
+	if now.Sub(d.lastPrune) < pruneInterval {
+		return
+	}
+	d.lastPrune = now
+	if _, err := d.st.PruneWebhooks(now.Add(-retention)); err != nil {
+		slog.Error("webhook: prune failed", "err", err)
+	}
+}
+
+// deliver makes one attempt. The signature timestamp and the stored times come from the clock at the attempt, not from
+// the start of the batch: after a slow receiver, later rows would otherwise carry a stale timestamp.
+func (d *Dispatcher) deliver(ctx context.Context, w store.Webhook) bool {
+	now := d.now()
 	payload, _ := json.Marshal(body{ID: strconv.FormatInt(w.ID, 10), Event: w.Event, CreatedAt: w.CreatedAt.Unix(), Data: w.PayloadJSON})
 	ok := d.post(ctx, payload, now)
 	switch {
