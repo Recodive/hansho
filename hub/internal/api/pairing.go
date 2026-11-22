@@ -345,7 +345,7 @@ func (s *server) revokePairing(ctx context.Context, p store.Pairing, by string) 
 	if err != nil {
 		return false, err
 	}
-	changed, err := s.Store.RevokePairing(p.ID)
+	changed, err := s.Store.RevokePairing(p.ID, by)
 	if err != nil || !changed {
 		return false, err
 	}

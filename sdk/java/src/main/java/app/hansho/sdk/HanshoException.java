@@ -9,6 +9,11 @@ import java.time.Duration;
 public class HanshoException extends RuntimeException {
     private static final long serialVersionUID = 1L;
 
+    /** {@link #code()} of a 403: the user is outside the channel's audience ({@link Hansho#startActivity} for such a user). */
+    public static final String NO_ACCESS = "no_access";
+    /** {@link #code()} of a 404: the group does not exist ({@link Hansho#getGroup}, {@link Hansho#deleteGroup}). */
+    public static final String UNKNOWN_GROUP = "unknown_group";
+
     private final int status;
     private final String code;
     private final String field;

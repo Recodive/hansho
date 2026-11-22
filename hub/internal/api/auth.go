@@ -108,7 +108,12 @@ func (s *server) withDevice(h deviceHandler) http.HandlerFunc {
 		// revoked pairing: the app re-registers in the first case and discards the pairing only in the second.
 		switch {
 		case !dev.Pairing.RevokedAt.IsZero():
-			writeErr(w, http.StatusUnauthorized, "pairing_revoked")
+			// A sender's kick says so; an unpair from a device, or any older revocation, carries no reason.
+			resp := map[string]string{"error": "pairing_revoked"}
+			if dev.Pairing.RevokedBy == "sender" {
+				resp["reason"] = "kicked"
+			}
+			writeJSON(w, http.StatusUnauthorized, resp)
 			return
 		case !dev.RevokedAt.IsZero():
 			writeErr(w, http.StatusUnauthorized, "device_revoked")

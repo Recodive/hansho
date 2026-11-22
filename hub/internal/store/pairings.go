@@ -14,6 +14,7 @@ type Pairing struct {
 	KeyWrapped     []byte // pairing key wrapped with the hub master key
 	CreatedAt      time.Time
 	RevokedAt      time.Time // zero when active
+	RevokedBy      string    // "sender" (a kick), "device" or "relay"; "" while active
 }
 
 // Device is one app install within a pairing.
@@ -174,7 +175,7 @@ func (s *Store) ClearDeviceToken(deviceID string, kind TokenKind) error {
 
 const deviceCols = `d.id, d.pairing_id, d.sign_pub, d.platform, d.name,
 	d.sealed_alert, d.sealed_background, d.sealed_pushtostart, d.sealed_widgets, d.created_at, d.revoked_at,
-	p.id, p.external_user_id, p.key_wrapped, p.created_at, p.revoked_at`
+	p.id, p.external_user_id, p.key_wrapped, p.created_at, p.revoked_at, p.revoked_by`
 
 func scanDevice(sc interface{ Scan(...any) error }) (DeviceWithPairing, error) {
 	var d DeviceWithPairing
@@ -182,7 +183,7 @@ func scanDevice(sc interface{ Scan(...any) error }) (DeviceWithPairing, error) {
 	var dr, pr sql.NullInt64
 	err := sc.Scan(&d.ID, &d.PairingID, &d.SignPub, &d.Platform, &d.Name,
 		&d.SealedAlert, &d.SealedBackground, &d.SealedPushToStart, &d.SealedWidgets, &dc, &dr,
-		&d.Pairing.ID, &d.Pairing.ExternalUserID, &d.Pairing.KeyWrapped, &pc, &pr)
+		&d.Pairing.ID, &d.Pairing.ExternalUserID, &d.Pairing.KeyWrapped, &pc, &pr, &d.Pairing.RevokedBy)
 	if err != nil {
 		return d, err
 	}
@@ -240,8 +241,8 @@ func (s *Store) GetPairing(id string) (Pairing, error) {
 	var p Pairing
 	var c int64
 	var r sql.NullInt64
-	err := s.queryRow(`SELECT id, external_user_id, key_wrapped, created_at, revoked_at FROM pairings WHERE id = ?`, id).
-		Scan(&p.ID, &p.ExternalUserID, &p.KeyWrapped, &c, &r)
+	err := s.queryRow(`SELECT id, external_user_id, key_wrapped, created_at, revoked_at, revoked_by FROM pairings WHERE id = ?`, id).
+		Scan(&p.ID, &p.ExternalUserID, &p.KeyWrapped, &c, &r, &p.RevokedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Pairing{}, ErrNotFound
 	}
@@ -273,10 +274,10 @@ func (s *Store) ActivePairingsForUser(userID string) ([]Pairing, error) {
 	return out, rows.Err()
 }
 
-// RevokePairing marks a pairing revoked. changed is false when it already was
-// (or does not exist), so callers emit side effects only once.
-func (s *Store) RevokePairing(id string) (changed bool, err error) {
-	res, err := s.exec(`UPDATE pairings SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`, unix(s.Now()), id)
+// RevokePairing marks a pairing revoked and records who ended it (by: "sender", "device" or "relay"). changed is
+// false when it already was (or does not exist), so callers emit side effects only once.
+func (s *Store) RevokePairing(id, by string) (changed bool, err error) {
+	res, err := s.exec(`UPDATE pairings SET revoked_at = ?, revoked_by = ? WHERE id = ? AND revoked_at IS NULL`, unix(s.Now()), by, id)
 	if err != nil {
 		return false, err
 	}

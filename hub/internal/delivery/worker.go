@@ -170,6 +170,15 @@ func (w *Worker) pushAlert(ctx context.Context, m store.Message, ch store.Channe
 	return w.classify(ctx, err, dev, c, func() { w.clearTokens(dev.ID, store.TokenAlert, store.TokenBackground) })
 }
 
+// canAccess reports whether the user is in the channel's audience now.
+func (w *Worker) canAccess(user string, ch store.Channel) (bool, error) {
+	acc, err := w.st.AccessFor(user)
+	if err != nil {
+		return false, err
+	}
+	return acc.Allows(ch.Audience), nil
+}
+
 func (w *Worker) clearTokens(deviceID string, kinds ...store.TokenKind) {
 	for _, k := range kinds {
 		if err := w.st.ClearDeviceToken(deviceID, k); err != nil {
@@ -251,6 +260,11 @@ func (w *Worker) processQueued(ctx context.Context, m store.Message, limited map
 	if err != nil {
 		return err
 	}
+	// Access is checked again here, not only when the message was accepted: a user who lost it meanwhile gets nothing.
+	allowed, err := w.canAccess(m.ExternalUserID, ch)
+	if err != nil {
+		return err
+	}
 	cache := newEnvCache()
 	cache.limited = limited
 	var retryAfter time.Duration
@@ -262,7 +276,10 @@ func (w *Worker) processQueued(ctx context.Context, m store.Message, limited map
 		if err != nil {
 			return err
 		}
-		res := w.pushAlert(ctx, m, ch, plaintext, dev, cache)
+		res := sendResult{kind: sendSkipped, errCode: "no_access"}
+		if allowed {
+			res = w.pushAlert(ctx, m, ch, plaintext, dev, cache)
+		}
 		switch res.kind {
 		case sendSent:
 			d.Status, d.APNsID, d.Error = store.DelSent, res.apnsID, ""

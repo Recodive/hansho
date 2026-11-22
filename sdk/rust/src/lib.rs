@@ -40,11 +40,12 @@ mod types;
 mod webhook;
 
 pub use client::{Client, ClientBuilder, NAME, VERSION};
-pub use error::{ApiError, Error, NetworkError, Result};
+pub use error::{ApiError, Error, NetworkError, Result, CODE_NO_ACCESS, CODE_UNKNOWN_GROUP};
 pub use serde_json::{json, Value};
 pub use types::{
-    Action, Activity, ActivityAlert, ActivityStarted, ActivityUpdate, ActivityUpdated, Channel, Delivery, Feed, FeedResult, Level, Message,
-    MessageResult, MessageStatus, PageOptions, PairingTicket, SoundResult,
+    Action, Activity, ActivityAlert, ActivityStarted, ActivityUpdate, ActivityUpdated, Audience, AudienceMode, Channel, Delivery, Feed,
+    FeedResult, FeedSettings, Group, Level, Message, MessageResult, MessageStatus, PageOptions, PairingTicket, Recipient, SoundResult,
+    RECIPIENT_NO_ACCESS,
 };
 pub use webhook::{
     verify_webhook, ActionTaken, ActivityEnded, Event, EventData, MessageAcked, MessageDelivered, MessageDismissed, MessageExpired,

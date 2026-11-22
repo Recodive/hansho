@@ -63,6 +63,14 @@ func IsAPIError(err error) (*APIError, bool) {
 	return nil, false
 }
 
+// Error codes of the hub that callers commonly branch on (APIError.Code).
+const (
+	// CodeNoAccess: the user is outside the channel's audience (StartActivity for such a user).
+	CodeNoAccess = "no_access"
+	// CodeUnknownGroup: the group does not exist (GetGroup, DeleteGroup).
+	CodeUnknownGroup = "unknown_group"
+)
+
 // ErrEmptyID is returned when a required identifier is empty.
 var ErrEmptyID = errors.New("hansho: id must not be empty")
 

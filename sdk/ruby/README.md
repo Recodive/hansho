@@ -46,7 +46,44 @@ ticket = hansho.create_pairing_ticket("user-42")
 # The hub then sends a pairing.created webhook.
 
 hansho.unpair("user-42") # revokes every pairing of the user
+hansho.kick("user-42")   # the same call; the app tells the person that you ended it
 ```
+
+## Audiences and groups
+
+A channel or feed is open to everyone unless it has an `audience:`: `mode: :only` the listed users and groups, or
+`mode: :except` them. Users are your external user ids (they may not have paired yet); groups are named lists you keep
+on the hub, and every group an audience names must exist (a channel or feed naming a missing one is refused with a
+400, `e.field == "audience.groups"`). The hub decides who has access and checks it on every request, so a change
+applies at once.
+
+```ruby
+hansho.put_group("oncall", %w[alice bob]) # replaces the whole member list; get_group, delete_group
+hansho.put_channel("pager", name: "Pager", default_level: :page, max_level: :page,
+                            audience: { mode: :only, groups: ["oncall"] })
+# Leaving audience: out keeps the one stored on the hub, so a republish never widens access.
+# Send audience: { mode: :everyone } to open a channel up again.
+
+# A feed uses its channel's audience unless it sets its own. Leaving both out keeps the stored ones.
+hansho.put_feed("queue", template_id: "status", channel: "pager", data: { value: 3 })
+settings = hansho.get_feed("queue") # the settings without the data; pass external_user_id: for a per-user feed
+
+# Send to several users, or to everyone in the channel's audience. People outside it are not delivered to.
+res = hansho.send_message(to_audience: true, channel: "pager", title: "DB down", body: "...")
+res.recipients.each do |r|
+  next unless r.status == Hansho::RECIPIENT_NO_ACCESS # only with external_user_id(s): not in the audience, no message
+end
+```
+
+`send_message` takes exactly one of `external_user_id:`, `external_user_ids:` (at most 1000) and `to_audience: true`.
+The answer has one `Recipient` per user in `res.recipients` (`message_id` is `nil` for `"no_access"`). For
+`external_user_id:` the top-level fields describe that one recipient (`message_id` is `""`, `status` is
+`"no_access"` and `devices` is 0 without access); for several users or an audience the top-level `message_id`,
+`devices` and `status` are `nil`, `deliveries` is empty and each message is under `recipients`. `audience` comes
+back from `get_channel` and `get_feed` as a Hash with Symbol keys.
+
+Error codes: `Hansho::APIError::NO_ACCESS` (403, `start_activity` for a user outside the channel's audience) and
+`Hansho::APIError::UNKNOWN_GROUP` (404), compared against `e.code`.
 
 ## Sending
 

@@ -2,6 +2,11 @@ use std::error::Error as StdError;
 use std::fmt;
 use std::time::Duration;
 
+/// Error code (`ApiError::code`): the user is outside the channel's audience (403, `start_activity` for such a user).
+pub const CODE_NO_ACCESS: &str = "no_access";
+/// Error code (`ApiError::code`): the group does not exist (404, `get_group` and `delete_group`).
+pub const CODE_UNKNOWN_GROUP: &str = "unknown_group";
+
 /// A non-2xx answer from the hub. The API key never appears in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiError {

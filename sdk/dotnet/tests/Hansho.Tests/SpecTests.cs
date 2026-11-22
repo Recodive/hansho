@@ -94,6 +94,39 @@ public class SpecTests
             Title = "Uptime",
             Data = new Dictionary<string, object> { ["up"] = true, ["ms"] = 41 },
         }), new FeedResult("uptime", 2)),
+        ["putGroup"] = (async c => await c.PutGroupAsync("oncall", new[] { "alice", "bob" }), new Group("oncall", new[] { "alice", "bob" })),
+        ["getGroup"] = (async c => await c.GetGroupAsync("oncall"), new Group("oncall", new[] { "alice", "bob" })),
+        ["deleteGroup"] = (async c => { await c.DeleteGroupAsync("oncall"); return null; }, null),
+        ["kick"] = (async c => { await c.KickAsync("user-42"); return null; }, null),
+        ["putChannelWithAudience"] = (async c =>
+        {
+            await c.PutChannelAsync("ops", new Channel
+            {
+                Name = "Operations",
+                DefaultLevel = Level.Active,
+                MaxLevel = Level.Critical,
+                Audience = new Audience { Mode = AudienceMode.Only, Users = new[] { "alice" }, Groups = new[] { "oncall" } },
+            });
+            return null;
+        }, null),
+        ["putFeedWithChannel"] = (async c => await c.PutFeedAsync("uptime", new Feed
+        {
+            TemplateId = "status",
+            Channel = "ops",
+            Audience = new Audience { Mode = AudienceMode.Only, Users = new[] { "alice" }, Groups = new[] { "oncall" } },
+            Data = new Dictionary<string, object> { ["up"] = true },
+        }), new FeedResult("uptime", 1)),
+        ["sendToAudience"] = (async c => await c.SendMessageAsync(new Message
+        {
+            ToAudience = true,
+            Channel = "ops",
+            Title = "Deploy done",
+            Body = "v1.2.3 is live",
+        }), new MessageResult("", Level.Active, 0, "", Array.Empty<Delivery>(), new[]
+        {
+            new Recipient("alice", "msg_7", "queued", 1, new[] { new Delivery("dev_1", "queued", null) }),
+            new Recipient("carol", null, Recipient.NoAccess, 0, Array.Empty<Delivery>()),
+        })),
     };
 
     [Theory]
@@ -134,7 +167,7 @@ public class SpecTests
     public void EverySpecOperationAndEverySdkCallIsCovered()
     {
         var names = Spec.Operations.Select(o => o.Name).ToHashSet();
-        Assert.True(names.Count >= 14);
+        Assert.True(names.Count >= 21);
         foreach (var k in Calls.Keys) Assert.Contains(k, names);
         foreach (var n in names) Assert.True(Calls.ContainsKey(n), $"spec operation {n} has no SDK call");
     }

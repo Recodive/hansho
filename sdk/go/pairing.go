@@ -18,6 +18,13 @@ func (c *Client) CreatePairingTicket(ctx context.Context, externalUserID string)
 	return out, err
 }
 
+// Kick ends the user's whole pairing, on every device. It is Unpair under its sender-side name: the app tells the
+// person that the sender ended it (a 401 pairing_revoked with reason "kicked"), where an unpair they did themselves
+// carries no reason. There is no block list; a new ticket pairs them again.
+func (c *Client) Kick(ctx context.Context, externalUserID string) error {
+	return c.Unpair(ctx, externalUserID)
+}
+
 // Unpair revokes every pairing of the user.
 func (c *Client) Unpair(ctx context.Context, externalUserID string) error {
 	if externalUserID == "" {

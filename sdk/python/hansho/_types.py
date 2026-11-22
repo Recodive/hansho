@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, List, Literal, Mapping, Optional, Tuple
 
@@ -28,6 +28,31 @@ class PairingTicket:
     expires_at: datetime
 
 
+#: How an :class:`Audience` reads its lists: everyone, only the listed, or everyone except the listed.
+AudienceMode = Literal["everyone", "only", "except"]
+
+
+@dataclass
+class Audience:
+    """Who may use a channel or feed.
+
+    ``users`` are your external user ids (they may not have paired yet) and ``groups`` are group ids
+    (see :meth:`Hansho.put_group`; every group must exist when you save). Both must be empty for ``"everyone"``.
+    """
+
+    mode: AudienceMode
+    users: List[str] = field(default_factory=list)
+    groups: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Group:
+    """A named list of users, used in audiences."""
+
+    id: str
+    members: List[str]
+
+
 @dataclass
 class Channel:
     name: str
@@ -37,6 +62,9 @@ class Channel:
     template_id: Optional[str] = None
     thread: Optional[str] = None
     actions: Optional[List[Action]] = None
+    #: Who may use the channel. ``None`` keeps the audience stored on the hub (a new channel is open to
+    #: everyone); send ``Audience("everyone")`` to open a channel up again. ``get_channel`` always returns one.
+    audience: Optional[Audience] = None
 
 
 @dataclass
@@ -49,10 +77,18 @@ class PageOptions:
 
 @dataclass
 class Message:
-    external_user_id: str
-    channel: str
-    title: str
-    body: str
+    """A notification for one user, for several, or for a channel's audience.
+
+    Give exactly one of ``external_user_id``, ``external_user_ids`` and ``to_audience``; ``channel``, ``title`` and
+    ``body`` are required too (they default to ``""`` only so that ``external_user_id`` can stay the first
+    positional argument; the hub refuses a send without them). Users outside the channel's audience are not
+    delivered to: their entry in :attr:`MessageResult.recipients` has status ``"no_access"``.
+    """
+
+    external_user_id: Optional[str] = None
+    channel: str = ""
+    title: str = ""
+    body: str = ""
     level: Optional[Level] = None
     subtitle: Optional[str] = None
     image_url: Optional[str] = None
@@ -67,6 +103,10 @@ class Message:
     #: ``Idempotency-Key`` header, never in the body. The hub ignores it today,
     #: so a retried send is at-least-once.
     idempotency_key: Optional[str] = None
+    #: Send to several users at once (at most 1000).
+    external_user_ids: Optional[List[str]] = None
+    #: Send to every paired user in the channel's audience, resolved when you send.
+    to_audience: Optional[bool] = None
 
 
 @dataclass(frozen=True)
@@ -76,13 +116,39 @@ class Delivery:
     error: Optional[str] = None
 
 
+#: The ``status`` of a :class:`Recipient` outside the channel's audience: it got no message.
+RECIPIENT_NO_ACCESS = "no_access"
+
+
+@dataclass(frozen=True)
+class Recipient:
+    """The outcome of a send for one user. ``status`` is the message status (queued, undeliverable) or
+    ``"no_access"``, in which case there is no ``message_id``."""
+
+    external_user_id: str
+    status: str
+    message_id: Optional[str] = None
+    devices: int = 0
+    deliveries: List[Delivery] = field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class MessageResult:
+    """The answer to ``send_message``.
+
+    For a send to ``external_user_id`` the other fields describe that one recipient (``message_id`` is ``""``,
+    ``status`` is ``"no_access"`` and ``devices`` is 0 when the user is outside the audience). For several users
+    or an audience ``message_id``, ``devices`` and ``deliveries`` are empty and each message is under
+    ``recipients``.
+    """
+
     message_id: str
     level: str
     devices: int
     status: str
     deliveries: List[Delivery]
+    #: One entry per user; empty when talking to a hub that predates audiences.
+    recipients: List[Recipient] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -140,6 +206,24 @@ class Feed:
     external_user_id: Optional[str] = None
     #: The name the app's feed picker shows instead of the id (at most 64 bytes).
     title: Optional[str] = None
+    #: The feed uses this channel's audience unless it sets its own.
+    channel: Optional[str] = None
+    #: Who may see the feed. With neither this nor ``channel`` it is for everyone; leaving both out keeps the
+    #: values stored on the hub.
+    audience: Optional[Audience] = None
+
+
+@dataclass(frozen=True)
+class FeedSettings:
+    """A feed without its data, from ``get_feed``. ``audience`` is ``None`` while the feed inherits its channel's."""
+
+    feed_id: str
+    template_id: str
+    updated_at: int
+    external_user_id: Optional[str] = None
+    title: Optional[str] = None
+    channel: Optional[str] = None
+    audience: Optional[Audience] = None
 
 
 @dataclass(frozen=True)
