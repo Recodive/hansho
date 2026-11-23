@@ -96,6 +96,7 @@ curl -H "Authorization: Bearer $KEY" https://hub.example.com/api/v1/messages/msg
 | `HUB_WEBHOOK_SECRET` | with `HUB_WEBHOOK_URL` | | HMAC key for webhook signatures; the hub refuses to start with a webhook URL and no secret. Each attempt is signed with the time of that attempt |
 | `HUB_LA_ENCRYPT` | | `true` | Encrypt Live Activity content-state as `{"blob":...}` with a per-pairing key derived from the pairing key; `false` sends plaintext `{"t","d"}`. Verified on a device with the app force-quit; push-to-start attributes always carry `pairing_id` so the app can pick the key |
 | `HUB_LOGO_FILE` | | | Path to a PNG logo (64 to 1024 px each way, at most 256 KB). The hub serves it at `/_hub/logo.png` and names it in its info, and the app shows it next to the hub's name once a person has paired; without it the app draws the name's initial |
+| `HUB_LOGO_URL` | | | The same logo from an https URL instead of a file (not both). The hub downloads it once at start and serves it itself, so phones never contact that host; if the download fails the hub starts without a logo and logs a warning |
 | `HUB_HOME_URL` | | `https://hansho.app` | The project site the status page at `GET /` links to (https only). `GET /` shows what the hub is (its name, domain and public key fingerprint) so that someone who opens the address in a browser is not left with a bare 404 |
 
 ## Commands

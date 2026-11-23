@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"image"
 	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,6 +168,42 @@ func TestWebhookURLNeedsSecretAndHTTPS(t *testing.T) {
 	}
 	if _, err := Load(env(validEnv())); err != nil {
 		t.Errorf("no webhook at all stays valid: %v", err)
+	}
+}
+
+func TestLogoURLIsFetchedOnceAndAFailureDoesNotStopTheHub(t *testing.T) {
+	var b bytes.Buffer
+	_ = png.Encode(&b, image.NewRGBA(image.Rect(0, 0, 128, 128)))
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/logo.png" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(b.Bytes())
+	}))
+	defer srv.Close()
+	old := logoClient
+	logoClient = srv.Client()
+	defer func() { logoClient = old }()
+
+	load := func(m map[string]string) (Config, error) {
+		e := validEnv()
+		for k, v := range m {
+			e[k] = v
+		}
+		return Load(env(e))
+	}
+	if c, err := load(map[string]string{"HUB_LOGO_URL": srv.URL + "/logo.png"}); err != nil || !bytes.Equal(c.Logo, b.Bytes()) {
+		t.Fatalf("fetch: %v", err)
+	}
+	if c, err := load(map[string]string{"HUB_LOGO_URL": srv.URL + "/gone.png"}); err != nil || c.Logo != nil {
+		t.Fatalf("a 404 must leave the hub running without a logo: %v", err)
+	}
+	if _, err := load(map[string]string{"HUB_LOGO_URL": "http://insecure.example/logo.png"}); err != nil {
+		t.Fatalf("a bad URL is skipped like any failed fetch: %v", err)
+	}
+	if _, err := load(map[string]string{"HUB_LOGO_URL": srv.URL, "HUB_LOGO_FILE": "x.png"}); err == nil {
+		t.Fatal("both set must be an error")
 	}
 }
 

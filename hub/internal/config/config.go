@@ -7,10 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"image/png"
+	"io"
+	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 // DefaultRelayURL is the relay Hansho runs. HUB_RELAY_URL overrides it only for testing against another relay.
@@ -83,9 +87,17 @@ func Load(getenv func(string) string) (Config, error) {
 			return Config{}, err
 		}
 	}
-	if f := getenv("HUB_LOGO_FILE"); f != "" {
+	switch f, u := getenv("HUB_LOGO_FILE"), getenv("HUB_LOGO_URL"); {
+	case f != "" && u != "":
+		return Config{}, errors.New("config: set HUB_LOGO_FILE or HUB_LOGO_URL, not both")
+	case f != "":
 		if c.Logo, err = loadLogo(f); err != nil {
 			return Config{}, err
+		}
+	case u != "":
+		// A logo that cannot be fetched must not keep the hub from starting: it runs without one until the next start.
+		if c.Logo, err = fetchLogo(u); err != nil {
+			slog.Warn("hub logo skipped", "err", err)
 		}
 	}
 	mk, err := base64.StdEncoding.DecodeString(getenv("HUB_MASTER_KEY"))
@@ -113,12 +125,49 @@ func loadLogo(path string) ([]byte, error) {
 	if len(b) > MaxLogoBytes {
 		return nil, fmt.Errorf("config: HUB_LOGO_FILE is %d bytes, at most %d", len(b), MaxLogoBytes)
 	}
+	if err := checkLogo(b); err != nil {
+		return nil, fmt.Errorf("config: HUB_LOGO_FILE: %w", err)
+	}
+	return b, nil
+}
+
+func checkLogo(b []byte) error {
 	cfg, err := png.DecodeConfig(bytes.NewReader(b))
 	if err != nil {
-		return nil, errors.New("config: HUB_LOGO_FILE must be a PNG")
+		return errors.New("must be a PNG")
 	}
 	if cfg.Width < 64 || cfg.Height < 64 || cfg.Width > 1024 || cfg.Height > 1024 {
-		return nil, fmt.Errorf("config: HUB_LOGO_FILE is %dx%d, it must be 64 to 1024 pixels each way", cfg.Width, cfg.Height)
+		return fmt.Errorf("is %dx%d, it must be 64 to 1024 pixels each way", cfg.Width, cfg.Height)
+	}
+	return nil
+}
+
+// logoClient fetches HUB_LOGO_URL; a variable so a test can trust its own server.
+var logoClient = &http.Client{Timeout: 10 * time.Second}
+
+// fetchLogo downloads the logo once, at start. The hub serves it from then on, so devices never contact the logo's host.
+func fetchLogo(raw string) ([]byte, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return nil, errors.New("config: HUB_LOGO_URL must be an https URL with a host")
+	}
+	resp, err := logoClient.Get(raw)
+	if err != nil {
+		return nil, fmt.Errorf("config: HUB_LOGO_URL: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("config: HUB_LOGO_URL answered %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, MaxLogoBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("config: HUB_LOGO_URL: %w", err)
+	}
+	if len(b) > MaxLogoBytes {
+		return nil, fmt.Errorf("config: HUB_LOGO_URL is larger than %d bytes", MaxLogoBytes)
+	}
+	if err := checkLogo(b); err != nil {
+		return nil, fmt.Errorf("config: HUB_LOGO_URL %w", err)
 	}
 	return b, nil
 }
