@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/recodive/hansho/hub/internal/level"
 	"github.com/recodive/hansho/hub/internal/store"
@@ -208,37 +209,52 @@ func (s *server) putTemplate(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, body, &req) {
 		return
 	}
-	if req.Version < 1 {
-		writeFieldErr(w, http.StatusBadRequest, "invalid_request", "version", "must be a positive integer")
-		return
-	}
-	if len(req.Body) == 0 {
-		writeFieldErr(w, http.StatusBadRequest, "invalid_request", "body", "required")
-		return
-	}
-	if err := template.Validate(req.Body); err != nil {
-		var fe *template.FieldError
-		field := "body"
-		msg := err.Error()
-		if errors.As(err, &fe) {
-			if fe.Path != "" {
-				field = "body." + fe.Path
-			}
-			msg = fe.Msg
-		}
-		writeFieldErr(w, http.StatusBadRequest, "invalid_template", field, msg)
-		return
-	}
-	err := s.Store.PutTemplate(id, req.Version, req.Body)
-	if errors.Is(err, store.ErrVersionConflict) {
-		writeErr(w, http.StatusConflict, "version_conflict")
-		return
-	}
-	if err != nil {
-		s.internal(w, "put template failed", err)
+	if e := s.saveTemplate(id, req.Version, req.Body); e != nil {
+		s.fail(w, e)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "version": req.Version})
+}
+
+// checkTemplate validates a template body with the hub's validator. A failure names the first problem, as
+// "body.<path>" and the reason.
+func checkTemplate(body json.RawMessage) *apiError {
+	err := template.Validate(body)
+	if err == nil {
+		return nil
+	}
+	var fe *template.FieldError
+	field := "body"
+	msg := err.Error()
+	if errors.As(err, &fe) {
+		if fe.Path != "" {
+			field = "body." + fe.Path
+		}
+		msg = fe.Msg
+	}
+	return &apiError{Status: http.StatusBadRequest, Code: "invalid_template", Field: field, Msg: msg}
+}
+
+// saveTemplate validates a template body and stores it as version. The caller has checked that id matches idPattern.
+// It is the one place the API and the admin UI share the rules, including "the version must increase".
+func (s *server) saveTemplate(id string, version int, body json.RawMessage) *apiError {
+	if version < 1 {
+		return badField("version", "must be a positive integer")
+	}
+	if len(body) == 0 {
+		return badField("body", "required")
+	}
+	if e := checkTemplate(body); e != nil {
+		return e
+	}
+	err := s.Store.PutTemplate(id, version, body)
+	if errors.Is(err, store.ErrVersionConflict) {
+		return &apiError{Status: http.StatusConflict, Code: "version_conflict"}
+	}
+	if err != nil {
+		return internalErr("put template failed", err)
+	}
+	return nil
 }
 
 type templateView struct {
@@ -347,8 +363,7 @@ func (s *server) putSound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ct, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	ext, supported := soundTypes[ct]
-	if err != nil || !supported {
+	if _, supported := soundTypes[ct]; err != nil || !supported {
 		writeErr(w, http.StatusUnsupportedMediaType, "unsupported_media_type")
 		return
 	}
@@ -356,40 +371,48 @@ func (s *server) putSound(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	snd, e := s.saveSound(id, ct, data)
+	if e != nil {
+		s.fail(w, e)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "filename": snd.Filename, "sha256": snd.SHA256, "size": len(data)})
+}
+
+// saveSound checks a sound's type and audio and stores it. ct is the media type, without parameters. The caller has
+// checked that id matches idPattern. It is the one place the API and the admin UI share the rules.
+func (s *server) saveSound(id, ct string, data []byte) (store.Sound, *apiError) {
+	ext, supported := soundTypes[ct]
+	switch {
+	case !supported:
+		return store.Sound{}, &apiError{Status: http.StatusUnsupportedMediaType, Code: "unsupported_media_type"}
+	case len(data) > maxSoundBytes:
+		return store.Sound{}, &apiError{Status: http.StatusRequestEntityTooLarge, Code: "body_too_large"}
+	}
+	var d time.Duration
+	var err error
 	switch ct {
 	case "audio/wav":
-		d, err := wavDuration(data)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_audio")
-			return
-		}
-		if d >= maxSoundDuration {
-			writeErr(w, http.StatusBadRequest, "sound_too_long")
-			return
-		}
+		d, err = wavDuration(data)
 	case "audio/aiff":
-		d, err := aiffDuration(data)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_audio")
-			return
-		}
-		if d >= maxSoundDuration {
-			writeErr(w, http.StatusBadRequest, "sound_too_long")
-			return
-		}
-	case "audio/x-caf":
+		d, err = aiffDuration(data)
+	case "audio/x-caf": // its duration is not checked
 		if !isCAF(data) {
-			writeErr(w, http.StatusBadRequest, "invalid_audio")
-			return
+			err = errBadAudio
 		}
+	}
+	if err != nil {
+		return store.Sound{}, &apiError{Status: http.StatusBadRequest, Code: "invalid_audio"}
+	}
+	if d >= maxSoundDuration {
+		return store.Sound{}, &apiError{Status: http.StatusBadRequest, Code: "sound_too_long"}
 	}
 	sum := sha256.Sum256(data)
 	snd := store.Sound{ID: id, Filename: id + ext, ContentType: ct, Data: data, SHA256: hex.EncodeToString(sum[:])}
 	if err := s.Store.PutSound(snd); err != nil {
-		s.internal(w, "put sound failed", err)
-		return
+		return store.Sound{}, internalErr("put sound failed", err)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "filename": snd.Filename, "sha256": snd.SHA256, "size": len(data)})
+	return snd, nil
 }
 
 // GET /device/v1/sync

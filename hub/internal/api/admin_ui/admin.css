@@ -56,6 +56,11 @@ input[type=checkbox],input[type=radio]{width:1.25rem;height:1.25rem;margin:.2rem
 .action h3{font:800 1.2rem/1.1 var(--display);letter-spacing:.04em;text-transform:uppercase;margin:0}
 .field-error{margin:0;color:var(--hi);font-weight:700}
 .wide{max-width:34rem}
+.code{font:.9rem/1.5 var(--mono);tab-size:2}
+.ok{border-left:4px solid var(--ok);background:var(--card);padding:.6rem 1rem;margin:0}
+input[type=file]{width:100%;font:inherit;color:var(--fg);padding:.5rem 0}
+.settings dd+dd{margin-top:.25rem}
+.logo{margin-top:.5rem;border:2px solid var(--line);background:var(--card);object-fit:contain}
 .uses{margin-bottom:1.5rem}
 .uses li{margin-bottom:.5rem}
 [aria-invalid=true]{border-color:var(--hi)!important}

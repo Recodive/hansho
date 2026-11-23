@@ -356,7 +356,7 @@ func TestAdminPostsNeedCSRFToken(t *testing.T) {
 	routes := (&server{Deps: Deps{Cfg: config.Config{Admin: true}}}).adminRoutes()
 	n := 0
 	for _, rt := range routes {
-		if rt.kind != adminSignedInPost {
+		if rt.kind != adminSignedInPost && rt.kind != adminSignedInUpload {
 			continue
 		}
 		n++

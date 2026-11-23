@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"html/template"
 	"net"
@@ -35,6 +36,8 @@ const (
 	// adminMaxForm bounds a form body. It is as large as an API body, enough for a group of a few thousand names (each
 	// costs its length plus 6 bytes); a larger form is refused like one from another site.
 	adminMaxForm = maxJSONBody
+	// adminMaxUpload bounds a form with a file: the largest sound plus room for the other fields and the multipart framing.
+	adminMaxUpload = maxSoundBytes + 64<<10
 
 	// After adminFreeTries wrong passwords from one address, sign-in is refused for adminLockBase, doubling with every
 	// further failure up to adminLockMax. A record is forgotten adminLockMemory after its last failure.
@@ -51,10 +54,11 @@ type adminHandler func(w http.ResponseWriter, r *http.Request, csrf string)
 type adminKind int
 
 const (
-	adminPublic       adminKind = iota // assets and the sign-in page
-	adminPublicPost                    // sign-in: no session yet, so only the origin is checked
-	adminSignedIn                      // needs a session
-	adminSignedInPost                  // needs a session, a same-origin request and the session's form token
+	adminPublic         adminKind = iota // assets and the sign-in page
+	adminPublicPost                      // sign-in: no session yet, so only the origin is checked
+	adminSignedIn                        // needs a session
+	adminSignedInPost                    // needs a session, a same-origin request and the session's form token
+	adminSignedInUpload                  // like adminSignedInPost, and the form may carry a file (a sound)
 )
 
 type adminRoute struct {
@@ -95,6 +99,19 @@ func (s *server) adminRoutes() []adminRoute {
 		{"POST /admin/groups/{id}/edit", adminSignedInPost, s.adminGroupUpdate},
 		{"GET /admin/groups/{id}/delete", adminSignedIn, s.adminGroupDeletePage},
 		{"POST /admin/groups/{id}/delete", adminSignedInPost, s.adminGroupDeleteDo},
+		{"GET /admin/templates", adminSignedIn, s.adminTemplates},
+		{"GET /admin/templates/new", adminSignedIn, s.adminTemplateNew},
+		{"POST /admin/templates/new", adminSignedInPost, s.adminTemplateCreate},
+		{"GET /admin/templates/{id}/edit", adminSignedIn, s.adminTemplateEdit},
+		{"POST /admin/templates/{id}/edit", adminSignedInPost, s.adminTemplateUpdate},
+		{"GET /admin/templates/{id}/delete", adminSignedIn, s.adminTemplateDeletePage},
+		{"POST /admin/templates/{id}/delete", adminSignedInPost, s.adminTemplateDeleteDo},
+		{"GET /admin/sounds", adminSignedIn, s.adminSounds},
+		{"POST /admin/sounds", adminSignedInUpload, s.adminSoundUpload},
+		{"GET /admin/sounds/{id}/delete", adminSignedIn, s.adminSoundDeletePage},
+		{"POST /admin/sounds/{id}/delete", adminSignedInPost, s.adminSoundDeleteDo},
+		{"GET /admin/feeds", adminSignedIn, s.adminFeeds},
+		{"GET /admin/settings", adminSignedIn, s.adminSettings},
 		{"GET /admin/send", adminSignedIn, s.adminSend},
 		{"POST /admin/send", adminSignedInPost, s.adminSendPost},
 		{"GET /admin/messages/{id}", adminSignedIn, s.adminMessage},
@@ -133,19 +150,32 @@ func (s *server) adminWrap(rt adminRoute) http.HandlerFunc {
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 		csrf := ""
-		if rt.kind == adminSignedIn || rt.kind == adminSignedInPost {
+		if rt.kind == adminSignedIn || rt.kind == adminSignedInPost || rt.kind == adminSignedInUpload {
 			var ok bool
 			if csrf, ok = s.adminSession(r); !ok {
 				http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 				return
 			}
 		}
-		if rt.kind == adminPublicPost || rt.kind == adminSignedInPost {
-			if !s.adminSameOrigin(r) || !adminParseForm(w, r) {
+		if rt.kind == adminPublicPost || rt.kind == adminSignedInPost || rt.kind == adminSignedInUpload {
+			if !s.adminSameOrigin(r) {
 				s.adminNotice(w, http.StatusForbidden, csrf, "Request refused", "This form did not come from this page. Go back, reload the page and try again.", "/admin/", "Back to the start")
 				return
 			}
-			if rt.kind == adminSignedInPost && subtle.ConstantTimeCompare([]byte(r.PostForm.Get("csrf")), []byte(csrf)) != 1 {
+			if err := adminParseForm(w, r, rt.kind == adminSignedInUpload); err != nil {
+				var tooBig *http.MaxBytesError
+				if errors.As(err, &tooBig) {
+					if rt.kind == adminSignedInUpload {
+						s.adminNotice(w, http.StatusRequestEntityTooLarge, csrf, "That file is too large", "A sound can be at most 1 MB. Choose a smaller file.", "/admin/sounds", "Back to sounds")
+					} else {
+						s.adminNotice(w, http.StatusRequestEntityTooLarge, csrf, "That is too large", "What you sent is more than the hub accepts in one form. Make it shorter and try again.", "/admin/", "Back to the start")
+					}
+					return
+				}
+				s.adminNotice(w, http.StatusForbidden, csrf, "Request refused", "This form did not come from this page. Go back, reload the page and try again.", "/admin/", "Back to the start")
+				return
+			}
+			if rt.kind != adminPublicPost && subtle.ConstantTimeCompare([]byte(r.PostForm.Get("csrf")), []byte(csrf)) != 1 {
 				s.adminNotice(w, http.StatusForbidden, csrf, "Request refused", "This form has expired. Go back, reload the page and try again.", "/admin/", "Back to the start")
 				return
 			}
@@ -154,10 +184,18 @@ func (s *server) adminWrap(rt adminRoute) http.HandlerFunc {
 	}
 }
 
-// adminParseForm reads the size-limited form body.
-func adminParseForm(w http.ResponseWriter, r *http.Request) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, adminMaxForm)
-	return r.ParseForm() == nil
+// adminParseForm reads the size-limited form body. With upload the form may be multipart and carry a file, which the
+// handler then reads from r.MultipartForm.
+func adminParseForm(w http.ResponseWriter, r *http.Request, upload bool) error {
+	if !upload {
+		r.Body = http.MaxBytesReader(w, r.Body, adminMaxForm)
+		return r.ParseForm()
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, adminMaxUpload)
+	if err := r.ParseMultipartForm(adminMaxUpload); err != nil && !errors.Is(err, http.ErrNotMultipart) {
+		return err
+	}
+	return nil
 }
 
 // adminSameOrigin accepts a request whose Origin (or, without one, Referer) is this hub's host or the host of
@@ -372,8 +410,12 @@ var adminNav = []adminNavItem{
 	{"People", "/admin/people", "people"},
 	{"Channels", "/admin/channels", "channels"},
 	{"Groups", "/admin/groups", "groups"},
+	{"Templates", "/admin/templates", "templates"},
+	{"Sounds", "/admin/sounds", "sounds"},
+	{"Feeds", "/admin/feeds", "feeds"},
 	{"Send a test message", "/admin/send", "send"},
 	{"API keys", "/admin/keys", "keys"},
+	{"Settings", "/admin/settings", "settings"},
 }
 
 // adminPage is what every template receives: the page frame's fields and the page's own Data.
@@ -387,7 +429,8 @@ type adminPage struct {
 var adminTmpl = func() map[string]*template.Template {
 	m := map[string]*template.Template{}
 	for _, name := range []string{"login", "home", "notice", "pair", "pair_done", "people", "person_remove", "keys", "key_new", "key_revoke",
-		"channels", "channel_form", "channel_delete", "groups", "group_form", "group_delete", "send_who", "send_form", "send_done", "message"} {
+		"channels", "channel_form", "channel_delete", "groups", "group_form", "group_delete", "send_who", "send_form", "send_done", "message",
+		"templates", "template_form", "template_delete", "sounds", "sound_delete", "feeds", "settings"} {
 		m[name] = template.Must(template.ParseFS(adminFS, "admin_ui/layout.html", "admin_ui/parts.html", "admin_ui/"+name+".html"))
 	}
 	return m
