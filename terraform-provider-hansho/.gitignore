@@ -1,0 +1,5 @@
+/terraform-provider-hansho
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
