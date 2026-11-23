@@ -1,0 +1,28 @@
+{{define "content"}}
+<h1>API keys</h1>
+<p class="lead">An API key lets your own software send messages through {{.Hub}}. Give each piece of software its own key, so you can switch one off without breaking the others.</p>
+{{if .Data.Keys}}
+<table class="keys">
+<caption class="sr">API keys</caption>
+<thead><tr><th scope="col">Name</th><th scope="col">Made</th><th scope="col">Status</th><th scope="col"><span class="sr">Action</span></th></tr></thead>
+<tbody>
+{{range .Data.Keys}}<tr><td>{{.Name}}</td><td>{{.Created}}</td>
+{{if .Revoked}}<td>Switched off {{.Revoked}}</td><td></td>{{else}}<td>Working</td><td><a class="btn danger" href="/admin/keys/{{.ID}}/revoke" aria-label="Revoke {{.Name}}">Revoke</a></td>{{end}}</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p class="empty">There are no keys yet.</p>
+{{end}}
+<h2>Make a new key</h2>
+{{with .Data.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<form method="post" action="/admin/keys" class="stack">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<div class="field">
+<label for="name">What is it for?</label>
+<p class="hint" id="name-hint">For example "billing backend". You will see this name in the list.</p>
+<input id="name" name="name" type="text" value="{{.Data.Name}}" maxlength="256" required autocomplete="off" aria-describedby="name-hint">
+</div>
+<div><button class="btn">Make key</button></div>
+</form>
+{{end}}

@@ -1,0 +1,15 @@
+{{define "content"}}
+<h1>Pair code for {{.Data.Name}}</h1>
+<p class="lead">Ask {{.Data.Name}} to open the Hansho app, tap to add a hub and scan this code. Or send the link below to their phone and open it there.</p>
+<div class="qrbox">{{.Data.QR}}</div>
+<div class="field">
+<label for="link">Pair link</label>
+<input id="link" type="text" value="{{.Data.Link}}" readonly data-select>
+<button type="button" class="btn ghost" data-copy="link" hidden>Copy link</button>
+</div>
+<dl class="facts">
+<div><dt>Valid until</dt><dd><time datetime="{{.Data.ExpiresAt.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Data.Expires}}</time> ({{.Data.Minutes}} minutes from now)</dd></div>
+<div><dt>Use</dt><dd>One person, one time. Once it has been scanned or has run out, make a new one.</dd></div>
+</dl>
+<p>This code is not saved anywhere you can look at it later. <a href="/admin/pair">Pair someone else</a> or <a href="/admin/people">see who is paired</a>.</p>
+{{end}}

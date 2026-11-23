@@ -1,0 +1,76 @@
+/* The admin pages share the status page's look: night ground, one vermilion accent, Big Shoulders Display for headings,
+   Atkinson Hyperlegible for text. The fonts are the hub's own files. */
+@font-face{font-family:"Big Shoulders Display";font-weight:800;font-display:swap;src:url("/_hub/display.woff2") format("woff2")}
+@font-face{font-family:"Atkinson Hyperlegible";font-weight:400;font-display:swap;src:url("/_hub/body.woff2") format("woff2")}
+:root{color-scheme:dark light;--bg:#14141a;--card:#1d1d26;--fg:#ede9e1;--dim:#b5b0a6;--line:#34343f;--hi:#e0442a;--ok:#5fbf7f;--bronze:#b88a3e;--on-hi:#14141a;
+--display:"Big Shoulders Display","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:light){:root{--bg:#f6f3ec;--card:#fffdf8;--fg:#1a1a20;--dim:#575560;--line:#d8d2c5;--hi:#c63319;--ok:#1f7a45;--bronze:#8a6422;--on-hi:#fffdf8}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;min-height:100vh;min-height:100dvh;background:var(--bg);color:var(--fg);font:400 1.0625rem/1.6 var(--body);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+::selection{background:var(--hi);color:var(--on-hi)}
+a{color:var(--fg);text-decoration-color:var(--hi);text-decoration-thickness:2px;text-underline-offset:.2em}
+a:hover{color:var(--hi)}
+:focus-visible{outline:3px solid var(--hi);outline-offset:3px;border-radius:2px}
+.skip{position:absolute;left:-999px;top:0;background:var(--fg);color:var(--bg);padding:.6rem 1rem;z-index:2}
+.skip:focus{left:0}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+header,main,footer div{width:100%;max-width:44rem;margin-inline:auto}
+header{padding:1.25rem 1.25rem 0}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.brand{display:inline-flex;align-items:center;gap:.75rem;color:var(--hi);text-decoration:none;min-width:0}
+.brand:hover{color:var(--hi)}
+.mark{width:2.25rem;height:2.25rem;flex:none}
+.brand span{font:800 1.25rem/1 var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--fg);overflow-wrap:anywhere}
+nav ul{list-style:none;margin:1rem 0 0;padding:0;display:flex;flex-wrap:wrap;gap:.25rem 1.25rem;border-bottom:2px solid var(--line)}
+nav a{display:inline-block;padding:.5rem 0;text-decoration:none;border-bottom:3px solid transparent;margin-bottom:-2px}
+nav a:hover{border-bottom-color:var(--line)}
+nav a[aria-current=page]{border-bottom-color:var(--hi)}
+main{flex:1;padding:2rem 1.25rem 3rem}
+h1{font:800 clamp(2rem,8vw,3.25rem)/1 var(--display);text-transform:uppercase;letter-spacing:.01em;margin:0 0 1rem;overflow-wrap:anywhere}
+h2{font:800 1.5rem/1.1 var(--display);letter-spacing:.04em;text-transform:uppercase;margin:2.5rem 0 1rem;overflow-wrap:anywhere}
+.lead{color:var(--dim);max-width:36rem;margin:0 0 2rem}
+p{max-width:40rem}
+code{font:.95em var(--mono);background:var(--card);border:1px solid var(--line);padding:.05em .35em}
+.cards{list-style:none;margin:0;padding:0;display:grid;gap:1rem}
+.card{display:block;border:2px solid var(--line);background:var(--card);padding:1.1rem 1.25rem;text-decoration:none}
+.card:hover{border-color:var(--hi);color:var(--fg)}
+.card strong{display:block;font:800 1.5rem/1.1 var(--display);letter-spacing:.04em;text-transform:uppercase;margin-bottom:.25rem}
+.card span{color:var(--dim)}
+.stack{display:grid;gap:1.25rem;max-width:30rem}
+.field{display:grid;gap:.4rem;max-width:34rem;margin-bottom:1rem}
+.stack .field{margin-bottom:0}
+label{font:800 1.05rem/1 var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--bronze)}
+.hint{margin:0;color:var(--dim);font-size:.95rem}
+input[type=text],input[type=password]{width:100%;font:inherit;color:var(--fg);background:var(--card);border:2px solid var(--line);padding:.7rem .8rem;border-radius:0}
+input[readonly]{font-family:var(--mono);font-size:.9rem}
+input:focus-visible{outline-offset:0;border-color:var(--hi)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;font:800 1.05rem/1 var(--display);letter-spacing:.08em;text-transform:uppercase;text-decoration:none;cursor:pointer;background:var(--fg);color:var(--bg);border:2px solid var(--fg);padding:.7rem 1.1rem;border-radius:0;min-height:2.75rem}
+.btn:hover{background:var(--hi);border-color:var(--hi);color:var(--on-hi)}
+.btn.ghost{background:transparent;color:var(--fg);border-color:var(--line)}
+.btn.ghost:hover{border-color:var(--fg);background:transparent;color:var(--fg)}
+.btn.danger{background:transparent;color:var(--hi);border-color:var(--hi)}
+.btn.danger:hover{background:var(--hi);color:var(--on-hi)}
+.row{display:flex;flex-wrap:wrap;gap:.75rem}
+.error,.warn{border-left:4px solid var(--hi);background:var(--card);padding:.8rem 1rem;margin:0 0 1.5rem;max-width:34rem}
+.warn strong{color:var(--hi)}
+.qrbox{display:inline-block;background:#fff;padding:.5rem;margin:0 0 1.5rem;border:2px solid var(--line)}
+.qr{display:block;width:min(100%,19rem);height:auto}
+.facts{margin:0 0 1.5rem;border:2px solid var(--line);background:var(--card);max-width:34rem}
+.facts>div{padding:.8rem 1rem}
+.facts>div+div{border-top:2px solid var(--line)}
+dt{font:800 .95rem/1 var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--bronze);margin-bottom:.35rem}
+dd{margin:0}
+.people,.plain{list-style:none;margin:0 0 1.5rem;padding:0}
+.person{border:2px solid var(--line);background:var(--card);padding:1rem 1.1rem;margin-bottom:1rem}
+.person .head{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.person h2{margin:0}
+.meta{color:var(--dim);margin:.25rem 0 .75rem}
+.empty{color:var(--dim)}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:.55rem .75rem .55rem 0;border-top:2px solid var(--line);vertical-align:middle;overflow-wrap:anywhere}
+th{font:800 .95rem/1 var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--bronze);border-top:0}
+.keys td:last-child{text-align:right;padding-right:0}
+footer{padding:1.25rem;color:var(--dim);font-size:.95rem;border-top:2px solid var(--line)}
+footer div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.5rem 1.5rem}
+@media (prefers-reduced-motion:no-preference){.btn,.card,a{transition:color .15s,background-color .15s,border-color .15s}}

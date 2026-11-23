@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // DefaultRelayURL is the relay Hansho runs. HUB_RELAY_URL overrides it only for testing against another relay.
@@ -33,7 +34,14 @@ type Config struct {
 	// LAEncrypt selects encrypted Live Activity content-state (HUB_LA_ENCRYPT). Default true: the app's activity key
 	// mirror was verified on a device with the app force-quit (2026-11-08). Set false for plaintext content state.
 	LAEncrypt bool
+	// Admin turns on the admin UI under /admin (HUB_ADMIN). AdminPassword is its shared sign-in (HUB_ADMIN_PASSWORD, at
+	// least MinAdminPassword characters, required with Admin).
+	Admin         bool
+	AdminPassword string
 }
+
+// MinAdminPassword is the shortest HUB_ADMIN_PASSWORD the hub accepts, in characters.
+const MinAdminPassword = 12
 
 // Load reads configuration through getenv and validates it.
 func Load(getenv func(string) string) (Config, error) {
@@ -65,6 +73,20 @@ func Load(getenv func(string) string) (Config, error) {
 		c.LAEncrypt = false
 	default:
 		return Config{}, errors.New("config: HUB_LA_ENCRYPT must be true or false")
+	}
+	switch strings.ToLower(getenv("HUB_ADMIN")) {
+	case "", "0", "false":
+	case "1", "true":
+		c.Admin = true
+		c.AdminPassword = getenv("HUB_ADMIN_PASSWORD")
+		if n := utf8.RuneCountInString(c.AdminPassword); n < MinAdminPassword {
+			return Config{}, fmt.Errorf("config: HUB_ADMIN_PASSWORD must be at least %d characters when HUB_ADMIN is on", MinAdminPassword)
+		}
+	default:
+		return Config{}, errors.New("config: HUB_ADMIN must be true or false")
+	}
+	if getenv("HUB_ADMIN_ADDR") != "" {
+		return Config{}, errors.New("config: HUB_ADMIN_ADDR is not supported yet: the admin UI is served on HUB_ADDR")
 	}
 	for _, r := range []struct{ k, v string }{
 		{"HUB_PUBLIC_URL", c.PublicURL},

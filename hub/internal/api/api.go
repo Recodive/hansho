@@ -55,6 +55,9 @@ type server struct {
 	logo   string // first 16 hex digits of the logo's SHA-256, "" without a logo
 
 	actionLimit actionLimiter // per-device press rate for POST /device/v1/actions
+
+	adminKey   []byte       // signs admin sessions; set when HUB_ADMIN is on
+	adminLimit adminLimiter // wrong admin passwords per address
 }
 
 // New returns the hub's HTTP handler.
@@ -131,6 +134,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /device/v1/pairings/{id}/devices", s.addDevice)
 	mux.HandleFunc("PUT /device/v1/devices/{id}/tokens", s.withDevice(s.updateTokens))
 	mux.HandleFunc("DELETE /device/v1/pairings/{id}", s.withDevice(s.unpairDevice))
+	if d.Cfg.Admin {
+		s.mountAdmin(mux)
+	}
 	return mux
 }
 

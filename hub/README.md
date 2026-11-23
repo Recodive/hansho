@@ -98,6 +98,26 @@ curl -H "Authorization: Bearer $KEY" https://hub.example.com/api/v1/messages/msg
 | `HUB_LOGO_FILE` | | | Path to a PNG logo (64 to 1024 px each way, at most 256 KB). The hub serves it at `/_hub/logo.png` and names it in its info, and the app shows it next to the hub's name once a person has paired; without it the app draws the name's initial |
 | `HUB_LOGO_URL` | | | The same logo from an https URL instead of a file (not both). The hub downloads it once at start and serves it itself, so phones never contact that host; if the download fails the hub starts without a logo and logs a warning |
 | `HUB_HOME_URL` | | `https://hansho.app` | The project site the status page at `GET /` links to (https only). `GET /` shows what the hub is (its name, domain and public key fingerprint) so that someone who opens the address in a browser is not left with a bare 404 |
+| `HUB_ADMIN` | | `false` | `true` turns on the [admin UI](#admin-ui) at `/admin`. Off by default: without it `/admin` does not exist |
+| `HUB_ADMIN_PASSWORD` | with `HUB_ADMIN` | | The one password everyone uses to sign in to the admin UI, at least 12 characters. The hub refuses to start with the admin UI on and no password or a shorter one. Changing it signs everyone out |
+
+## Admin UI
+
+The admin UI lets someone without code do part of what the sender API does, in a browser: pair a person (a pair code with a QR code and a link), see who is paired and remove them, and make or revoke API keys. It is built into the hub: server-rendered pages under `/admin`, no external requests, and it works without JavaScript (JavaScript only adds the copy buttons).
+
+Turn it on with two settings and open `https://<your hub>/admin`:
+
+```sh
+export HUB_ADMIN=true
+export HUB_ADMIN_PASSWORD='a long password only your team knows'
+```
+
+- **Sign-in** is one shared password, no accounts. A session lasts 12 hours and is a signed cookie (`HttpOnly`, `Secure`, `SameSite=Strict`) whose key is derived from `HUB_MASTER_KEY` and the password. Every form carries a per-session token and its `Origin` or `Referer` must be the hub's own host. Pages are sent with `Cache-Control: no-store` and cannot be framed.
+- **Wrong passwords** are limited per client address: after 5, sign-in is refused for 30 seconds, doubling with every further wrong password up to 15 minutes. The count lives in memory. The hub reads the address of the connection, not `X-Forwarded-For`, so behind a reverse proxy every admin shares one limit.
+- **Actions are logged**, one line each and never with a secret (`admin: api key created id=2`, `admin: person removed`, `admin: pair code created`, sign-ins and sign-outs). There is no history page.
+- **A pair code and a new API key are shown once**, in the response to the form. The hub keeps only a hash of a key. Removing a person does what `DELETE /api/v1/users/{external_user_id}/pairings` does (a kick), and a person is the `external_user_id` you type, so people paired through the API show up too.
+- **Put it behind TLS.** The session cookie is `Secure`, so browsers only keep it over `https://` (`HUB_PUBLIC_URL` is `https` anyway). The admin UI is on the same address as the API: if you do not want it reachable from the internet, block `/admin` at your reverse proxy or only allow your VPN's addresses, and use a password from a password manager.
+- `HUB_ADMIN_ADDR` (a second listen address for the admin UI alone) is not implemented yet. The hub refuses to start when it is set, so the admin UI is never exposed somewhere you did not expect.
 
 ## Commands
 

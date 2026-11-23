@@ -5,6 +5,7 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"time"
@@ -29,21 +30,34 @@ func (s *server) createTicket(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, body, &req) {
 		return
 	}
-	if req.ExternalUserID == "" || len(req.ExternalUserID) > maxFieldLen {
+	if !validExternalUserID(req.ExternalUserID) {
 		writeFieldErr(w, http.StatusBadRequest, "invalid_request", "external_user_id", "required, at most 256 bytes")
 		return
 	}
-	ticket, err := s.Store.CreateTicket(req.ExternalUserID, ticketTTL)
+	ticket, qr, expires, err := s.issueTicket(req.ExternalUserID)
 	if err != nil {
 		s.internal(w, "create ticket failed", err)
 		return
 	}
-	qr := brand.Scheme + "://pair?hub=" + url.QueryEscape(s.Cfg.PublicURL) + "&t=" + ticket + "&fp=" + s.fp
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"ticket":     ticket,
 		"qr":         qr,
-		"expires_at": s.Now().Add(ticketTTL).UTC().Format(time.RFC3339),
+		"expires_at": expires.UTC().Format(time.RFC3339),
 	})
+}
+
+// validExternalUserID reports whether id may name a user: 1 to maxFieldLen bytes.
+func validExternalUserID(id string) bool { return id != "" && len(id) <= maxFieldLen }
+
+// issueTicket mints a pairing ticket for a user and returns it with the pairing link (the "qr" the sender shows) and
+// the time it expires. The admin UI shares it with createTicket.
+func (s *server) issueTicket(user string) (ticket, qr string, expires time.Time, err error) {
+	ticket, err = s.Store.CreateTicket(user, ticketTTL)
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	qr = brand.Scheme + "://pair?hub=" + url.QueryEscape(s.Cfg.PublicURL) + "&t=" + ticket + "&fp=" + s.fp
+	return ticket, qr, s.Now().Add(ticketTTL), nil
 }
 
 type deviceReq struct {
@@ -311,30 +325,37 @@ func (s *server) unpairDevice(w http.ResponseWriter, r *http.Request, dev store.
 
 // DELETE /api/v1/users/{external_user_id}/pairings
 func (s *server) unpairUser(w http.ResponseWriter, r *http.Request) {
-	user := r.PathValue("external_user_id")
+	n, err := s.kickUser(r.Context(), r.PathValue("external_user_id"))
+	if err != nil {
+		s.internal(w, "unpair user failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"revoked": n})
+}
+
+// kickUser ends every pairing of a user as the sender (the admin UI's Remove shares it with unpairUser) and returns
+// how many it revoked.
+func (s *server) kickUser(ctx context.Context, user string) (int, error) {
 	// Expire the user's tickets first: an outstanding one must not pair again after this, and a redeem in flight
 	// either committed its pairing already (listed and revoked below) or is refused when it tries.
 	if err := s.Store.ExpireTicketsForUser(user); err != nil {
-		s.internal(w, "expire tickets failed", err)
-		return
+		return 0, fmt.Errorf("expire tickets: %w", err)
 	}
 	pairings, err := s.Store.ActivePairingsForUser(user)
 	if err != nil {
-		s.internal(w, "list pairings failed", err)
-		return
+		return 0, fmt.Errorf("list pairings: %w", err)
 	}
 	n := 0
 	for _, p := range pairings {
-		changed, err := s.revokePairing(r.Context(), p, "sender")
+		changed, err := s.revokePairing(ctx, p, "sender")
 		if err != nil {
-			s.internal(w, "revoke pairing failed", err)
-			return
+			return n, fmt.Errorf("revoke pairing: %w", err)
 		}
 		if changed {
 			n++
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]int{"revoked": n})
+	return n, nil
 }
 
 // revokePairing revokes a pairing locally, at the relay (best effort, per

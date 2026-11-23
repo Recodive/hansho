@@ -89,6 +89,53 @@ func TestLoadMasterKeyLength(t *testing.T) {
 	}
 }
 
+func TestAdminOffByDefault(t *testing.T) {
+	m := validEnv()
+	m["HUB_ADMIN_PASSWORD"] = "short" // ignored while the admin UI is off
+	c, err := Load(env(m))
+	if err != nil || c.Admin || c.AdminPassword != "" {
+		t.Fatalf("admin must be off by default: %+v %v", c, err)
+	}
+}
+
+func TestAdminNeedsLongPassword(t *testing.T) {
+	for _, pw := range []string{"", "elevenchars", "short-pw-é"} {
+		m := validEnv()
+		m["HUB_ADMIN"] = "true"
+		m["HUB_ADMIN_PASSWORD"] = pw
+		_, err := Load(env(m))
+		if err == nil || !strings.Contains(err.Error(), "HUB_ADMIN_PASSWORD") {
+			t.Errorf("%q: want HUB_ADMIN_PASSWORD error, got %v", pw, err)
+		} else if pw != "" && strings.Contains(err.Error(), pw) {
+			t.Errorf("%q: the error repeats the password", pw)
+		}
+	}
+	m := validEnv()
+	m["HUB_ADMIN"] = "true"
+	m["HUB_ADMIN_PASSWORD"] = "twelve-chars"
+	c, err := Load(env(m))
+	if err != nil || !c.Admin || c.AdminPassword != "twelve-chars" {
+		t.Fatalf("12 characters must pass: %+v %v", c, err)
+	}
+	m["HUB_ADMIN_PASSWORD"] = "äöüäöüäöüäöü" // 12 characters, 24 bytes
+	if _, err := Load(env(m)); err != nil {
+		t.Fatalf("length is counted in characters: %v", err)
+	}
+}
+
+func TestAdminValueAndAddr(t *testing.T) {
+	m := validEnv()
+	m["HUB_ADMIN"] = "maybe"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "HUB_ADMIN") {
+		t.Errorf("invalid HUB_ADMIN accepted: %v", err)
+	}
+	m = validEnv()
+	m["HUB_ADMIN_ADDR"] = ":9090"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "HUB_ADMIN_ADDR") {
+		t.Errorf("HUB_ADMIN_ADDR must be refused until it is implemented: %v", err)
+	}
+}
+
 func TestLoadOptionalFields(t *testing.T) {
 	m := validEnv()
 	m["HUB_ADDR"] = ":9000"

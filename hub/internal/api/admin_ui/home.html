@@ -1,0 +1,9 @@
+{{define "content"}}
+<h1>{{.Hub}}</h1>
+<p class="lead">This is where you look after who receives messages from {{.Hub}}. Choose what you want to do.</p>
+<ul class="cards">
+<li><a class="card" href="/admin/pair"><strong>Pair a person</strong><span>Make a pair code. The person scans it with the Hansho app to start receiving messages.</span></a></li>
+<li><a class="card" href="/admin/people"><strong>People</strong><span>See who is paired and on which devices. Remove someone who should stop receiving messages.</span></a></li>
+<li><a class="card" href="/admin/keys"><strong>API keys</strong><span>Keys let your own software send messages through this hub. Make a new one or switch one off.</span></a></li>
+</ul>
+{{end}}
