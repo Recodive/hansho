@@ -193,7 +193,7 @@ func (s *server) adminSendPost(w http.ResponseWriter, r *http.Request, csrf stri
 			if lvl != "" && lvl != sent {
 				done.Lowered = "You asked for " + adminLevelLabel(lvl) + ", but this channel never goes above " + adminLevelLabel(sent) + ", so it was sent as " + adminLevelLabel(sent) + "."
 			}
-			s.log.Info("admin: test message sent", "message_id", m.ID, "channel", lc(channel), "external_user_id", lc(person), "level", sent, "status", m.Status)
+			s.log.Info("admin: test message sent", "message_id", lc(m.ID), "channel", lc(channel), "external_user_id", lc(person), "level", lc(fmt.Sprint(sent)), "status", lc(fmt.Sprint(m.Status)))
 		}
 	}
 	if done != nil {
