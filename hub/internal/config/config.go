@@ -2,11 +2,14 @@
 package config
 
 import (
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"image/png"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -20,6 +23,9 @@ type Config struct {
 	ChallengeToken                                                             string
 	// HomeURL is the project site the hub's status page links to (HUB_HOME_URL, default https://hansho.app). https only.
 	HomeURL string
+	// Logo is the PNG at HUB_LOGO_FILE (at most MaxLogoBytes, 64 to 1024 px each way), or nil. The app shows it next to
+	// the hub's name once the person has paired.
+	Logo []byte
 	// LAEncrypt selects encrypted Live Activity content-state (HUB_LA_ENCRYPT). Default true: the app's activity key
 	// mirror was verified on a device with the app force-quit (2026-11-08). Set false for plaintext content state.
 	LAEncrypt bool
@@ -77,6 +83,11 @@ func Load(getenv func(string) string) (Config, error) {
 			return Config{}, err
 		}
 	}
+	if f := getenv("HUB_LOGO_FILE"); f != "" {
+		if c.Logo, err = loadLogo(f); err != nil {
+			return Config{}, err
+		}
+	}
 	mk, err := base64.StdEncoding.DecodeString(getenv("HUB_MASTER_KEY"))
 	if err != nil {
 		mk, err = base64.RawStdEncoding.DecodeString(getenv("HUB_MASTER_KEY"))
@@ -89,6 +100,27 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	c.MasterKey = mk
 	return c, nil
+}
+
+// MaxLogoBytes bounds the logo the hub serves and the app downloads.
+const MaxLogoBytes = 256 << 10
+
+func loadLogo(path string) ([]byte, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("config: HUB_LOGO_FILE: %w", err)
+	}
+	if len(b) > MaxLogoBytes {
+		return nil, fmt.Errorf("config: HUB_LOGO_FILE is %d bytes, at most %d", len(b), MaxLogoBytes)
+	}
+	cfg, err := png.DecodeConfig(bytes.NewReader(b))
+	if err != nil {
+		return nil, errors.New("config: HUB_LOGO_FILE must be a PNG")
+	}
+	if cfg.Width < 64 || cfg.Height < 64 || cfg.Width > 1024 || cfg.Height > 1024 {
+		return nil, fmt.Errorf("config: HUB_LOGO_FILE is %dx%d, it must be 64 to 1024 pixels each way", cfg.Width, cfg.Height)
+	}
+	return b, nil
 }
 
 // checkWebhook requires a signing secret and an https URL, except for a destination that stays inside the cluster or

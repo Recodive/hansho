@@ -1,7 +1,12 @@
 package config
 
 import (
+	"bytes"
 	"encoding/base64"
+	"image"
+	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -161,5 +166,40 @@ func TestWebhookURLNeedsSecretAndHTTPS(t *testing.T) {
 	}
 	if _, err := Load(env(validEnv())); err != nil {
 		t.Errorf("no webhook at all stays valid: %v", err)
+	}
+}
+
+func TestLogoFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, w, h int) string {
+		var b bytes.Buffer
+		if err := png.Encode(&b, image.NewRGBA(image.Rect(0, 0, w, h))); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, b.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	load := func(path string) (Config, error) {
+		e := validEnv()
+		e["HUB_LOGO_FILE"] = path
+		return Load(env(e))
+	}
+	if c, err := load(write("ok.png", 256, 256)); err != nil || len(c.Logo) == 0 {
+		t.Fatalf("valid logo: %v", err)
+	}
+	if c, err := Load(env(validEnv())); err != nil || c.Logo != nil {
+		t.Fatalf("no logo: %v", err)
+	}
+	notPNG := filepath.Join(dir, "x.png")
+	_ = os.WriteFile(notPNG, []byte("GIF89a"), 0o600)
+	for name, path := range map[string]string{
+		"small": write("small.png", 32, 32), "huge": write("huge.png", 2000, 2000), "not a png": notPNG, "missing": filepath.Join(dir, "none.png"),
+	} {
+		if _, err := load(path); err == nil || !strings.Contains(err.Error(), "HUB_LOGO_FILE") {
+			t.Fatalf("%s: %v", name, err)
+		}
 	}
 }

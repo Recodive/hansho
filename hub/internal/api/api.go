@@ -5,7 +5,9 @@ package api
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -50,6 +52,7 @@ type server struct {
 	pub    ed25519.PublicKey
 	fp     string
 	domain string
+	logo   string // first 16 hex digits of the logo's SHA-256, "" without a logo
 
 	actionLimit actionLimiter // per-device press rate for POST /device/v1/actions
 }
@@ -69,7 +72,13 @@ func New(d Deps) http.Handler {
 		s.domain = u.Hostname()
 	}
 
+	if len(d.Cfg.Logo) > 0 {
+		sum := sha256.Sum256(d.Cfg.Logo)
+		s.logo = hex.EncodeToString(sum[:8])
+	}
+
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /_hub/logo.png", s.serveLogo)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, "ok")
 	})
@@ -184,9 +193,25 @@ func (s *server) challenge(w http.ResponseWriter, _ *http.Request) {
 
 // hubInfo is the hub description returned to devices.
 func (s *server) hubInfo() map[string]string {
-	return map[string]string{
+	info := map[string]string{
 		"hub_id": s.Cfg.HubID, "name": s.Cfg.DisplayName, "domain": s.domain,
 		"public_key":  b64url.EncodeToString(s.pub),
 		"fingerprint": s.fp,
 	}
+	if s.logo != "" {
+		info["logo"] = s.logo // the app downloads GET /_hub/logo.png when it does not hold this one
+	}
+	return info
+}
+
+func (s *server) serveLogo(w http.ResponseWriter, _ *http.Request) {
+	if s.logo == "" {
+		http.NotFound(w, nil)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", "image/png")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(s.Cfg.Logo)
 }
