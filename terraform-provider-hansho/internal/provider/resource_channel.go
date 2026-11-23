@@ -80,6 +80,7 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"template_id":   schema.StringAttribute{Optional: true, Description: "Id of a hansho_template."},
 			"thread": schema.StringAttribute{
 				Optional: true, Computed: true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 				Description: "Thread id notifications are grouped under. The hub uses the channel id when unset.",
 			},
 			"actions": schema.ListNestedAttribute{
