@@ -328,6 +328,13 @@ person's audience. To limit a feed to certain people, give it an `audience` (or 
 Older hubs answer the listing with 404 or 405, and the app then falls back to
 asking for the feed id.
 
+`GET /device/v1/pairing-tickets/{ticket}` is unauthenticated, read-only and does not use the ticket up. It answers
+`{"state":"valid","expires_at":"<RFC3339>"}`, `{"state":"expired","expires_at":...}` (also for a ticket whose user was
+removed with `DELETE /api/v1/users/{external_user_id}/pairings`) or `{"state":"used"}`, and `404 unknown_ticket` for a
+ticket the hub never issued. The app asks it before it shows a pairing link's confirmation, so an expired link is
+reported up front instead of after Approve (the redeem still answers `410 ticket_expired` / `ticket_used`). Older hubs
+answer 404 or 405 and the app then skips the check.
+
 `GET /device/v1/hub` is unauthenticated and returns
 `{hub_id, name, domain, public_key, fingerprint}` (`public_key` is base64url of the
 raw 32-byte Ed25519 key, `fingerprint` its hex sha256). The same object is the

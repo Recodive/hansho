@@ -95,6 +95,34 @@ func TestTicketExpiredAndUnknown(t *testing.T) {
 	}
 }
 
+func TestTicketStatus(t *testing.T) {
+	st := openTest(t)
+	tk, _ := st.CreateTicket("user-1", 10*time.Minute)
+	state, exp, err := st.TicketStatus(tk, t0.Add(time.Minute))
+	if err != nil || state != TicketValid || !exp.Equal(t0.Add(10*time.Minute)) {
+		t.Fatalf("valid: %v %v %v", state, exp, err)
+	}
+	if state, _, _ := st.TicketStatus(tk, t0.Add(10*time.Minute)); state != TicketExpired {
+		t.Fatalf("at expiry: %v", state)
+	}
+	if _, err := st.ConsumeTicket(tk, t0.Add(time.Minute)); err != nil {
+		t.Fatalf("status consumed the ticket: %v", err)
+	}
+	if state, _, _ := st.TicketStatus(tk, t0.Add(time.Minute)); state != TicketUsed {
+		t.Fatalf("used: %v", state)
+	}
+	if _, _, err := st.TicketStatus("nope", t0); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown: %v", err)
+	}
+	other, _ := st.CreateTicket("user-2", time.Hour)
+	if err := st.ExpireTicketsForUser("user-2"); err != nil {
+		t.Fatal(err)
+	}
+	if state, _, _ := st.TicketStatus(other, t0); state != TicketExpired {
+		t.Fatalf("expired by unpair: %v", state)
+	}
+}
+
 func TestTicketStoredHashed(t *testing.T) {
 	st := openTest(t)
 	tk, _ := st.CreateTicket("user-1", time.Minute)

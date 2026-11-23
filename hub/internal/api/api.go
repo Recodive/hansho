@@ -132,6 +132,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /device/v1/sync", s.withDevice(s.sync))
 	mux.HandleFunc("GET /device/v1/sounds/{id}", s.withDevice(s.downloadSound))
 	mux.HandleFunc("GET /device/v1/hub", s.publicHubInfo)
+	mux.HandleFunc("GET /device/v1/pairing-tickets/{ticket}", s.ticketStatus)
 	mux.HandleFunc("POST /device/v1/pairings", s.redeemTicket)
 	mux.HandleFunc("POST /device/v1/pairings/{id}/devices", s.addDevice)
 	mux.HandleFunc("PUT /device/v1/devices/{id}/tokens", s.withDevice(s.updateTokens))
