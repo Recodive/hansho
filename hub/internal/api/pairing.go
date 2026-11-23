@@ -141,6 +141,28 @@ func validateDevice(w http.ResponseWriter, d deviceReq, needKA bool) (parsedDevi
 	return p, true
 }
 
+// GET /device/v1/pairing-tickets/{ticket} tells the app whether the ticket of a pairing link is still good, so it can
+// say a link has expired before the user is asked to approve it. Unauthenticated like the redeem it precedes: the
+// ticket is the secret (256 random bits, stored hashed), the answer holds nothing the holder does not know, and it
+// never consumes or extends the ticket. Like the redeem there is no rate limit; guessing a ticket is not feasible.
+func (s *server) ticketStatus(w http.ResponseWriter, r *http.Request) {
+	state, expires, err := s.Store.TicketStatus(r.PathValue("ticket"), s.Now())
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "unknown_ticket")
+		return
+	}
+	if err != nil {
+		s.internal(w, "ticket status failed", err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	res := map[string]string{"state": string(state)}
+	if state != store.TicketUsed {
+		res["expires_at"] = expires.UTC().Format(time.RFC3339)
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
 // POST /device/v1/pairings
 func (s *server) redeemTicket(w http.ResponseWriter, r *http.Request) {
 	body, ok := readBody(w, r, maxJSONBody)
