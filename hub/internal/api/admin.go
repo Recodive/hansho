@@ -369,15 +369,9 @@ func (s *server) adminPasswordOK(pw string) bool {
 	return subtle.ConstantTimeCompare(adminPasswordKey(pw, s.adminSalt), s.adminPassKey) == 1
 }
 
-// adminInfo logs one admin action. Values typed by an admin lose their line breaks first, so one action is one line.
-func (s *server) adminInfo(msg string, kv ...any) {
-	for i, v := range kv {
-		if str, ok := v.(string); ok {
-			str = strings.ReplaceAll(str, "\n", "")
-			kv[i] = strings.ReplaceAll(str, "\r", "")
-		}
-	}
-	s.log.Info(msg, kv...)
+// lc makes a value typed by an admin safe for a log line: no line breaks, so one action stays one line.
+func lc(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\n", ""), "\r", "")
 }
 
 func (s *server) adminLogin(w http.ResponseWriter, r *http.Request, _ string) {
@@ -401,7 +395,7 @@ func (s *server) adminLogin(w http.ResponseWriter, r *http.Request, _ string) {
 		return
 	}
 	http.SetCookie(w, c)
-	s.adminInfo("admin: signed in", "client", client)
+	s.log.Info("admin: signed in", "client", client)
 	http.Redirect(w, r, "/admin/", http.StatusSeeOther)
 }
 
@@ -409,7 +403,7 @@ func (s *server) adminLogout(w http.ResponseWriter, r *http.Request, _ string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: adminCookie, Path: "/admin", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
-	s.adminInfo("admin: signed out", "client", adminClient(r))
+	s.log.Info("admin: signed out", "client", adminClient(r))
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 }
 

@@ -69,11 +69,11 @@ func (s *server) adminRemove(w http.ResponseWriter, r *http.Request, csrf string
 	name := r.PostForm.Get("person")
 	n, err := s.kickUser(r.Context(), name)
 	if err != nil {
-		s.log.Error("admin: remove person failed", "external_user_id", name, "err", err)
+		s.log.Error("admin: remove person failed", "external_user_id", lc(name), "err", lc(err.Error()))
 		s.adminNotice(w, http.StatusInternalServerError, csrf, "Something went wrong", "The hub could not remove this person completely. Check the list and try again.", "/admin/people", "Back to people")
 		return
 	}
-	s.adminInfo("admin: person removed", "external_user_id", name, "pairings", n)
+	s.log.Info("admin: person removed", "external_user_id", lc(name), "pairings", n)
 	msg := name + " was removed. Their devices stop receiving messages and need a new pair code to join again."
 	if n == 0 {
 		msg = name + " was not paired any more, so there was nothing to remove."
