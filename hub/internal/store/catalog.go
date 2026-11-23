@@ -9,6 +9,9 @@ import (
 // ErrVersionConflict means a template version did not increase.
 var ErrVersionConflict = errors.New("store: template version must increase")
 
+// ErrInUse means a template or sound is still named by a live channel.
+var ErrInUse = errors.New("store: still used by a channel")
+
 // Channel is a sender-defined message channel.
 type Channel struct {
 	ID           string
@@ -119,6 +122,32 @@ func (s *Store) GetTemplate(id string) (Template, error) {
 	return t, err
 }
 
+// DeleteTemplate removes a template; false if it does not exist, ErrInUse while a live channel names it.
+func (s *Store) DeleteTemplate(id string) (bool, error) {
+	return s.deleteUnused("templates", "template_id", id)
+}
+
+// deleteUnused deletes a row of table unless a live channel names it in channelCol.
+func (s *Store) deleteUnused(table, channelCol, id string) (bool, error) {
+	res, err := s.exec(`DELETE FROM `+table+` WHERE id = ? AND NOT EXISTS (
+		SELECT 1 FROM channels WHERE `+channelCol+` = ? AND deleted_at IS NULL)`, id, id)
+	if err != nil {
+		return false, err
+	}
+	if n, err := res.RowsAffected(); err != nil || n > 0 {
+		return n > 0, err
+	}
+	var one int
+	err = s.queryRow(`SELECT 1 FROM `+table+` WHERE id = ?`, id).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return false, ErrInUse
+}
+
 // ListTemplates returns all templates ordered by id.
 func (s *Store) ListTemplates() ([]Template, error) {
 	rows, err := s.query(`SELECT id, version, body_json FROM templates ORDER BY id`)
@@ -146,6 +175,7 @@ type Sound struct {
 	ContentType string
 	Data        []byte
 	SHA256      string
+	Size        int
 }
 
 // PutSound stores or replaces a sound.
@@ -156,6 +186,11 @@ func (s *Store) PutSound(snd Sound) error {
 	return err
 }
 
+// DeleteSound removes a sound; false if it does not exist, ErrInUse while a live channel names it.
+func (s *Store) DeleteSound(id string) (bool, error) {
+	return s.deleteUnused("sounds", "sound", id)
+}
+
 // GetSound returns a sound including its bytes.
 func (s *Store) GetSound(id string) (Sound, error) {
 	var snd Sound
@@ -164,12 +199,13 @@ func (s *Store) GetSound(id string) (Sound, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return Sound{}, ErrNotFound
 	}
+	snd.Size = len(snd.Data)
 	return snd, err
 }
 
-// ListSounds returns sound metadata (Data left nil) ordered by id.
+// ListSounds returns sound metadata (Data left nil, Size set) ordered by id.
 func (s *Store) ListSounds() ([]Sound, error) {
-	rows, err := s.query(`SELECT id, filename, content_type, sha256 FROM sounds ORDER BY id`)
+	rows, err := s.query(`SELECT id, filename, content_type, sha256, length(data) FROM sounds ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +213,7 @@ func (s *Store) ListSounds() ([]Sound, error) {
 	var out []Sound
 	for rows.Next() {
 		var snd Sound
-		if err := rows.Scan(&snd.ID, &snd.Filename, &snd.ContentType, &snd.SHA256); err != nil {
+		if err := rows.Scan(&snd.ID, &snd.Filename, &snd.ContentType, &snd.SHA256, &snd.Size); err != nil {
 			return nil, err
 		}
 		out = append(out, snd)

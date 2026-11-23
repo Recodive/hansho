@@ -1,0 +1,25 @@
+{{define "content"}}
+<h1>Templates</h1>
+<p class="lead">A template decides how a message looks in the app: which text, symbols and bars it shows, and where. A channel can use a template for all its messages. Without one, a message is a plain notification.</p>
+{{template "iac" .}}
+{{if .Data}}
+<ul class="people">
+{{range .Data}}
+<li class="person">
+<div class="head">
+<h2>{{.ID}}</h2>
+<div class="row">
+<a class="btn ghost" href="/admin/templates/{{.ID}}/edit" aria-label="Edit {{.ID}}">Edit</a>
+<a class="btn danger" href="/admin/templates/{{.ID}}/delete" aria-label="Delete {{.ID}}">Delete</a>
+</div>
+</div>
+<p class="meta">Version {{.Version}}{{if .Nodes}}, {{.Nodes}} {{if eq .Nodes 1}}part{{else}}parts{{end}}{{end}}</p>
+<p class="meta">{{if .Uses}}Used by {{.Uses}} {{if eq .Uses 1}}channel{{else}}channels{{end}}{{else}}No channel uses it yet{{end}}</p>
+</li>
+{{end}}
+</ul>
+{{else}}
+<p class="empty">There are no templates yet.</p>
+{{end}}
+<p><a class="btn" href="/admin/templates/new">Make a template</a></p>
+{{end}}

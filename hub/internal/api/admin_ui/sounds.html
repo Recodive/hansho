@@ -1,0 +1,40 @@
+{{define "content"}}
+<h1>Sounds</h1>
+<p class="lead">A sound is what plays when a notification arrives. Upload a sound here, then choose it for a channel.</p>
+{{template "iac" .}}
+{{if .Data.Rows}}
+<ul class="people">
+{{range .Data.Rows}}
+<li class="person">
+<div class="head">
+<h2>{{.ID}}</h2>
+<div class="row"><a class="btn danger" href="/admin/sounds/{{.ID}}/delete" aria-label="Delete {{.ID}}">Delete</a></div>
+</div>
+<p class="meta">{{.Type}} file, {{.Size}}</p>
+<p class="meta">Fingerprint <code>{{.Short}}</code></p>
+<p class="meta">{{if .Uses}}Used by {{.Uses}} {{if eq .Uses 1}}channel{{else}}channels{{end}}{{else}}No channel uses it yet{{end}}</p>
+</li>
+{{end}}
+</ul>
+{{else}}
+<p class="empty">There are no sounds yet.</p>
+{{end}}
+<h2>Upload a sound</h2>
+{{if .Data.Errors}}<p class="error" role="alert">The sound was not saved. Fix what is marked below and try again.</p>{{end}}
+<form method="post" action="/admin/sounds" enctype="multipart/form-data" class="stack wide">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<div class="field">
+<label for="id">Id</label>
+<p class="hint" id="id-hint">A short word to name the sound, such as chime. Letters, numbers, dashes and underscores. Using the id of a sound that exists replaces that sound.</p>
+{{with index .Data.Errors "id"}}<p class="field-error" id="id-err">{{.}}</p>{{end}}
+<input id="id" name="id" type="text" value="{{.Data.ID}}" maxlength="64" required autocomplete="off" spellcheck="false" aria-describedby="id-hint id-err"{{if index .Data.Errors "id"}} aria-invalid="true"{{end}}>
+</div>
+<div class="field">
+<label for="file">Sound file</label>
+<p class="hint" id="file-hint">A CAF, WAV or AIFF file of at most 1 MB. A WAV or AIFF must be shorter than 30 seconds.</p>
+{{with index .Data.Errors "file"}}<p class="field-error" id="file-err">{{.}}</p>{{end}}
+<input id="file" name="file" type="file" accept=".caf,.wav,.aif,.aiff,.aifc,audio/x-caf,audio/wav,audio/aiff" required aria-describedby="file-hint file-err"{{if index .Data.Errors "file"}} aria-invalid="true"{{end}}>
+</div>
+<div><button class="btn">Upload sound</button></div>
+</form>
+{{end}}

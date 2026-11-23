@@ -388,6 +388,38 @@ func TestMigrationRetiresDuplicateActiveDevices(t *testing.T) {
 	}
 }
 
+func TestListFeeds(t *testing.T) {
+	st := openTest(t)
+	st.UpsertChannel(Channel{ID: "ops", Name: "Ops", DefaultLevel: "active", MaxLevel: "page", Audience: Audience{Mode: AudienceOnly, Users: []string{"alice"}}})
+	put := func(f Feed) {
+		t.Helper()
+		f.DataJSON, f.UpdatedAt = `{"secret":1}`, t0
+		if err := st.UpsertFeed(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(Feed{ID: "status", ExternalUserID: "alice", Title: "Alice"})
+	put(Feed{ID: "status", Title: "Global", TemplateID: "card", ChannelID: "ops"})
+	put(Feed{ID: "alpha"})
+	got, err := st.ListFeeds()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var line []string
+	for _, f := range got {
+		line = append(line, f.ID+"/"+f.ExternalUserID+"/"+f.Title)
+		if f.DataJSON != "" {
+			t.Errorf("%s: the listing carries data %q", f.ID, f.DataJSON)
+		}
+	}
+	if want := "alpha//,status//Global,status/alice/Alice"; strings.Join(line, ",") != want {
+		t.Fatalf("feeds %q, want %q", strings.Join(line, ","), want)
+	}
+	if g := got[1]; g.TemplateID != "card" || g.ChannelID != "ops" || g.Audience != nil || g.Effective.Mode != AudienceOnly || !g.UpdatedAt.Equal(t0) {
+		t.Errorf("global status feed: %+v", g)
+	}
+}
+
 func TestListFeedsForUser(t *testing.T) {
 	st := openTest(t)
 	put := func(id, user, title string) {
