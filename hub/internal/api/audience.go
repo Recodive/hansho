@@ -169,6 +169,20 @@ func (s *server) putGroup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, groupView{ID: id, Members: got})
 }
 
+// GET /api/v1/groups
+func (s *server) listGroups(w http.ResponseWriter, _ *http.Request) {
+	groups, err := s.Store.ListGroups()
+	if err != nil {
+		s.internal(w, "list groups failed", err)
+		return
+	}
+	out := make([]groupView, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, groupView{ID: g.ID, Members: g.Members})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // GET /api/v1/groups/{id}
 func (s *server) getGroup(w http.ResponseWriter, r *http.Request) {
 	members, err := s.Store.GetGroup(r.PathValue("id"))

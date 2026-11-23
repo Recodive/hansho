@@ -118,8 +118,9 @@ curl -H "Authorization: Bearer $KEY" https://hub.example.com/api/v1/messages/msg
 | `DELETE /api/v1/users/{external_user_id}/pairings` | Unpair a user everywhere. Done by the sender it is a *kick*: the user's devices are told so (see [Audiences](#audiences-groups-and-kick)) |
 | `PUT/GET/DELETE /api/v1/channels/{id}` | `{name, default_level, max_level, sound?, template_id?, thread?, actions?, audience?}`; a PUT replaces the whole channel, so leaving `audience` out makes it `everyone` again |
 | `PUT/GET/DELETE /api/v1/groups/{id}` | `{members:[external_user_id,...]}`; a PUT replaces the whole member list |
-| `PUT /api/v1/templates/{id}` | `{version, body}`; version must increase |
-| `PUT /api/v1/sounds/{id}` | Raw `audio/x-caf`, `audio/wav` or `audio/aiff`, at most 1 MB; WAV/AIFF shorter than 30 s |
+| `GET /api/v1/channels`, `/groups`, `/templates`, `/sounds` | Lists: an array of what the matching `GET .../{id}` returns |
+| `PUT/GET/DELETE /api/v1/templates/{id}` | `{version, body}`; version must increase. A DELETE answers `409 in_use` while a channel still names the template |
+| `PUT/GET/DELETE /api/v1/sounds/{id}` | PUT takes raw `audio/x-caf`, `audio/wav` or `audio/aiff`, at most 1 MB; WAV/AIFF shorter than 30 s. GET returns `{id, content_type, bytes, sha256}` without the audio; a DELETE answers `409 in_use` while a channel still names the sound |
 | `POST /api/v1/messages` | `{external_user_id \| external_user_ids \| to_audience, channel, level?, title, subtitle?, body, image_url?, template_id?, data?, sound?, actions?, collapse_id?, page?:{interval_s?, max_retries?}}` -> 202 with a `recipients` list (see [Audiences](#audiences-groups-and-kick)) |
 | `GET /api/v1/messages/{id}` | `{status, level, attempts, deliveries, acked_at?}` |
 | `POST /api/v1/activities`, `PATCH`/`DELETE /api/v1/activities/{id}` | Live Activities (content-state at most 4 KB; update priority 5 or 10) |

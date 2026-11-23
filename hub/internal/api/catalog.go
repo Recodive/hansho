@@ -165,6 +165,20 @@ func (s *server) getChannel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, senderViewOf(c))
 }
 
+// GET /api/v1/channels
+func (s *server) listChannels(w http.ResponseWriter, _ *http.Request) {
+	channels, err := s.Store.ListChannels()
+	if err != nil {
+		s.internal(w, "list channels failed", err)
+		return
+	}
+	out := make([]senderChannelView, 0, len(channels))
+	for _, c := range channels {
+		out = append(out, senderViewOf(c))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // DELETE /api/v1/channels/{id}
 func (s *server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 	ok, err := s.Store.DeleteChannel(r.PathValue("id"), s.Now())
@@ -228,6 +242,102 @@ func (s *server) putTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "version": req.Version})
+}
+
+type templateView struct {
+	ID      string          `json:"id"`
+	Version int             `json:"version"`
+	Body    json.RawMessage `json:"body"`
+}
+
+// GET /api/v1/templates
+func (s *server) listTemplates(w http.ResponseWriter, _ *http.Request) {
+	templates, err := s.Store.ListTemplates()
+	if err != nil {
+		s.internal(w, "list templates failed", err)
+		return
+	}
+	out := make([]templateView, 0, len(templates))
+	for _, t := range templates {
+		out = append(out, templateView{t.ID, t.Version, t.Body})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// GET /api/v1/templates/{id}
+func (s *server) getTemplate(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Store.GetTemplate(r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "unknown_template")
+		return
+	}
+	if err != nil {
+		s.internal(w, "template lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, templateView{t.ID, t.Version, t.Body})
+}
+
+// DELETE /api/v1/templates/{id}
+//
+// A template a live channel still names is refused with 409: deleting it would leave that channel pointing at nothing.
+func (s *server) deleteTemplate(w http.ResponseWriter, r *http.Request) {
+	s.deleteCatalog(w, r, "unknown_template", "delete template failed", s.Store.DeleteTemplate)
+}
+
+// deleteCatalog answers a template or sound deletion.
+func (s *server) deleteCatalog(w http.ResponseWriter, r *http.Request, unknown, what string, del func(string) (bool, error)) {
+	ok, err := del(r.PathValue("id"))
+	switch {
+	case errors.Is(err, store.ErrInUse):
+		writeErr(w, http.StatusConflict, "in_use")
+	case err != nil:
+		s.internal(w, what, err)
+	case !ok:
+		writeErr(w, http.StatusNotFound, unknown)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+type soundView struct {
+	ID          string `json:"id"`
+	ContentType string `json:"content_type"`
+	Bytes       int    `json:"bytes"`
+	SHA256      string `json:"sha256"`
+}
+
+// GET /api/v1/sounds
+func (s *server) listSounds(w http.ResponseWriter, _ *http.Request) {
+	sounds, err := s.Store.ListSounds()
+	if err != nil {
+		s.internal(w, "list sounds failed", err)
+		return
+	}
+	out := make([]soundView, 0, len(sounds))
+	for _, x := range sounds {
+		out = append(out, soundView{x.ID, x.ContentType, x.Size, x.SHA256})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// GET /api/v1/sounds/{id}: metadata only; devices download the audio from the device API.
+func (s *server) getSound(w http.ResponseWriter, r *http.Request) {
+	x, err := s.Store.GetSound(r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "unknown_sound")
+		return
+	}
+	if err != nil {
+		s.internal(w, "sound lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, soundView{x.ID, x.ContentType, x.Size, x.SHA256})
+}
+
+// DELETE /api/v1/sounds/{id}; refused with 409 while a live channel names the sound.
+func (s *server) deleteSound(w http.ResponseWriter, r *http.Request) {
+	s.deleteCatalog(w, r, "unknown_sound", "delete sound failed", s.Store.DeleteSound)
 }
 
 var soundTypes = map[string]string{"audio/x-caf": ".caf", "audio/wav": ".wav", "audio/aiff": ".aiff"}
