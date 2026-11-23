@@ -141,32 +141,37 @@ func (s *server) putGroup(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, body, &req) {
 		return
 	}
-	bad := func(field, msg string) { writeFieldErr(w, http.StatusBadRequest, "invalid_request", field, msg) }
 	if req.Members == nil {
-		bad("members", "required")
+		writeFieldErr(w, http.StatusBadRequest, "invalid_request", "members", "required")
 		return
 	}
-	if len(*req.Members) > maxGroupMembers {
-		bad("members", "at most "+strconv.Itoa(maxGroupMembers)+" entries")
-		return
-	}
-	for i, m := range *req.Members {
-		if m == "" || len(m) > maxFieldLen {
-			bad("members["+strconv.Itoa(i)+"]", "required, at most 256 bytes")
-			return
-		}
-	}
-	members := dedupe(*req.Members)
-	if err := s.Store.PutGroup(id, members); err != nil {
-		s.internal(w, "put group failed", err)
-		return
-	}
-	got, err := s.Store.GetGroup(id)
-	if err != nil {
-		s.internal(w, "group lookup failed", err)
+	got, e := s.saveGroup(id, *req.Members)
+	if e != nil {
+		s.fail(w, e)
 		return
 	}
 	writeJSON(w, http.StatusOK, groupView{ID: id, Members: got})
+}
+
+// saveGroup validates a member list, replaces the group's members with it (deduplicated) and returns what is stored.
+// The caller has checked that id matches idPattern. The API and the admin UI share it.
+func (s *server) saveGroup(id string, members []string) ([]string, *apiError) {
+	if len(members) > maxGroupMembers {
+		return nil, badField("members", "at most "+strconv.Itoa(maxGroupMembers)+" entries")
+	}
+	for i, m := range members {
+		if m == "" || len(m) > maxFieldLen {
+			return nil, badField("members["+strconv.Itoa(i)+"]", "required, at most 256 bytes")
+		}
+	}
+	if err := s.Store.PutGroup(id, dedupe(members)); err != nil {
+		return nil, internalErr("put group failed", err)
+	}
+	got, err := s.Store.GetGroup(id)
+	if err != nil {
+		return nil, internalErr("group lookup failed", err)
+	}
+	return got, nil
 }
 
 // GET /api/v1/groups

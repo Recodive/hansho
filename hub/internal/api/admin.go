@@ -32,8 +32,9 @@ var adminFS embed.FS
 const (
 	adminCookie     = brand.Name + "_admin"
 	adminSessionTTL = 12 * time.Hour
-	// adminMaxForm bounds a form body: the largest field is a 256-byte name.
-	adminMaxForm = 8 << 10
+	// adminMaxForm bounds a form body. It is as large as an API body, enough for a group of a few thousand names (each
+	// costs its length plus 6 bytes); a larger form is refused like one from another site.
+	adminMaxForm = maxJSONBody
 
 	// After adminFreeTries wrong passwords from one address, sign-in is refused for adminLockBase, doubling with every
 	// further failure up to adminLockMax. A record is forgotten adminLockMemory after its last failure.
@@ -80,6 +81,23 @@ func (s *server) adminRoutes() []adminRoute {
 		{"GET /admin/people", adminSignedIn, s.adminPeople},
 		{"GET /admin/people/remove", adminSignedIn, s.adminRemovePage},
 		{"POST /admin/people/remove", adminSignedInPost, s.adminRemove},
+		{"GET /admin/channels", adminSignedIn, s.adminChannels},
+		{"GET /admin/channels/new", adminSignedIn, s.adminChannelNew},
+		{"POST /admin/channels/new", adminSignedInPost, s.adminChannelCreate},
+		{"GET /admin/channels/{id}/edit", adminSignedIn, s.adminChannelEdit},
+		{"POST /admin/channels/{id}/edit", adminSignedInPost, s.adminChannelUpdate},
+		{"GET /admin/channels/{id}/delete", adminSignedIn, s.adminChannelDeletePage},
+		{"POST /admin/channels/{id}/delete", adminSignedInPost, s.adminChannelDeleteDo},
+		{"GET /admin/groups", adminSignedIn, s.adminGroups},
+		{"GET /admin/groups/new", adminSignedIn, s.adminGroupNew},
+		{"POST /admin/groups/new", adminSignedInPost, s.adminGroupCreate},
+		{"GET /admin/groups/{id}/edit", adminSignedIn, s.adminGroupEdit},
+		{"POST /admin/groups/{id}/edit", adminSignedInPost, s.adminGroupUpdate},
+		{"GET /admin/groups/{id}/delete", adminSignedIn, s.adminGroupDeletePage},
+		{"POST /admin/groups/{id}/delete", adminSignedInPost, s.adminGroupDeleteDo},
+		{"GET /admin/send", adminSignedIn, s.adminSend},
+		{"POST /admin/send", adminSignedInPost, s.adminSendPost},
+		{"GET /admin/messages/{id}", adminSignedIn, s.adminMessage},
 		{"GET /admin/keys", adminSignedIn, s.adminKeys},
 		{"POST /admin/keys", adminSignedInPost, s.adminCreateKey},
 		{"GET /admin/keys/{id}/revoke", adminSignedIn, s.adminRevokePage},
@@ -352,6 +370,9 @@ var adminNav = []adminNavItem{
 	{"Home", "/admin/", "home"},
 	{"Pair a person", "/admin/pair", "pair"},
 	{"People", "/admin/people", "people"},
+	{"Channels", "/admin/channels", "channels"},
+	{"Groups", "/admin/groups", "groups"},
+	{"Send a test message", "/admin/send", "send"},
 	{"API keys", "/admin/keys", "keys"},
 }
 
@@ -365,8 +386,9 @@ type adminPage struct {
 
 var adminTmpl = func() map[string]*template.Template {
 	m := map[string]*template.Template{}
-	for _, name := range []string{"login", "home", "notice", "pair", "pair_done", "people", "person_remove", "keys", "key_new", "key_revoke"} {
-		m[name] = template.Must(template.ParseFS(adminFS, "admin_ui/layout.html", "admin_ui/"+name+".html"))
+	for _, name := range []string{"login", "home", "notice", "pair", "pair_done", "people", "person_remove", "keys", "key_new", "key_revoke",
+		"channels", "channel_form", "channel_delete", "groups", "group_form", "group_delete", "send_who", "send_form", "send_done", "message"} {
+		m[name] = template.Must(template.ParseFS(adminFS, "admin_ui/layout.html", "admin_ui/parts.html", "admin_ui/"+name+".html"))
 	}
 	return m
 }()

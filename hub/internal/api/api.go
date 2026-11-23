@@ -158,6 +158,37 @@ func writeFieldErr(w http.ResponseWriter, code int, errCode, field, msg string) 
 	writeJSON(w, code, map[string]string{"error": errCode, "field": field, "message": msg})
 }
 
+// apiError is a failed request in the API's terms, so a handler and the admin UI can share the code that fails. A
+// validation failure names the field and why (400 invalid_request); Err is an internal failure to log (500); other
+// failures carry their own status and error code.
+type apiError struct {
+	Status     int
+	Code       string
+	Field, Msg string
+	What       string
+	Err        error
+}
+
+func badField(field, msg string) *apiError {
+	return &apiError{Status: http.StatusBadRequest, Code: "invalid_request", Field: field, Msg: msg}
+}
+
+func internalErr(what string, err error) *apiError {
+	return &apiError{Status: http.StatusInternalServerError, Code: "internal", What: what, Err: err}
+}
+
+// fail answers a request with e.
+func (s *server) fail(w http.ResponseWriter, e *apiError) {
+	switch {
+	case e.Err != nil:
+		s.internal(w, e.What, e.Err)
+	case e.Field != "":
+		writeFieldErr(w, e.Status, e.Code, e.Field, e.Msg)
+	default:
+		writeErr(w, e.Status, e.Code)
+	}
+}
+
 func (s *server) internal(w http.ResponseWriter, what string, err error) {
 	s.log.Error(what, "err", err)
 	writeErr(w, http.StatusInternalServerError, "internal")

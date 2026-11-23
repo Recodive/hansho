@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -17,6 +18,39 @@ const maxCollapseIDLen = 64 // APNs limit
 // maxRecipients bounds external_user_ids of one send.
 const maxRecipients = 1000
 
+// sendRequest is the body of POST /api/v1/messages, and what the admin UI's test form fills in.
+type sendRequest struct {
+	ExternalUserID  string          `json:"external_user_id"`
+	ExternalUserIDs []string        `json:"external_user_ids"`
+	ToAudience      bool            `json:"to_audience"`
+	Channel         string          `json:"channel"`
+	Level           *string         `json:"level"`
+	Title           string          `json:"title"`
+	Subtitle        string          `json:"subtitle"`
+	Body            string          `json:"body"`
+	ImageURL        string          `json:"image_url"`
+	TemplateID      string          `json:"template_id"`
+	Data            json.RawMessage `json:"data"`
+	Sound           string          `json:"sound"`
+	Actions         json.RawMessage `json:"actions"`
+	CollapseID      string          `json:"collapse_id"`
+	Page            *sendPage       `json:"page"`
+}
+
+type sendPage struct {
+	IntervalS  *int `json:"interval_s"`
+	MaxRetries *int `json:"max_retries"`
+}
+
+// recipient is one entry of a send's "recipients".
+type recipient struct {
+	ExternalUserID string         `json:"external_user_id"`
+	MessageID      string         `json:"message_id,omitempty"`
+	Status         string         `json:"status"`
+	Devices        *int           `json:"devices,omitempty"`
+	Deliveries     []deliveryView `json:"deliveries,omitempty"`
+}
+
 // POST /api/v1/messages
 //
 // The target is exactly one of external_user_id (one user), external_user_ids (several) or to_audience (every paired
@@ -28,30 +62,30 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var req struct {
-		ExternalUserID  string          `json:"external_user_id"`
-		ExternalUserIDs []string        `json:"external_user_ids"`
-		ToAudience      bool            `json:"to_audience"`
-		Channel         string          `json:"channel"`
-		Level           *string         `json:"level"`
-		Title           string          `json:"title"`
-		Subtitle        string          `json:"subtitle"`
-		Body            string          `json:"body"`
-		ImageURL        string          `json:"image_url"`
-		TemplateID      string          `json:"template_id"`
-		Data            json.RawMessage `json:"data"`
-		Sound           string          `json:"sound"`
-		Actions         json.RawMessage `json:"actions"`
-		CollapseID      string          `json:"collapse_id"`
-		Page            *struct {
-			IntervalS  *int `json:"interval_s"`
-			MaxRetries *int `json:"max_retries"`
-		} `json:"page"`
-	}
+	var req sendRequest
 	if !decodeJSON(w, body, &req) {
 		return
 	}
-	bad := func(field, msg string) { writeFieldErr(w, http.StatusBadRequest, "invalid_request", field, msg) }
+	lvl, recipients, e := s.send(r.Context(), req)
+	if e != nil {
+		s.fail(w, e)
+		return
+	}
+	out := map[string]any{"level": lvl, "recipients": recipients}
+	if req.ExternalUserID != "" {
+		// The single-user form keeps its original fields. Without access there is no message: message_id is "".
+		r0 := recipients[0]
+		out["message_id"], out["status"], out["devices"], out["deliveries"] = "", r0.Status, 0, []deliveryView{}
+		if r0.MessageID != "" {
+			out["message_id"], out["devices"], out["deliveries"] = r0.MessageID, *r0.Devices, r0.Deliveries
+		}
+	}
+	writeJSON(w, http.StatusAccepted, out)
+}
+
+// send validates a request and enqueues the message for each recipient. It returns the level the message went out at
+// and one recipient per user. The API and the admin UI share it.
+func (s *server) send(ctx context.Context, req sendRequest) (string, []recipient, *apiError) {
 	targets := 0
 	for _, set := range []bool{req.ExternalUserID != "", len(req.ExternalUserIDs) > 0, req.ToAudience} {
 		if set {
@@ -60,71 +94,56 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case targets == 0:
-		bad("external_user_id", "required (or external_user_ids, or to_audience)")
-		return
+		return "", nil, badField("external_user_id", "required (or external_user_ids, or to_audience)")
 	case targets > 1:
-		bad("external_user_ids", "give only one of external_user_id, external_user_ids and to_audience")
-		return
+		return "", nil, badField("external_user_ids", "give only one of external_user_id, external_user_ids and to_audience")
 	case len(req.ExternalUserID) > maxFieldLen:
-		bad("external_user_id", "at most 256 bytes")
-		return
+		return "", nil, badField("external_user_id", "at most 256 bytes")
 	case len(req.ExternalUserIDs) > maxRecipients:
-		bad("external_user_ids", "at most 1000 entries")
-		return
+		return "", nil, badField("external_user_ids", "at most 1000 entries")
 	}
 	for i, u := range req.ExternalUserIDs {
 		if u == "" || len(u) > maxFieldLen {
-			bad("external_user_ids["+strconv.Itoa(i)+"]", "required, at most 256 bytes")
-			return
+			return "", nil, badField("external_user_ids["+strconv.Itoa(i)+"]", "required, at most 256 bytes")
 		}
 	}
 	for _, f := range []struct{ name, v string }{
 		{"channel", req.Channel}, {"title", req.Title}, {"body", req.Body},
 	} {
 		if f.v == "" {
-			bad(f.name, "required")
-			return
+			return "", nil, badField(f.name, "required")
 		}
 	}
 	if req.Level != nil && !level.Valid(*req.Level) {
-		bad("level", "must be one of passive, active, time-sensitive, critical, page")
-		return
+		return "", nil, badField("level", "must be one of passive, active, time-sensitive, critical, page")
 	}
 	if len(req.CollapseID) > maxCollapseIDLen {
-		bad("collapse_id", "at most 64 bytes")
-		return
+		return "", nil, badField("collapse_id", "at most 64 bytes")
 	}
 	for i := 0; i < len(req.CollapseID); i++ {
 		if c := req.CollapseID[i]; c <= ' ' || c > '~' {
-			bad("collapse_id", "printable ASCII without spaces")
-			return
+			return "", nil, badField("collapse_id", "printable ASCII without spaces")
 		}
 	}
 	if req.ImageURL != "" && !isHTTPSURL(req.ImageURL) {
-		bad("image_url", "must be an https URL with a host")
-		return
+		return "", nil, badField("image_url", "must be an https URL with a host")
 	}
 
 	ch, err := s.Store.GetChannel(req.Channel)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && !ch.DeletedAt.IsZero()) {
-		writeErr(w, http.StatusNotFound, "unknown_channel")
-		return
+		return "", nil, &apiError{Status: http.StatusNotFound, Code: "unknown_channel"}
 	}
 	if err != nil {
-		s.internal(w, "channel lookup failed", err)
-		return
+		return "", nil, internalErr("channel lookup failed", err)
 	}
 
 	templateID := req.TemplateID
 	if templateID == "" {
 		templateID = ch.TemplateID
-	} else if _, err := s.Store.GetTemplate(templateID); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			bad("template_id", "unknown template")
-		} else {
-			s.internal(w, "template lookup failed", err)
-		}
-		return
+	} else if _, err := s.Store.GetTemplate(templateID); errors.Is(err, store.ErrNotFound) {
+		return "", nil, badField("template_id", "unknown template")
+	} else if err != nil {
+		return "", nil, internalErr("template lookup failed", err)
 	}
 	soundID := req.Sound
 	if soundID == "" {
@@ -134,20 +153,17 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	if soundID != "" {
 		soundFile, err = s.Store.SoundFilename(soundID)
 		if errors.Is(err, store.ErrNotFound) {
-			bad("sound", "unknown sound")
-			return
+			return "", nil, badField("sound", "unknown sound")
 		}
 		if err != nil {
-			s.internal(w, "sound lookup failed", err)
-			return
+			return "", nil, internalErr("sound lookup failed", err)
 		}
 	}
 	actions := json.RawMessage(ch.ActionsJSON)
 	if len(req.Actions) > 0 && string(req.Actions) != "null" {
 		norm, field, msg := checkActions(req.Actions)
 		if field != "" {
-			bad(field, msg)
-			return
+			return "", nil, badField(field, msg)
 		}
 		actions = json.RawMessage(norm)
 	}
@@ -172,15 +188,13 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	if lvl == level.Page && req.Page != nil {
 		if iv := req.Page.IntervalS; iv != nil {
 			if *iv < 1 || *iv > 86400 {
-				bad("page.interval_s", "must be between 1 and 86400")
-				return
+				return "", nil, badField("page.interval_s", "must be between 1 and 86400")
 			}
 			in.PageIntervalS = *iv
 		}
 		if mr := req.Page.MaxRetries; mr != nil {
 			if *mr < 0 || *mr > 100 {
-				bad("page.max_retries", "must be between 0 and 100")
-				return
+				return "", nil, badField("page.max_retries", "must be between 0 and 100")
 			}
 			in.PageMaxRetries = mr
 		}
@@ -192,26 +206,17 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		users = []string{req.ExternalUserID}
 	case req.ToAudience:
 		if users, err = s.Store.ActiveUsers(); err != nil {
-			s.internal(w, "list users failed", err)
-			return
+			return "", nil, internalErr("list users failed", err)
 		}
 	default:
 		users = dedupe(req.ExternalUserIDs)
 	}
 
-	type recipient struct {
-		ExternalUserID string         `json:"external_user_id"`
-		MessageID      string         `json:"message_id,omitempty"`
-		Status         string         `json:"status"`
-		Devices        *int           `json:"devices,omitempty"`
-		Deliveries     []deliveryView `json:"deliveries,omitempty"`
-	}
 	recipients := make([]recipient, 0, len(users))
 	for _, user := range users {
 		acc, err := s.Store.AccessFor(user)
 		if err != nil {
-			s.internal(w, "access check failed", err)
-			return
+			return "", nil, internalErr("access check failed", err)
 		}
 		if !acc.Allows(ch.Audience) {
 			if req.ToAudience {
@@ -221,14 +226,13 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		in.ExternalUserID = user
-		res, err := delivery.Enqueue(r.Context(), s.Store, s.Webhooks, s.Cfg, s.Key, s.Now, in)
+		res, err := delivery.Enqueue(ctx, s.Store, s.Webhooks, s.Cfg, s.Key, s.Now, in)
 		if errors.Is(err, delivery.ErrPayloadTooLarge) {
-			writeErr(w, http.StatusRequestEntityTooLarge, "payload_too_large") // the size does not depend on the user
-			return
+			// The size does not depend on the user.
+			return "", nil, &apiError{Status: http.StatusRequestEntityTooLarge, Code: "payload_too_large"}
 		}
 		if err != nil {
-			s.internal(w, "enqueue failed", err)
-			return
+			return "", nil, internalErr("enqueue failed", err)
 		}
 		dels := make([]deliveryView, 0, len(res.Deliveries))
 		for _, d := range res.Deliveries {
@@ -239,16 +243,7 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 			ExternalUserID: user, MessageID: res.Message.ID, Status: res.Message.Status, Devices: &n, Deliveries: dels,
 		})
 	}
-	out := map[string]any{"level": lvl, "recipients": recipients}
-	if req.ExternalUserID != "" {
-		// The single-user form keeps its original fields. Without access there is no message: message_id is "".
-		r0 := recipients[0]
-		out["message_id"], out["status"], out["devices"], out["deliveries"] = "", r0.Status, 0, []deliveryView{}
-		if r0.MessageID != "" {
-			out["message_id"], out["devices"], out["deliveries"] = r0.MessageID, *r0.Devices, r0.Deliveries
-		}
-	}
-	writeJSON(w, http.StatusAccepted, out)
+	return lvl, recipients, nil
 }
 
 // statusNoAccess is the recipient status of a user outside the channel's audience.
@@ -260,25 +255,32 @@ type deliveryView struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// GET /api/v1/messages/{id}
-func (s *server) getMessage(w http.ResponseWriter, r *http.Request) {
-	m, err := s.Store.GetMessage(r.PathValue("id"))
+// loadMessage reads a message and its deliveries. The API and the admin UI's status page share it.
+func (s *server) loadMessage(id string) (store.Message, []deliveryView, *apiError) {
+	m, err := s.Store.GetMessage(id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "unknown_message")
-		return
+		return store.Message{}, nil, &apiError{Status: http.StatusNotFound, Code: "unknown_message"}
 	}
 	if err != nil {
-		s.internal(w, "message lookup failed", err)
-		return
+		return store.Message{}, nil, internalErr("message lookup failed", err)
 	}
 	dels, err := s.Store.Deliveries(m.ID)
 	if err != nil {
-		s.internal(w, "deliveries lookup failed", err)
-		return
+		return store.Message{}, nil, internalErr("deliveries lookup failed", err)
 	}
 	views := make([]deliveryView, 0, len(dels))
 	for _, d := range dels {
 		views = append(views, deliveryView{DeviceID: d.DeviceID, Status: d.Status, Error: d.Error})
+	}
+	return m, views, nil
+}
+
+// GET /api/v1/messages/{id}
+func (s *server) getMessage(w http.ResponseWriter, r *http.Request) {
+	m, views, e := s.loadMessage(r.PathValue("id"))
+	if e != nil {
+		s.fail(w, e)
+		return
 	}
 	out := map[string]any{
 		"message_id": m.ID, "status": m.Status, "level": m.Level, "attempts": m.Attempts, "deliveries": views,

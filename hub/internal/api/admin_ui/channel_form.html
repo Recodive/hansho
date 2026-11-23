@@ -1,0 +1,122 @@
+{{define "content"}}
+<h1>{{if .Data.New}}New channel{{else}}Edit channel{{end}}</h1>
+<p class="lead">Choose how loud messages on this channel may get, who may receive them, and what they look and sound like.</p>
+{{template "iac" .}}
+{{if .Data.Errors}}<p class="error" role="alert">The channel was not saved. Fix what is marked below and try again.{{with index .Data.Errors "form"}} {{.}}{{end}}</p>{{end}}
+<form method="post" action="{{.Data.Action}}" class="stack wide">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button class="sr" tabindex="-1">Save channel</button>
+{{if .Data.New}}
+<div class="field">
+<label for="id">Id</label>
+<p class="hint" id="id-hint">A short word your software uses to send to this channel, such as billing. Letters, numbers, dots, dashes and underscores. You cannot change it later.</p>
+{{with index .Data.Errors "id"}}<p class="field-error" id="id-err">{{.}}</p>{{end}}
+<input id="id" name="id" type="text" value="{{.Data.ID}}" maxlength="64" required autocomplete="off" spellcheck="false" aria-describedby="id-hint id-err"{{if index .Data.Errors "id"}} aria-invalid="true"{{end}}>
+</div>
+{{else}}
+<div class="field"><span class="label">Id</span><p class="hint">This channel's id is <code>{{.Data.ID}}</code>. It cannot be changed.</p></div>
+{{end}}
+<div class="field">
+<label for="name">Name</label>
+<p class="hint" id="name-hint">What people see in the app, for example "Billing alerts".</p>
+{{with index .Data.Errors "name"}}<p class="field-error" id="name-err">{{.}}</p>{{end}}
+<input id="name" name="name" type="text" value="{{.Data.Name}}" maxlength="256" required autocomplete="off" aria-describedby="name-hint name-err"{{if index .Data.Errors "name"}} aria-invalid="true"{{end}}>
+</div>
+<div class="field">
+<label for="default_level">Starting level</label>
+<p class="hint" id="default_level-hint">How a message is sent when the sender does not ask for a level.</p>
+{{with index .Data.Errors "default_level"}}<p class="field-error" id="default_level-err">{{.}}</p>{{end}}
+<select id="default_level" name="default_level" data-help="default_level-help" aria-describedby="default_level-hint default_level-help default_level-err"{{if index .Data.Errors "default_level"}} aria-invalid="true"{{end}}>
+{{range .Data.DefaultLevels}}<option value="{{.Value}}" data-help="{{.Help}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+</select>
+<p class="hint" id="default_level-help">{{.Data.DefaultHelp}}</p>
+</div>
+<div class="field">
+<label for="max_level">Highest level</label>
+<p class="hint" id="max_level-hint">The loudest a message on this channel may be. A message that asks for more is sent at this level.</p>
+{{with index .Data.Errors "max_level"}}<p class="field-error" id="max_level-err">{{.}}</p>{{end}}
+<select id="max_level" name="max_level" data-help="max_level-help" aria-describedby="max_level-hint max_level-help max_level-err"{{if index .Data.Errors "max_level"}} aria-invalid="true"{{end}}>
+{{range .Data.MaxLevels}}<option value="{{.Value}}" data-help="{{.Help}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+</select>
+<p class="hint" id="max_level-help">{{.Data.MaxHelp}}</p>
+</div>
+<div class="field">
+<label for="sound">Sound</label>
+{{with index .Data.Errors "sound"}}<p class="field-error" id="sound-err">{{.}}</p>{{end}}
+<select id="sound" name="sound" aria-describedby="sound-err"{{if index .Data.Errors "sound"}} aria-invalid="true"{{end}}>
+{{range .Data.Sounds}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+</select>
+</div>
+<div class="field">
+<label for="template">Template</label>
+<p class="hint" id="template-hint">A template changes how the message looks in the app.</p>
+{{with index .Data.Errors "template"}}<p class="field-error" id="template-err">{{.}}</p>{{end}}
+<select id="template" name="template" aria-describedby="template-hint template-err"{{if index .Data.Errors "template"}} aria-invalid="true"{{end}}>
+{{range .Data.Templates}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+</select>
+</div>
+<div class="field">
+<label for="thread">Thread</label>
+<p class="hint" id="thread-hint">Messages with the same thread are grouped together on the lock screen. Leave it empty to use the channel's id.</p>
+{{with index .Data.Errors "thread"}}<p class="field-error" id="thread-err">{{.}}</p>{{end}}
+<input id="thread" name="thread" type="text" value="{{.Data.Thread}}" maxlength="256" autocomplete="off" aria-describedby="thread-hint thread-err"{{if index .Data.Errors "thread"}} aria-invalid="true"{{end}}>
+</div>
+<fieldset>
+<legend class="label">Buttons</legend>
+<p class="hint">Buttons appear under the message. Leave this empty for none.</p>
+{{range .Data.Actions}}
+<div class="action">
+<h3>Button {{.Num}}</h3>
+{{with .Error}}<p class="field-error" role="alert">{{.}}</p>{{end}}
+<div class="field">
+<label for="a{{.N}}_id">Id</label>
+<input id="a{{.N}}_id" name="a{{.N}}_id" type="text" value="{{.ID}}" autocomplete="off" spellcheck="false">
+</div>
+<div class="field">
+<label for="a{{.N}}_title">Label</label>
+<input id="a{{.N}}_title" name="a{{.N}}_title" type="text" value="{{.Title}}" autocomplete="off">
+</div>
+<div class="field">
+<label for="a{{.N}}_kind">What it does</label>
+<select id="a{{.N}}_kind" name="a{{.N}}_kind">
+{{range .Kinds}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+</select>
+</div>
+<div class="field">
+<label for="a{{.N}}_url">Link</label>
+<p class="hint">Only for a button that opens a link. It must start with https://</p>
+<input id="a{{.N}}_url" name="a{{.N}}_url" type="text" value="{{.URL}}" autocomplete="off" spellcheck="false">
+</div>
+<label class="opt"><input type="checkbox" name="a{{.N}}_ack" value="1"{{if .Ack}} checked{{end}}> Pressing it acknowledges the message (this stops a page from repeating)</label>
+<div><button class="btn danger" name="remove" value="{{.N}}" formnovalidate>Remove button {{.Num}}</button></div>
+</div>
+{{end}}
+<input type="hidden" name="actions" value="{{len .Data.Actions}}">
+{{if .Data.CanAdd}}<div><button class="btn ghost" name="add" value="1" formnovalidate>Add a button</button></div>{{end}}
+</fieldset>
+<fieldset>
+<legend class="label">Who may use this channel</legend>
+{{with index .Data.Errors "audience"}}<p class="field-error" id="audience-err" role="alert">{{.}}</p>{{end}}
+<label class="opt"><input type="radio" name="mode" value="everyone"{{if eq .Data.Mode "everyone"}} checked{{end}}> Everyone who is paired</label>
+<label class="opt"><input type="radio" name="mode" value="only"{{if eq .Data.Mode "only"}} checked{{end}}> Only the people and groups I tick below</label>
+<label class="opt"><input type="radio" name="mode" value="except"{{if eq .Data.Mode "except"}} checked{{end}}> Everyone except the people and groups I tick below</label>
+<div class="choices">
+<p class="sub">People</p>
+{{range .Data.People}}<label class="opt"><input type="checkbox" name="user" value="{{.Value}}"{{if .Checked}} checked{{end}}> {{.Label}}</label>
+{{else}}<p class="hint">No one is paired yet.</p>{{end}}
+</div>
+<div class="choices">
+<p class="sub">Groups</p>
+{{range .Data.Groups}}<label class="opt"><input type="checkbox" name="group" value="{{.Value}}"{{if .Checked}} checked{{end}}> {{.Label}}</label>
+{{else}}<p class="hint">There are no groups yet. You can make one on the <a href="/admin/groups">Groups page</a>.</p>{{end}}
+</div>
+<div class="field">
+<label for="extra">Someone who has not paired yet</label>
+<p class="hint" id="extra-hint">Type their name, one per line. It works as soon as they pair with that name.</p>
+<textarea id="extra" name="extra" rows="3" autocomplete="off" aria-describedby="extra-hint">{{.Data.Extra}}</textarea>
+</div>
+</fieldset>
+<div class="row"><button class="btn">Save channel</button><a class="btn ghost" href="/admin/channels">Cancel</a></div>
+</form>
+{{with .Data.Call}}{{template "apicall" .}}{{end}}
+{{end}}

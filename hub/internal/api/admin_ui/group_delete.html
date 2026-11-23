@@ -1,0 +1,19 @@
+{{define "content"}}
+<h1>Delete {{.Data.ID}}?</h1>
+<p class="lead">The group has {{.Data.Members}} {{if eq .Data.Members 1}}person{{else}}people{{end}}. Deleting it does not remove them from the hub.</p>
+{{if .Data.Uses}}
+<p class="warn" role="note"><strong>Channels still use this group.</strong> They keep working, but the group counts as empty, so who may use them changes:</p>
+<ul class="plain uses">
+{{range .Data.Uses}}<li><a href="/admin/channels/{{.ID}}/edit">{{.Channel}}</a>. {{.Effect}}</li>{{end}}
+</ul>
+{{else}}
+<p>No channel uses this group.</p>
+{{end}}
+<p class="hint">Feeds can name a group too. This page cannot list them, and they change the same way.</p>
+{{template "iac" .}}
+<form method="post" action="/admin/groups/{{.Data.ID}}/delete" class="row">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button class="btn danger">Yes, delete it</button>
+<a class="btn ghost" href="/admin/groups">Cancel</a>
+</form>
+{{end}}
