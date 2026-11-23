@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/hkdf"
 	"crypto/hmac"
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -129,8 +130,12 @@ func (s *server) adminRoutes() []adminRoute {
 func (s *server) mountAdmin(mux *http.ServeMux) {
 	// The session key comes from the master key under its own label and the password, so no other use of the master key
 	// shares it and changing the password signs everyone out.
-	salt := sha256.Sum256([]byte(s.Cfg.AdminPassword))
-	key, err := hkdf.Key(sha256.New, s.Cfg.MasterKey, salt[:], brand.Label("admin/session/v1"), 32)
+	salt, err := hkdf.Key(sha256.New, s.Cfg.MasterKey, nil, brand.Label("admin/password-salt/v1"), 16)
+	if err != nil {
+		panic(err)
+	}
+	s.adminSalt, s.adminPassKey = []byte(salt), adminPasswordKey(s.Cfg.AdminPassword, []byte(salt))
+	key, err := hkdf.Key(sha256.New, s.Cfg.MasterKey, s.adminPassKey, brand.Label("admin/session/v1"), 32)
 	if err != nil {
 		panic(err)
 	}
@@ -347,10 +352,32 @@ func (s *server) adminLoginPage(w http.ResponseWriter, r *http.Request, _ string
 	s.adminRender(w, http.StatusOK, "login", "", "Sign in", "", nil)
 }
 
-// adminPasswordOK compares in constant time; hashing first hides the password's length.
+// adminPBKDF2Iterations is OWASP's figure for PBKDF2-HMAC-SHA256. A variable so tests can use a cheap one.
+var adminPBKDF2Iterations = 600_000
+
+func adminPasswordKey(password string, salt []byte) []byte {
+	k, err := pbkdf2.Key(sha256.New, password, salt, adminPBKDF2Iterations, 32)
+	if err != nil {
+		panic(err)
+	}
+	return k
+}
+
+// adminPasswordOK derives a key from the attempt and compares it with the configured password's in constant time. The
+// derivation (slow on purpose) also hides the password's length; sign-in is rate limited, so its cost is not a lever.
 func (s *server) adminPasswordOK(pw string) bool {
-	a, b := sha256.Sum256([]byte(pw)), sha256.Sum256([]byte(s.Cfg.AdminPassword))
-	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
+	return subtle.ConstantTimeCompare(adminPasswordKey(pw, s.adminSalt), s.adminPassKey) == 1
+}
+
+// adminInfo logs one admin action. Values typed by an admin lose their line breaks first, so one action is one line.
+func (s *server) adminInfo(msg string, kv ...any) {
+	for i, v := range kv {
+		if str, ok := v.(string); ok {
+			str = strings.ReplaceAll(str, "\n", "")
+			kv[i] = strings.ReplaceAll(str, "\r", "")
+		}
+	}
+	s.log.Info(msg, kv...)
 }
 
 func (s *server) adminLogin(w http.ResponseWriter, r *http.Request, _ string) {
@@ -374,7 +401,7 @@ func (s *server) adminLogin(w http.ResponseWriter, r *http.Request, _ string) {
 		return
 	}
 	http.SetCookie(w, c)
-	s.log.Info("admin: signed in", "client", client)
+	s.adminInfo("admin: signed in", "client", client)
 	http.Redirect(w, r, "/admin/", http.StatusSeeOther)
 }
 
@@ -382,7 +409,7 @@ func (s *server) adminLogout(w http.ResponseWriter, r *http.Request, _ string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: adminCookie, Path: "/admin", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
-	s.log.Info("admin: signed out", "client", adminClient(r))
+	s.adminInfo("admin: signed out", "client", adminClient(r))
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 }
 

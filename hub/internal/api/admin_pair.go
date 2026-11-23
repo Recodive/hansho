@@ -42,7 +42,7 @@ func (s *server) adminPair(w http.ResponseWriter, r *http.Request, csrf string) 
 	if err != nil {
 		s.log.Error("admin: render QR code failed", "err", err)
 	}
-	s.log.Info("admin: pair code created", "external_user_id", name, "expires_at", expires.UTC().Format(time.RFC3339))
+	s.adminInfo("admin: pair code created", "external_user_id", name, "expires_at", expires.UTC().Format(time.RFC3339))
 	s.adminRender(w, http.StatusOK, "pair_done", "pair", "Pair code for "+name, csrf, adminPairDone{
 		Name: name, Link: link, Expires: adminTime(expires), ExpiresAt: expires, Minutes: int(ticketTTL.Minutes()), QR: svg,
 	})

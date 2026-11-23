@@ -283,7 +283,7 @@ func (s *server) adminTemplateSubmit(w http.ResponseWriter, r *http.Request, csr
 		s.adminTemplateRender(w, http.StatusBadRequest, csrf, v, isNew, errs)
 		return
 	}
-	s.log.Info("admin: template saved", "id", v.ID, "version", version)
+	s.adminInfo("admin: template saved", "id", v.ID, "version", version)
 	s.adminNotice(w, http.StatusOK, csrf, "Template saved", "The template "+v.ID+" is saved as version "+strconv.Itoa(version)+" and live on the hub now. Apps pick it up the next time they sync.", "/admin/templates", "Back to templates")
 }
 
@@ -325,7 +325,7 @@ func (s *server) adminTemplateDeleteDo(w http.ResponseWriter, r *http.Request, c
 	case !ok:
 		s.adminNotice(w, http.StatusNotFound, csrf, "Template not found", "There is no template with this id.", "/admin/templates", "Back to templates")
 	default:
-		s.log.Info("admin: template deleted", "id", id)
+		s.adminInfo("admin: template deleted", "id", id)
 		s.adminNotice(w, http.StatusOK, csrf, "Template deleted", "The template is gone. You can make one with the same id again later.", "/admin/templates", "Back to templates")
 	}
 }

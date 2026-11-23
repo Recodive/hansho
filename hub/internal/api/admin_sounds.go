@@ -123,7 +123,7 @@ func (s *server) adminSoundUpload(w http.ResponseWriter, r *http.Request, csrf s
 		snd, e := s.saveSound(id, ct, data)
 		switch {
 		case e == nil:
-			s.log.Info("admin: sound saved", "id", id, "type", ct, "bytes", len(data))
+			s.adminInfo("admin: sound saved", "id", id, "type", ct, "bytes", len(data))
 			s.adminNotice(w, http.StatusOK, csrf, "Sound saved", "The sound "+snd.ID+" is saved. You can choose it for a channel now. Apps download it the next time they sync.", "/admin/sounds", "Back to sounds")
 			return
 		case e.Err != nil:
@@ -183,7 +183,7 @@ func (s *server) adminSoundDeleteDo(w http.ResponseWriter, r *http.Request, csrf
 	case !ok:
 		s.adminNotice(w, http.StatusNotFound, csrf, "Sound not found", "There is no sound with this id.", "/admin/sounds", "Back to sounds")
 	default:
-		s.log.Info("admin: sound deleted", "id", id)
+		s.adminInfo("admin: sound deleted", "id", id)
 		s.adminNotice(w, http.StatusOK, csrf, "Sound deleted", "The sound is gone. You can upload one with the same id again later.", "/admin/sounds", "Back to sounds")
 	}
 }

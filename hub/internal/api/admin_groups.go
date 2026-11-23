@@ -116,7 +116,7 @@ func (s *server) adminGroupSubmit(w http.ResponseWriter, r *http.Request, csrf, 
 			if isNew {
 				verb = "created"
 			}
-			s.log.Info("admin: group "+verb, "id", id, "members", len(got))
+			s.adminInfo("admin: group "+verb, "id", id, "members", len(got))
 			s.adminNotice(w, http.StatusOK, csrf, "Group saved", "The group "+id+" now has "+adminCount(len(got), "person", "people")+".", "/admin/groups", "Back to groups")
 			return
 		}
@@ -192,7 +192,7 @@ func (s *server) adminGroupDeleteDo(w http.ResponseWriter, r *http.Request, csrf
 	case !ok:
 		s.adminNotice(w, http.StatusNotFound, csrf, "Group not found", "There is no group with this id.", "/admin/groups", "Back to groups")
 	default:
-		s.log.Info("admin: group deleted", "id", id)
+		s.adminInfo("admin: group deleted", "id", id)
 		s.adminNotice(w, http.StatusOK, csrf, "Group deleted", "The group is gone. Channels that still name it treat it as empty.", "/admin/groups", "Back to groups")
 	}
 }

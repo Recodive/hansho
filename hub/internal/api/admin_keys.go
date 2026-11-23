@@ -83,7 +83,7 @@ func (s *server) adminCreateKey(w http.ResponseWriter, r *http.Request, csrf str
 		s.adminKeysError(w, csrf, err)
 		return
 	}
-	s.log.Info("admin: api key created", "id", k.ID, "name", name)
+	s.adminInfo("admin: api key created", "id", k.ID, "name", name)
 	s.adminRender(w, http.StatusOK, "key_new", "keys", "New API key", csrf, adminKeyNew{Name: name, Key: key})
 }
 
@@ -130,7 +130,7 @@ func (s *server) adminRevoke(w http.ResponseWriter, r *http.Request, csrf string
 	case err != nil:
 		s.adminKeysError(w, csrf, err)
 	default:
-		s.log.Info("admin: api key revoked", "id", id)
+		s.adminInfo("admin: api key revoked", "id", id)
 		s.adminNotice(w, http.StatusOK, csrf, "Key revoked", "The key no longer works. Anything still using it will be refused.", "/admin/keys", "Back to API keys")
 	}
 }

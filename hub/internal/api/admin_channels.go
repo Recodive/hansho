@@ -472,7 +472,7 @@ func (s *server) adminChannelSubmit(w http.ResponseWriter, r *http.Request, csrf
 			if isNew {
 				verb = "created"
 			}
-			s.log.Info("admin: channel "+verb, "id", c.ID)
+			s.adminInfo("admin: channel "+verb, "id", c.ID)
 			s.adminNotice(w, http.StatusOK, csrf, "Channel saved", "The channel "+c.Name+" is saved and live on the hub now.", "/admin/channels", "Back to channels")
 			return
 		}
@@ -549,7 +549,7 @@ func (s *server) adminChannelDeleteDo(w http.ResponseWriter, r *http.Request, cs
 	case !ok:
 		s.adminNotice(w, http.StatusNotFound, csrf, "Channel not found", "There is no channel with this id.", "/admin/channels", "Back to channels")
 	default:
-		s.log.Info("admin: channel deleted", "id", id)
+		s.adminInfo("admin: channel deleted", "id", id)
 		s.adminNotice(w, http.StatusOK, csrf, "Channel deleted", "Your software can no longer send to it, and the app stops listing it.", "/admin/channels", "Back to channels")
 	}
 }

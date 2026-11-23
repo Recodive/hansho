@@ -56,8 +56,10 @@ type server struct {
 
 	actionLimit actionLimiter // per-device press rate for POST /device/v1/actions
 
-	adminKey   []byte       // signs admin sessions; set when HUB_ADMIN is on
-	adminLimit adminLimiter // wrong admin passwords per address
+	adminKey     []byte // signs admin sessions; set when HUB_ADMIN is on
+	adminSalt    []byte // salt and derived key of the admin password
+	adminPassKey []byte
+	adminLimit   adminLimiter // wrong admin passwords per address
 }
 
 // New returns the hub's HTTP handler.

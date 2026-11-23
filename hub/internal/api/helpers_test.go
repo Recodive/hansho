@@ -35,6 +35,7 @@ var t0 = time.Unix(1_700_000_000, 0)
 
 func TestMain(m *testing.M) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	adminPBKDF2Iterations = 1000 // the real cost (600k) would make every sign-in in a test take a fifth of a second
 	os.Exit(m.Run())
 }
 
