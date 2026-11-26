@@ -5,6 +5,6 @@ source "https://rubygems.org"
 gemspec
 
 group :development, :test do
-  gem "minitest", "~> 5.20"
+  gem "minitest", ">= 5.20", "< 7" # 6.x needs Ruby 3.2+; the SDK still supports 3.1
   gem "rake", "~> 13.0"
 end
