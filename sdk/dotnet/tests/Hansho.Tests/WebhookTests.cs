@@ -264,7 +264,7 @@ public class WebhookTests
     {
         var body = "{\"id\":\"1\",\"event\":\"message.expired\",\"created_at\":1,\"data\":{\"message_id\":\"m\",\"attempts\":\"3\",\"brand_new\":{}}}";
         var ev = Assert.IsType<MessageExpired>(HanshoWebhook.Verify("s", Sign("s", Now, body), body));
-        Assert.Equal(("m", "", "", 3), (ev.MessageId, ev.ExternalUserId, ev.Channel, ev.Attempts));
+        Assert.Equal(("m", "", null, 3), (ev.MessageId, ev.ExternalUserId, ev.Channel, ev.Attempts)); // required fields read as empty, optional ones as absent
         var action = "{\"id\":\"1\",\"event\":\"action\",\"created_at\":1,\"data\":{\"action_id\":\"a\",\"text\":5}}";
         Assert.Null(Assert.IsType<ActionTaken>(HanshoWebhook.Verify("s", Sign("s", Now, action), action)).Text);
         var nodata = "{\"id\":\"1\",\"event\":\"message.acked\",\"created_at\":1}";

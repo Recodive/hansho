@@ -95,10 +95,30 @@ foreach (var r in res.Recipients ?? Array.Empty<Recipient>())
 Give a message exactly one of `ExternalUserId`, `ExternalUserIds` (at most 1000) and `ToAudience`. For a send to
 `ExternalUserId` the top-level `MessageId`, `Status`, `Devices` and `Deliveries` describe that user (`MessageId` is
 empty and `Status` is `Recipient.NoAccess` if they are outside the audience). For several users or an audience the
-top-level `MessageId`, `Devices` and `Deliveries` are empty and every message is under `Recipients`.
+top-level `MessageId`, `Status`, `Devices` and `Deliveries` are `null` (the hub leaves them out) and every message is
+under `Recipients`.
 
 Error codes in `ErrorCodes`: `NoAccess` (403, `StartActivityAsync` for a user outside the channel's audience) and
 `UnknownGroup` (404).
+
+## Channels, templates, sounds and groups
+
+Every collection has the same four calls: put, get, list and delete (a sound is put with its bytes, see below).
+
+```csharp
+IReadOnlyList<Channel> channels = await hansho.ListChannelsAsync();    // every Channel carries its Id
+IReadOnlyList<Template> templates = await hansho.ListTemplatesAsync(); // Id, Version and Body (a JsonElement)
+Template status = await hansho.GetTemplateAsync("status");
+IReadOnlyList<Sound> sounds = await hansho.ListSoundsAsync();          // Id, ContentType, Bytes, Sha256: the metadata
+Sound ding = await hansho.GetSoundAsync("ding");
+IReadOnlyList<Group> groups = await hansho.ListGroupsAsync();
+
+await hansho.DeleteTemplateAsync("status");
+await hansho.DeleteSoundAsync("ding");
+```
+
+A button that opens a link is `new MessageAction { Id = "runbook", Title = "Runbook", Kind = "url", Url = "https://example.com/runbook" }`
+(`Kind = "text"` asks for a reply).
 
 ## Sending
 
@@ -120,7 +140,7 @@ var page = await hansho.SendMessageAsync(new Message
     Title = "Primary DB down", Body = "Failover did not complete",
     Page = new PageOptions { IntervalSeconds = 60, MaxRetries = 10 },
 });
-var status = await hansho.GetMessageAsync(page.MessageId); // queued, delivered, undeliverable, paging, acked, expired
+var status = await hansho.GetMessageAsync(page.MessageId!); // queued, delivered, undeliverable, paging, acked, expired
 // Once acked: status.AckedAt, status.AckedBy (external user id) and status.AckedByName (null unless they have one).
 // The message.acked webhook (MessageAcked) carries AckedBy and AckedByName too.
 
@@ -207,7 +227,8 @@ injectable). `WebhookException.Code` is one of `MalformedHeader`, `BadSignature`
 signature, replayed too late), `MalformedBody`, `InvalidSecret`. The events are `PairingCreated`,
 `PairingRevoked`, `MessageDelivered`, `MessageUndeliverable`, `MessageAcked`, `MessageDismissed`,
 `MessageExpired`, `ActionTaken` and `ActivityEnded`, all deriving from `WebhookEvent` (`Id`, `CreatedAt`,
-`Raw`, `Type`); anything else is an `UnknownWebhookEvent` with its `Name` and the payload in `Data`
+`Raw`, `Type`); a payload field the hub does not always send (`MessageAcked.AckedBy`, `ActionTaken.Text`, ...) is `null`
+when it is left out. `HanshoSpec.Events` maps each event name to its type; anything else is an `UnknownWebhookEvent` with its `Name` and the payload in `Data`
 (a `JsonElement`).
 
 ## Errors
@@ -243,11 +264,19 @@ deduplicate on it yet, so a retried send is at-least-once. Activity updates (`PA
 The client created for you does not follow redirects (an API key should not be replayed to another
 host); point `BaseUrl` at the hub's final URL.
 
+## Generated types
+
+The types, enums, the wire mapping, the webhook event table, `HanshoSpec.Operations` (the operation ids) and the
+version are generated from [`sdk/spec/openapi.json`](https://github.com/Recodive/hansho/blob/main/sdk/spec/openapi.json)
+into `src/Hansho/Generated.cs`; do not edit it (run `go run .` in `sdk/scripts/gen`). Optional fields are nullable and
+`null` means "not sent" in a request and "the hub left it out" in an answer. Reading an answer never throws: an unknown field is
+ignored and an unknown enum value (`Level`, `AudienceMode`, `PageAck`) is kept as sent.
+
 ## Tests
 
 ```sh
 dotnet test tests/Hansho.Tests -f net8.0     # or net10.0
 ```
 
-The unit tests load `../spec/api.json` and `../spec/webhook-vectors.json` and run against a local fake
+The unit tests load the `x-conformance` cases of `../spec/openapi.json` and `../spec/webhook-vectors.json` and run against a local fake
 hub. `../scripts/run-integration.sh` runs the integration test against the real hub binary.
