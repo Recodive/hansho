@@ -20,6 +20,21 @@ permissions:
 
 # Publishing is release-sdk.yml (tags sdk/<language>/v<version>).
 jobs:
+  gen:
+    name: Generated code is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: "1.27"
+          cache-dependency-path: sdk/scripts/gen/go.mod
+      - name: gen
+        working-directory: sdk/scripts/gen
+        run: test -z "$(gofmt -l .)" && go vet . && go run .
+      - name: no diff
+        run: git diff --exit-code || { echo "::error::run 'go run .' in sdk/scripts/gen and commit the result" >&2; exit 1; }
+
   go:
     name: Go SDK (Go ${{ matrix.go }})
     runs-on: ubuntu-latest
