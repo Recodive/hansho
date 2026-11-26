@@ -4,5 +4,5 @@ module Hansho
   # Product codename.
   NAME = "hansho"
   # SDK version, sent in the default User-Agent.
-  VERSION = "0.1.0"
+  VERSION = "0.2.0"
 end

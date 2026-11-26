@@ -5,8 +5,6 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import re
-from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Sequence, TypeVar, Union
 
 from ._errors import HanshoError, HanshoNetworkError
@@ -18,16 +16,13 @@ from ._retry import (
     is_retryable_status,
     parse_retry_after,
 )
-from ._types import (
-    Action,
+from ._types import Transport, TransportRequest, TransportResponse
+from ._types_gen import (
     Activity,
-    ActivityAlert,
     ActivityStarted,
     ActivityUpdate,
     ActivityUpdated,
-    Audience,
     Channel,
-    Delivery,
     Feed,
     FeedResult,
     FeedSettings,
@@ -36,13 +31,29 @@ from ._types import (
     MessageResult,
     MessageStatus,
     PairingTicket,
-    Recipient,
+    Sound,
     SoundResult,
-    Transport,
-    TransportRequest,
-    TransportResponse,
+    Template,
+    from_wire_activity_started,
+    from_wire_activity_updated,
+    from_wire_channel,
+    from_wire_feed_result,
+    from_wire_feed_settings,
+    from_wire_group,
+    from_wire_message_result,
+    from_wire_message_status,
+    from_wire_pairing_ticket,
+    from_wire_sound,
+    from_wire_sound_result,
+    from_wire_template,
+    to_wire_activity,
+    to_wire_activity_update,
+    to_wire_channel,
+    to_wire_feed,
+    to_wire_message,
 )
 from ._version import __version__
+from ._wire import _drop_none, _list
 
 #: Product codename.
 NAME = "hansho"
@@ -53,10 +64,6 @@ MAX_SOUND_BYTES = 1 << 20
 
 Wire = Dict[str, Any]
 T = TypeVar("T")
-
-_TIME = re.compile(
-    r"([0-9]{4})-([0-9]{2})-([0-9]{2})[Tt ]([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?([Zz]|[+-][0-9]{2}:[0-9]{2})"
-)
 
 
 # --- transport ---------------------------------------------------------------
@@ -90,7 +97,7 @@ def urllib_transport(req: TransportRequest) -> TransportResponse:
         return TransportResponse(e.code, _lower(e.headers), body)
 
 
-# --- wire conversion -----------------------------------------------------------
+# --- paths ---------------------------------------------------------------------
 
 
 def _seg(id: str) -> str:
@@ -104,149 +111,11 @@ def _seg(id: str) -> str:
     return urllib.parse.quote(id, safe="")
 
 
-def _drop_none(o: Wire) -> Wire:
-    return {k: v for k, v in o.items() if v is not None}
-
-
-def _actions_to_wire(actions: Optional[List[Action]]) -> Optional[List[Wire]]:
-    if actions is None:
-        return None
-    return [_drop_none({"id": a.id, "title": a.title, "ack": a.ack, "kind": a.kind}) for a in actions]
-
-
-def _actions_from_wire(raw: Any) -> Optional[List[Action]]:
-    if not isinstance(raw, list):
-        return None
-    out = []
-    for a in raw:
-        ack = a.get("ack")
-        kind = a.get("kind")
-        out.append(Action(_s(a.get("id")), _s(a.get("title")), ack if isinstance(ack, bool) else None, kind if isinstance(kind, str) else None))
-    return out
-
-
-def _alert_to_wire(a: Optional[ActivityAlert]) -> Optional[Wire]:
-    return None if a is None else _drop_none({"title": a.title, "body": a.body})
-
-
-def _s(v: Any) -> str:
-    return v if isinstance(v, str) else ("" if v is None else str(v))
-
-
-def _opt_s(v: Any) -> Optional[str]:
-    return v if isinstance(v, str) else None
-
-
-def _i(v: Any) -> int:
-    if isinstance(v, bool):
-        return int(v)
-    if isinstance(v, (int, float)):
-        return int(v)
-    return 0
-
-
-def _time(v: Any) -> datetime:
-    """Parses an RFC 3339 timestamp (datetime.fromisoformat cannot before Python 3.11)."""
-    m = _TIME.fullmatch(v) if isinstance(v, str) else None
-    if m is None:
-        raise ValueError("invalid timestamp")
-    y, mo, d, h, mi, s, frac, tz = m.groups()
-    micro = int((frac or "0")[:6].ljust(6, "0"))
-    if tz in ("Z", "z"):
-        zone = timezone.utc
-    else:
-        off = timedelta(hours=int(tz[1:3]), minutes=int(tz[4:6]))
-        zone = timezone(off if tz[0] == "+" else -off)
-    return datetime(int(y), int(mo), int(d), int(h), int(mi), int(s), micro, tzinfo=zone)
-
-
-def _deliveries(raw: Any) -> List[Delivery]:
-    if not isinstance(raw, list):
-        return []
-    return [Delivery(_s(d.get("device_id")), _s(d.get("status")), _s(d.get("error")) or None) for d in raw]
-
-
-def _audience_to_wire(a: Optional[Audience]) -> Optional[Wire]:
-    if a is None:
-        return None
-    return _drop_none({"mode": a.mode, "users": list(a.users) or None, "groups": list(a.groups) or None})
-
-
-def _audience_from_wire(raw: Any) -> Optional[Audience]:
-    if not isinstance(raw, dict):
-        return None
-    return Audience(_s(raw.get("mode")), _strs(raw.get("users")), _strs(raw.get("groups")))  # type: ignore[arg-type]
-
-
-def _strs(raw: Any) -> List[str]:
-    return [x for x in raw if isinstance(x, str)] if isinstance(raw, list) else []
-
-
-def _recipients(raw: Any) -> List[Recipient]:
-    if not isinstance(raw, list):
-        return []
-    return [
-        Recipient(_s(r.get("external_user_id")), _s(r.get("status")), _opt_s(r.get("message_id")), _i(r.get("devices")), _deliveries(r.get("deliveries")))
-        for r in raw
-        if isinstance(r, dict)
-    ]
-
-
-def _channel_to_wire(c: Channel) -> Wire:
-    return _drop_none(
-        {
-            "name": c.name,
-            "default_level": c.default_level,
-            "max_level": c.max_level,
-            "sound": c.sound,
-            "template_id": c.template_id,
-            "thread": c.thread,
-            "actions": _actions_to_wire(c.actions),
-            "audience": _audience_to_wire(c.audience),
-        }
-    )
-
-
-def _channel_from_wire(w: Wire) -> Channel:
-    return Channel(
-        name=_s(w.get("name")),
-        default_level=_s(w.get("default_level")),  # type: ignore[arg-type]
-        max_level=_s(w.get("max_level")),  # type: ignore[arg-type]
-        sound=_opt_s(w.get("sound")),
-        template_id=_opt_s(w.get("template_id")),
-        thread=_opt_s(w.get("thread")),
-        actions=_actions_from_wire(w.get("actions")),
-        audience=_audience_from_wire(w.get("audience")),
-    )
-
-
-def _group(w: Wire, id: str) -> Group:
-    return Group(_s(w.get("id")) or id, _strs(w.get("members")))
-
-
-def _message_to_wire(m: Message) -> Wire:
-    page = None
-    if m.page is not None:
-        page = _drop_none({"interval_s": m.page.interval_seconds, "max_retries": m.page.max_retries})
-    return _drop_none(
-        {
-            "external_user_id": m.external_user_id,
-            "external_user_ids": None if m.external_user_ids is None else list(m.external_user_ids),
-            "to_audience": True if m.to_audience else None,
-            "channel": m.channel,
-            "level": m.level,
-            "title": m.title,
-            "subtitle": m.subtitle,
-            "body": m.body,
-            "image_url": m.image_url,
-            "template_id": m.template_id,
-            "data": m.data,
-            "sound": m.sound,
-            "actions": _actions_to_wire(m.actions),
-            "collapse_id": m.collapse_id,
-            "page": page,
-        }
-    )
+def _group(w: Any, id: str) -> Group:
+    g = from_wire_group(w)
+    if g.id == "":
+        g.id = id
+    return g
 
 
 class _Call:
@@ -314,19 +183,28 @@ class Hansho:
 
     # --- pairing -------------------------------------------------------------
 
-    def create_pairing_ticket(self, external_user_id: str) -> PairingTicket:
+    def create_pairing_ticket(self, external_user_id: str, display_name: Optional[str] = None) -> PairingTicket:
         """Creates a single-use pairing ticket (valid 10 minutes).
 
-        Render ``qr`` as a QR code for the user to scan in the Hansho app.
+        Render ``qr`` as a QR code for the user to scan in the Hansho app. ``display_name`` (when not
+        ``None``) is what other people see for the user instead of their id; ``""`` is sent as given.
         """
         if external_user_id == "":
             raise ValueError("hansho: id must not be empty")
         return self._json(
             "POST",
             "/api/v1/pairing-tickets",
-            {"external_user_id": external_user_id},
-            lambda w: PairingTicket(_s(w.get("ticket")), _s(w.get("qr")), _time(w.get("expires_at"))),
+            _drop_none({"external_user_id": external_user_id, "display_name": display_name}),
+            from_wire_pairing_ticket,
         )
+
+    def set_user_display_name(self, external_user_id: str, display_name: str) -> None:
+        """Sets what other people see for the user instead of their external user id.
+
+        Any language, trimmed, at most 40 characters, no control characters. ``""`` clears it. The user does
+        not need to be paired yet.
+        """
+        self._json_void("PUT", f"/api/v1/users/{_seg(external_user_id)}", {"display_name": display_name})
 
     def unpair(self, external_user_id: str) -> None:
         """Revokes every pairing of the user."""
@@ -343,15 +221,62 @@ class Hansho:
     # --- catalog -------------------------------------------------------------
 
     def put_channel(self, id: str, channel: Channel) -> None:
-        self._json_void("PUT", f"/api/v1/channels/{_seg(id)}", _channel_to_wire(channel))
+        self._json_void("PUT", f"/api/v1/channels/{_seg(id)}", to_wire_channel(channel))
 
     def get_channel(self, id: str) -> Channel:
-        return self._json("GET", f"/api/v1/channels/{_seg(id)}", None, _channel_from_wire)
+        return self._json("GET", f"/api/v1/channels/{_seg(id)}", None, from_wire_channel)
+
+    def list_channels(self) -> List[Channel]:
+        """Every channel."""
+        return self._json("GET", "/api/v1/channels", None, lambda w: _list(w, from_wire_channel))
 
     def delete_channel(self, id: str) -> None:
         self._json_void("DELETE", f"/api/v1/channels/{_seg(id)}")
 
+    # --- templates and sounds ------------------------------------------------
+
+    def put_template(self, id: str, version: int, body: Any) -> None:
+        """Stores a template version; the version must increase."""
+        self._json_void("PUT", f"/api/v1/templates/{_seg(id)}", {"version": version, "body": body})
+
+    def list_templates(self) -> List[Template]:
+        """Every template at its latest version."""
+        return self._json("GET", "/api/v1/templates", None, lambda w: _list(w, from_wire_template))
+
+    def get_template(self, id: str) -> Template:
+        """A missing template is a :class:`HanshoError` with code ``"unknown_template"``."""
+        return self._json("GET", f"/api/v1/templates/{_seg(id)}", None, from_wire_template)
+
+    def delete_template(self, id: str) -> None:
+        """A template a live channel still names is refused with a :class:`HanshoError`, code ``"in_use"``."""
+        self._json_void("DELETE", f"/api/v1/templates/{_seg(id)}")
+
+    def put_sound(self, id: str, content_type: str, data: Union[bytes, bytearray, memoryview]) -> SoundResult:
+        """Uploads a sound (``audio/x-caf``, ``audio/wav`` or ``audio/aiff``, at most 1 MB)."""
+        path = f"/api/v1/sounds/{_seg(id)}"
+        raw = bytes(data)
+        if len(raw) > MAX_SOUND_BYTES:
+            raise ValueError("hansho: sound exceeds 1 MB")
+        call = _Call("PUT", path, raw, content_type, retry=True)
+        return self._do(call, from_wire_sound_result)
+
+    def list_sounds(self) -> List[Sound]:
+        """Every sound's metadata."""
+        return self._json("GET", "/api/v1/sounds", None, lambda w: _list(w, from_wire_sound))
+
+    def get_sound(self, id: str) -> Sound:
+        """A missing sound is a :class:`HanshoError` with code ``"unknown_sound"``."""
+        return self._json("GET", f"/api/v1/sounds/{_seg(id)}", None, from_wire_sound)
+
+    def delete_sound(self, id: str) -> None:
+        """A sound a live channel still names is refused with a :class:`HanshoError`, code ``"in_use"``."""
+        self._json_void("DELETE", f"/api/v1/sounds/{_seg(id)}")
+
     # --- groups --------------------------------------------------------------
+
+    def list_groups(self) -> List[Group]:
+        """Every group."""
+        return self._json("GET", "/api/v1/groups", None, lambda w: _list(w, from_wire_group))
 
     def put_group(self, id: str, members: Sequence[str]) -> Group:
         """Creates a group or replaces its whole member list (external user ids, who may not have paired yet).
@@ -368,19 +293,6 @@ class Hansho:
         """An audience that still names the group matches nobody through it."""
         self._json_void("DELETE", f"/api/v1/groups/{_seg(id)}")
 
-    def put_template(self, id: str, version: int, body: Any) -> None:
-        """Stores a template version; the version must increase."""
-        self._json_void("PUT", f"/api/v1/templates/{_seg(id)}", {"version": version, "body": body})
-
-    def put_sound(self, id: str, content_type: str, data: Union[bytes, bytearray, memoryview]) -> SoundResult:
-        """Uploads a sound (``audio/x-caf``, ``audio/wav`` or ``audio/aiff``, at most 1 MB)."""
-        path = f"/api/v1/sounds/{_seg(id)}"
-        raw = bytes(data)
-        if len(raw) > MAX_SOUND_BYTES:
-            raise ValueError("hansho: sound exceeds 1 MB")
-        call = _Call("PUT", path, raw, content_type, retry=True)
-        return self._do(call, lambda w: SoundResult(_s(w.get("id")), _s(w.get("filename")), _s(w.get("sha256")), _i(w.get("size"))))
-
     # --- messages ------------------------------------------------------------
 
     def send_message(self, message: Message) -> MessageResult:
@@ -389,101 +301,34 @@ class Hansho:
         It is never retried automatically (a repeat would notify twice) unless
         the message has an ``idempotency_key``.
         """
-        call = _Call("POST", "/api/v1/messages", _dumps(_message_to_wire(message)), "application/json")
+        call = _Call("POST", "/api/v1/messages", _dumps(to_wire_message(message)), "application/json")
         if message.idempotency_key:
             call.retry = True
             call.headers = {"Idempotency-Key": message.idempotency_key}
-        return self._do(
-            call,
-            lambda w: MessageResult(
-                _s(w.get("message_id")),
-                _s(w.get("level")),
-                _i(w.get("devices")),
-                _s(w.get("status")),
-                _deliveries(w.get("deliveries")),
-                _recipients(w.get("recipients")),
-            ),
-        )
+        return self._do(call, from_wire_message_result)
 
     def get_message(self, id: str) -> MessageStatus:
-        return self._json(
-            "GET",
-            f"/api/v1/messages/{_seg(id)}",
-            None,
-            lambda w: MessageStatus(
-                _s(w.get("message_id")),
-                _s(w.get("status")),
-                _s(w.get("level")),
-                _i(w.get("attempts")),
-                _deliveries(w.get("deliveries")),
-                _time(w["acked_at"]) if isinstance(w.get("acked_at"), str) else None,
-            ),
-        )
+        return self._json("GET", f"/api/v1/messages/{_seg(id)}", None, from_wire_message_status)
 
     # --- live activities and feeds -------------------------------------------
 
     def start_activity(self, activity: Activity) -> ActivityStarted:
-        return self._json(
-            "POST",
-            "/api/v1/activities",
-            _drop_none(
-                {
-                    "external_user_id": activity.external_user_id,
-                    "channel": activity.channel,
-                    "template_id": activity.template_id,
-                    "data": activity.data,
-                    "alert": _alert_to_wire(activity.alert),
-                }
-            ),
-            lambda w: ActivityStarted(_s(w.get("activity_id")), _i(w.get("devices"))),
-        )
+        return self._json("POST", "/api/v1/activities", to_wire_activity(activity), from_wire_activity_started)
 
     def update_activity(self, id: str, update: ActivityUpdate) -> ActivityUpdated:
         """Not retried automatically."""
-        return self._json(
-            "PATCH",
-            f"/api/v1/activities/{_seg(id)}",
-            _drop_none({"data": update.data, "priority": update.priority, "alert": _alert_to_wire(update.alert)}),
-            lambda w: ActivityUpdated(_s(w.get("activity_id")), _i(w.get("update"))),
-        )
+        return self._json("PATCH", f"/api/v1/activities/{_seg(id)}", to_wire_activity_update(update), from_wire_activity_updated)
 
     def end_activity(self, id: str) -> None:
         self._json_void("DELETE", f"/api/v1/activities/{_seg(id)}")
 
     def put_feed(self, id: str, feed: Feed) -> FeedResult:
-        return self._json(
-            "PUT",
-            f"/api/v1/feeds/{_seg(id)}",
-            _drop_none(
-                {
-                    "external_user_id": feed.external_user_id,
-                    "template_id": feed.template_id,
-                    "title": feed.title,
-                    "channel": feed.channel,
-                    "audience": _audience_to_wire(feed.audience),
-                    "data": feed.data,
-                }
-            ),
-            lambda w: FeedResult(_s(w.get("feed_id")), _i(w.get("devices"))),
-        )
+        return self._json("PUT", f"/api/v1/feeds/{_seg(id)}", to_wire_feed(feed), from_wire_feed_result)
 
     def get_feed(self, id: str, external_user_id: Optional[str] = None) -> FeedSettings:
-        """A feed's settings without its data. Omit ``external_user_id`` for the feed shared by all users."""
+        """A feed's settings without its data. Omit `external_user_id` for the feed shared by all users."""
         query = f"?external_user_id={urllib.parse.quote(external_user_id, safe='')}" if external_user_id else ""
-        return self._json(
-            "GET",
-            f"/api/v1/feeds/{_seg(id)}{query}",
-            None,
-            lambda w: FeedSettings(
-                _s(w.get("feed_id")),
-                _s(w.get("template_id")),
-                _i(w.get("updated_at")),
-                _opt_s(w.get("external_user_id")) or None,
-                _opt_s(w.get("title")) or None,
-                _opt_s(w.get("channel")) or None,
-                _audience_from_wire(w.get("audience")),
-            ),
-        )
+        return self._json("GET", f"/api/v1/feeds/{_seg(id)}{query}", None, from_wire_feed_settings)
 
     # --- plumbing ------------------------------------------------------------
 
@@ -495,20 +340,20 @@ class Hansho:
             call.content_type = "application/json"
         return call
 
-    def _json(self, method: str, path: str, body: Any, parse: Callable[[Wire], T]) -> T:
+    def _json(self, method: str, path: str, body: Any, parse: Callable[[Any], T]) -> T:
         return self._do(self._build(method, path, body), parse)
 
     def _json_void(self, method: str, path: str, body: Any = None) -> None:
         self._send(self._build(method, path, body))
 
-    def _do(self, call: _Call, parse: Callable[[Wire], T]) -> T:
+    def _do(self, call: _Call, parse: Callable[[Any], T]) -> T:
         wire = self._send(call)
         try:
             return parse(wire)
         except (ValueError, TypeError, AttributeError, KeyError, OverflowError):
             raise HanshoNetworkError(call.method, call.path, ValueError("unexpected response shape")) from None
 
-    def _send(self, call: _Call) -> Wire:
+    def _send(self, call: _Call) -> Any:
         attempt = 0
         while True:
             res = self._round_trip(call)
@@ -523,7 +368,7 @@ class Hansho:
             self._sleep(wait)
             attempt += 1
 
-    def _parse_body(self, call: _Call, res: TransportResponse) -> Wire:
+    def _parse_body(self, call: _Call, res: TransportResponse) -> Any:
         try:
             text = res.body.decode("utf-8")
             if text.strip() == "":
@@ -531,7 +376,7 @@ class Hansho:
             parsed = json.loads(text)
         except ValueError:  # UnicodeDecodeError and JSONDecodeError; the body is not quoted
             raise HanshoNetworkError(call.method, call.path, ValueError("invalid JSON in response")) from None
-        return parsed if isinstance(parsed, dict) else {}
+        return parsed if isinstance(parsed, (dict, list)) else {}
 
     def _round_trip(self, call: _Call) -> TransportResponse:
         headers = {

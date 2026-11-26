@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { Hansho } from "../src/index.ts";
-import { HanshoError } from "../src/index.ts";
+import { Hansho, HanshoError } from "../src/index.ts";
+import { SPEC_OPERATIONS } from "../src/types_gen.ts";
 import { loadSpec, startHub, TEST_KEY } from "./helpers.ts";
 
 const wav = Buffer.from("UklGRgAAAABXQVZF", "base64");
@@ -16,8 +16,13 @@ const specChannel = {
   actions: [
     { id: "ack", title: "Acknowledge", ack: true },
     { id: "reply", title: "Reply", kind: "text" },
+    { id: "runbook", title: "Runbook", kind: "url", url: "https://example.com/runbook" },
   ],
 } as const;
+
+const channelOps = { id: "ops", name: "Operations", defaultLevel: "active", maxLevel: "critical", sound: "", templateId: "", thread: "ops", actions: [] };
+const status = { id: "status", version: 2, body: { type: "text", text: "{{title}}" } };
+const ding = { id: "ding", contentType: "audio/wav", bytes: 12, sha256: "00" };
 
 /** Every operation of the shared spec: the SDK call and the value it must produce. */
 const calls: Record<string, { call: (c: Hansho) => Promise<unknown>; want: unknown }> = {
@@ -29,11 +34,41 @@ const calls: Record<string, { call: (c: Hansho) => Promise<unknown>; want: unkno
       expiresAt: new Date("2026-11-08T12:10:00Z"),
     },
   },
+  createPairingTicketWithName: {
+    call: (c) => c.createPairingTicket("user-42", { displayName: "Zoë 日本語" }),
+    want: {
+      ticket: "tk_def",
+      qr: "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_def&fp=ff00",
+      expiresAt: new Date("2026-11-08T12:10:00Z"),
+    },
+  },
+  setUserDisplayName: { call: (c) => c.setUserDisplayName("user-42", "Zoë 日本語"), want: undefined },
+  clearUserDisplayName: { call: (c) => c.setUserDisplayName("user 42", ""), want: undefined },
   unpair: { call: (c) => c.unpair("user-42"), want: undefined },
   putChannel: { call: (c) => c.putChannel("ops", { ...specChannel, actions: [...specChannel.actions] }), want: undefined },
   getChannel: {
     call: (c) => c.getChannel("ops"),
-    want: { name: "Operations", defaultLevel: "active", maxLevel: "critical", sound: "", templateId: "", thread: "ops", actions: [] },
+    want: channelOps,
+  },
+  listChannels: { call: (c) => c.listChannels(), want: [{ ...channelOps, audience: { mode: "everyone" } }] },
+  listTemplates: { call: (c) => c.listTemplates(), want: [status] },
+  getTemplate: { call: (c) => c.getTemplate("status"), want: status },
+  deleteTemplate: { call: (c) => c.deleteTemplate("status"), want: undefined },
+  listSounds: { call: (c) => c.listSounds(), want: [ding] },
+  getSound: { call: (c) => c.getSound("ding"), want: ding },
+  deleteSound: { call: (c) => c.deleteSound("ding"), want: undefined },
+  listGroups: { call: (c) => c.listGroups(), want: [{ id: "oncall", members: ["alice", "bob"] }] },
+  getFeed: {
+    call: (c) => c.getFeed("uptime", "user-42"),
+    want: {
+      feedId: "uptime",
+      externalUserId: "user-42",
+      templateId: "status",
+      title: "Uptime",
+      channel: "ops",
+      audience: { mode: "only", users: ["alice"] },
+      updatedAt: 1762603200,
+    },
   },
   deleteChannel: { call: (c) => c.deleteChannel("ops"), want: undefined },
   putTemplate: {
@@ -83,6 +118,36 @@ const calls: Record<string, { call: (c: Hansho) => Promise<unknown>; want: unkno
       }),
     want: { messageId: "msg_2", level: "page", devices: 1, status: "queued", deliveries: [{ deviceId: "dev_1", status: "queued" }] },
   },
+  sendPageEach: {
+    call: (c) =>
+      c.sendMessage({
+        externalUserIds: ["alice", "bob"],
+        channel: "ops",
+        level: "page",
+        title: "Primary DB down",
+        body: "Failover did not complete",
+        page: { intervalSeconds: 60, maxRetries: 3, ack: "each" },
+      }),
+    want: {
+      level: "page",
+      recipients: [
+        { externalUserId: "alice", messageId: "msg_3", status: "queued", devices: 1, deliveries: [{ deviceId: "dev_1", status: "queued" }] },
+        { externalUserId: "bob", messageId: "msg_4", status: "queued", devices: 1, deliveries: [{ deviceId: "dev_2", status: "queued" }] },
+      ],
+    },
+  },
+  getMessageAckedNoName: {
+    call: (c) => c.getMessage("msg_3"),
+    want: {
+      messageId: "msg_3",
+      status: "acked",
+      level: "page",
+      attempts: 1,
+      deliveries: [{ deviceId: "dev_1", status: "sent", error: "" }],
+      ackedAt: new Date("2026-11-08T12:05:00Z"),
+      ackedBy: "alice",
+    },
+  },
   getMessage: {
     call: (c) => c.getMessage("msg_2"),
     want: {
@@ -91,10 +156,12 @@ const calls: Record<string, { call: (c: Hansho) => Promise<unknown>; want: unkno
       level: "page",
       attempts: 2,
       deliveries: [
-        { deviceId: "dev_1", status: "sent" },
+        { deviceId: "dev_1", status: "sent", error: "" },
         { deviceId: "dev_2", status: "failed", error: "unregistered" },
       ],
       ackedAt: new Date("2026-11-08T12:05:00Z"),
+      ackedBy: "user-42",
+      ackedByName: "Zoë 日本語",
     },
   },
   startActivity: {
@@ -145,11 +212,7 @@ const calls: Record<string, { call: (c: Hansho) => Promise<unknown>; want: unkno
     call: (c) => c.sendMessage({ channel: "ops", toAudience: true, title: "Deploy done", body: "v1.2.3 is live" }),
     // For an audience the top-level message fields are empty; each message is under recipients.
     want: {
-      messageId: "",
       level: "active",
-      devices: 0,
-      status: "",
-      deliveries: [],
       recipients: [
         { externalUserId: "alice", messageId: "msg_7", status: "queued", devices: 1, deliveries: [{ deviceId: "dev_1", status: "queued" }] },
         { externalUserId: "carol", status: "no_access" },
@@ -164,10 +227,12 @@ describe("shared spec operations", () => {
     it(op.name, async () => {
       const tc = calls[op.name];
       assert.ok(tc, `no SDK call for spec operation ${op.name}`);
+      assert.ok(SPEC_OPERATIONS.includes(op.operation as never), `${op.name}: unknown operationId ${op.operation}`);
       const hub = await startHub((r, reply) => {
         reply.status = op.response.status;
         reply.body = JSON.stringify(op.response.body);
         assert.equal(r.method, op.method);
+        // The path includes the query string (getFeed).
         assert.equal(r.url, op.path);
         assert.equal(r.headers.authorization, `Bearer ${TEST_KEY}`);
         if (op.request === null) {
@@ -189,9 +254,14 @@ describe("shared spec operations", () => {
       }
     });
   }
+  it("has a client method for every operationId of the spec", () => {
+    const missing = SPEC_OPERATIONS.filter((id) => typeof (Hansho.prototype as unknown as Record<string, unknown>)[id] !== "function");
+    assert.deepEqual(missing, [], `the client lacks methods for: ${missing.join(", ")}`);
+  });
+
   it("covers every SDK call", () => {
     const names = new Set(spec.operations.map((o) => o.name));
-    for (const k of Object.keys(calls)) assert.ok(names.has(k), `SDK call ${k} has no operation in sdk/spec/api.json`);
+    for (const k of Object.keys(calls)) assert.ok(names.has(k), `SDK call ${k} has no case in sdk/spec/openapi.json (x-conformance)`);
   });
 });
 

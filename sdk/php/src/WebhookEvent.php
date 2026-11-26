@@ -12,7 +12,8 @@ namespace Recodive\Hansho;
  *  - pairing.revoked:      pairingId, externalUserId, by ("sender", "device" or "relay")
  *  - message.delivered:    messageId, externalUserId, channel, level, devices
  *  - message.undeliverable: messageId, externalUserId, channel, reason
- *  - message.acked:        messageId, externalUserId, deviceId
+ *  - message.acked:        messageId, externalUserId, deviceId, ackedBy and ackedByName (only when sent; the name only
+ *                          when the acknowledger has one)
  *  - message.dismissed:    messageId, externalUserId, deviceId
  *  - message.expired:      messageId, externalUserId, channel, attempts
  *  - action:               messageId, actionId, deviceId, externalUserId, text (only for text actions)

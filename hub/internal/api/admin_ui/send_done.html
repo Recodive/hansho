@@ -1,0 +1,10 @@
+{{define "content"}}
+<h1>Message sent</h1>
+<p class="lead">The hub accepted the message for {{.Data.Person}} on channel <code>{{.Data.Channel}}</code>.</p>
+{{with .Data.Lowered}}<p class="warn" role="note">{{.}}</p>{{end}}
+{{template "messagefacts" .Data}}
+<div class="row">
+<a class="btn" href="/admin/messages/{{.Data.ID}}">See its status</a>
+<a class="btn ghost" href="/admin/send?other={{.Data.Person}}">Send another</a>
+</div>
+{{end}}

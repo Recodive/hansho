@@ -22,7 +22,10 @@
     "autoload": {
         "psr-4": {
             "Recodive\\Hansho\\": "src/"
-        }
+        },
+        "files": [
+            "generated/types.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {

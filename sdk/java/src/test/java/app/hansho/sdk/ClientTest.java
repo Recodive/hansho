@@ -1,5 +1,6 @@
 package app.hansho.sdk;
 
+import app.hansho.sdk.Models.*;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -72,6 +73,7 @@ class ClientTest {
     void doesNotExposeTheKeyInToString() {
         Hansho c = Hansho.create("http://x", TestHub.KEY);
         assertFalse(c.toString().contains(TestHub.KEY));
+        assertFalse(new PairingTicket("tk_secret", "hansho://pair?t=tk_secret", null).toString().contains("tk_secret"));
     }
 
     @Test
@@ -361,6 +363,75 @@ class ClientTest {
             assertThrows(IllegalArgumentException.class, () -> c.putSound("s", "audio/wav", new byte[(1 << 20) + 1]));
             assertThrows(IllegalArgumentException.class, () -> ActivityUpdate.of(1).withPriority(7));
             assertEquals(0, hub.requests.size());
+        }
+    }
+
+    @Test
+    void setsAndClearsADisplayName() throws Exception {
+        try (TestHub hub = new TestHub().always(TestHub.Reply.status(204))) {
+            Hansho c = hub.client();
+            c.setUserDisplayName("a b/ü", "Ada \"L\" 日本");
+            TestHub.Req r = hub.requests.get(0);
+            assertEquals("PUT", r.method());
+            assertEquals("/api/v1/users/a%20b%2F%C3%BC", r.uri());
+            assertEquals(MAPPER.readTree("{\"display_name\":\"Ada \\\"L\\\" 日本\"}"), MAPPER.readTree(r.body()));
+            c.setUserDisplayName("u", "");
+            assertEquals(MAPPER.readTree("{\"display_name\":\"\"}"), MAPPER.readTree(hub.requests.get(1).body()));
+            for (String bad : new String[] {"", ".", ".."}) {
+                assertThrows(IllegalArgumentException.class, () -> c.setUserDisplayName(bad, "x"), bad);
+            }
+            assertThrows(IllegalArgumentException.class, () -> c.setUserDisplayName(null, "x"));
+            assertEquals(2, hub.requests.size());
+        }
+    }
+
+    @Test
+    void pairingTicketBodyHasADisplayNameOnlyWhenGiven() throws Exception {
+        try (TestHub hub = new TestHub().always(TestHub.Reply.json(201, "{\"ticket\":\"t\",\"qr\":\"q\",\"expires_at\":\"2026-11-08T12:10:00Z\"}"))) {
+            Hansho c = hub.client();
+            c.createPairingTicket("u");
+            assertEquals(MAPPER.readTree("{\"external_user_id\":\"u\"}"), MAPPER.readTree(hub.requests.get(0).body()));
+            c.createPairingTicket("u", null);
+            assertEquals(MAPPER.readTree("{\"external_user_id\":\"u\"}"), MAPPER.readTree(hub.requests.get(1).body()));
+            c.createPairingTicket("u", "Ada Lovelace");
+            assertEquals(MAPPER.readTree("{\"external_user_id\":\"u\",\"display_name\":\"Ada Lovelace\"}"), MAPPER.readTree(hub.requests.get(2).body()));
+            c.createPairingTicket("u", "");
+            assertEquals(MAPPER.readTree("{\"external_user_id\":\"u\",\"display_name\":\"\"}"), MAPPER.readTree(hub.requests.get(3).body()));
+            assertThrows(IllegalArgumentException.class, () -> c.createPairingTicket("", "x"));
+            assertEquals(4, hub.requests.size());
+        }
+    }
+
+    @Test
+    void pageAckIsSentOnlyWhenSet() throws Exception {
+        try (TestHub hub = new TestHub().always(TestHub.Reply.json(202, "{}"))) {
+            Hansho c = hub.client();
+            c.sendMessage(Message.builder("u", "c", "t", "b").level(Level.PAGE).page(PageOptions.of(60, 3)).build());
+            assertEquals(MAPPER.readTree("{\"interval_s\":60,\"max_retries\":3}"), MAPPER.readTree(hub.requests.get(0).body()).get("page"));
+            c.sendMessage(Message.builder("u", "c", "t", "b").level(Level.PAGE).page(PageOptions.of(60, 3).withAck(PageAck.EACH)).build());
+            assertEquals(MAPPER.readTree("{\"interval_s\":60,\"max_retries\":3,\"ack\":\"each\"}"), MAPPER.readTree(hub.requests.get(1).body()).get("page"));
+            c.sendMessage(Message.builder("u", "c", "t", "b").level(Level.PAGE).page(PageOptions.ack(PageAck.ANY)).build());
+            assertEquals(MAPPER.readTree("{\"ack\":\"any\"}"), MAPPER.readTree(hub.requests.get(2).body()).get("page"));
+        }
+    }
+
+    @Test
+    void messageStatusCarriesWhoAcknowledged() throws Exception {
+        String base = "\"message_id\":\"m\",\"status\":\"acked\",\"level\":\"page\",\"attempts\":1,\"deliveries\":[],\"acked_at\":\"2026-11-08T12:05:00Z\"";
+        try (TestHub hub = new TestHub()) {
+            hub.always(TestHub.Reply.json(200, "{" + base + ",\"acked_by\":\"alice\",\"acked_by_name\":\"Alice A.\"}"));
+            MessageStatus s = hub.client().getMessage("m");
+            assertEquals("alice", s.ackedBy());
+            assertEquals("Alice A.", s.ackedByName());
+            hub.always(TestHub.Reply.json(200, "{" + base + ",\"acked_by\":\"alice\"}"));
+            s = hub.client().getMessage("m");
+            assertEquals("alice", s.ackedBy());
+            assertNull(s.ackedByName());
+            hub.always(TestHub.Reply.json(200, "{\"message_id\":\"m\",\"status\":\"queued\",\"level\":\"page\",\"attempts\":0,\"deliveries\":[]}"));
+            s = hub.client().getMessage("m");
+            assertNull(s.ackedBy());
+            assertNull(s.ackedByName());
+            assertNull(s.ackedAt());
         }
     }
 

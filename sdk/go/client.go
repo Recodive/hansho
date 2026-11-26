@@ -22,8 +22,6 @@ import (
 const (
 	Name         = "hansho"
 	HeaderPrefix = "X-Hansho-"
-	// Version is the SDK version, sent in the default User-Agent.
-	Version = "0.1.0"
 )
 
 const maxResponseBody = 4 << 20

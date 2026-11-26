@@ -160,7 +160,7 @@ func TestAckedPageIsNotResent(t *testing.T) {
 	f.pairing("p1", "alice", "phone")
 	m := page(f, "alice")
 	f.run()
-	if ok, err := f.st.AckMessage(m.ID, f.clk.Now()); err != nil || !ok {
+	if ok, err := f.st.AckMessage(m.ID, m.ExternalUserID, "", f.clk.Now()); err != nil || !ok {
 		t.Fatal(err)
 	}
 	f.clk.Advance(10 * time.Minute)

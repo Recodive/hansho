@@ -1,0 +1,27 @@
+{{define "content"}}
+<h1>{{if .Data.New}}New group{{else}}Edit group{{end}}</h1>
+<p class="lead">A group is a list of people. People do not have to be paired yet.</p>
+{{template "iac" .}}
+{{if .Data.Errors}}<p class="error" role="alert">The group was not saved. Fix what is marked below and try again.</p>{{end}}
+<form method="post" action="{{.Data.Action}}" class="stack wide">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+{{if .Data.New}}
+<div class="field">
+<label for="id">Id</label>
+<p class="hint" id="id-hint">A short word to call the group, such as oncall. Letters, numbers, dashes and underscores. You cannot change it later.</p>
+{{with index .Data.Errors "id"}}<p class="field-error" id="id-err">{{.}}</p>{{end}}
+<input id="id" name="id" type="text" value="{{.Data.ID}}" maxlength="64" required autocomplete="off" spellcheck="false" aria-describedby="id-hint id-err"{{if index .Data.Errors "id"}} aria-invalid="true"{{end}}>
+</div>
+{{else}}
+<div class="field"><span class="label">Id</span><p class="hint">This group's id is <code>{{.Data.ID}}</code>. It cannot be changed.</p></div>
+{{end}}
+<div class="field">
+<label for="members">People in the group</label>
+<p class="hint" id="members-hint">One name per line, the same names as on the People page.</p>
+{{with index .Data.Errors "members"}}<p class="field-error" id="members-err">{{.}}</p>{{end}}
+<textarea id="members" name="members" rows="8" autocomplete="off" spellcheck="false" aria-describedby="members-hint members-err"{{if index .Data.Errors "members"}} aria-invalid="true"{{end}}>{{.Data.Members}}</textarea>
+</div>
+<div class="row"><button class="btn">Save group</button><a class="btn ghost" href="/admin/groups">Cancel</a></div>
+</form>
+{{with .Data.Call}}{{template "apicall" .}}{{end}}
+{{end}}

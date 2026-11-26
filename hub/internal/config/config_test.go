@@ -1,7 +1,14 @@
 package config
 
 import (
+	"bytes"
 	"encoding/base64"
+	"image"
+	"image/png"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -79,6 +86,53 @@ func TestLoadMasterKeyLength(t *testing.T) {
 	m["HUB_MASTER_KEY"] = "!!!not base64!!!"
 	if _, err := Load(env(m)); err == nil {
 		t.Error("invalid base64 accepted")
+	}
+}
+
+func TestAdminOffByDefault(t *testing.T) {
+	m := validEnv()
+	m["HUB_ADMIN_PASSWORD"] = "short" // ignored while the admin UI is off
+	c, err := Load(env(m))
+	if err != nil || c.Admin || c.AdminPassword != "" {
+		t.Fatalf("admin must be off by default: %+v %v", c, err)
+	}
+}
+
+func TestAdminNeedsLongPassword(t *testing.T) {
+	for _, pw := range []string{"", "elevenchars", "short-pw-é"} {
+		m := validEnv()
+		m["HUB_ADMIN"] = "true"
+		m["HUB_ADMIN_PASSWORD"] = pw
+		_, err := Load(env(m))
+		if err == nil || !strings.Contains(err.Error(), "HUB_ADMIN_PASSWORD") {
+			t.Errorf("%q: want HUB_ADMIN_PASSWORD error, got %v", pw, err)
+		} else if pw != "" && strings.Contains(err.Error(), pw) {
+			t.Errorf("%q: the error repeats the password", pw)
+		}
+	}
+	m := validEnv()
+	m["HUB_ADMIN"] = "true"
+	m["HUB_ADMIN_PASSWORD"] = "twelve-chars"
+	c, err := Load(env(m))
+	if err != nil || !c.Admin || c.AdminPassword != "twelve-chars" {
+		t.Fatalf("12 characters must pass: %+v %v", c, err)
+	}
+	m["HUB_ADMIN_PASSWORD"] = "äöüäöüäöüäöü" // 12 characters, 24 bytes
+	if _, err := Load(env(m)); err != nil {
+		t.Fatalf("length is counted in characters: %v", err)
+	}
+}
+
+func TestAdminValueAndAddr(t *testing.T) {
+	m := validEnv()
+	m["HUB_ADMIN"] = "maybe"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "HUB_ADMIN") {
+		t.Errorf("invalid HUB_ADMIN accepted: %v", err)
+	}
+	m = validEnv()
+	m["HUB_ADMIN_ADDR"] = ":9090"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "HUB_ADMIN_ADDR") {
+		t.Errorf("HUB_ADMIN_ADDR must be refused until it is implemented: %v", err)
 	}
 }
 
@@ -161,5 +215,76 @@ func TestWebhookURLNeedsSecretAndHTTPS(t *testing.T) {
 	}
 	if _, err := Load(env(validEnv())); err != nil {
 		t.Errorf("no webhook at all stays valid: %v", err)
+	}
+}
+
+func TestLogoURLIsFetchedOnceAndAFailureDoesNotStopTheHub(t *testing.T) {
+	var b bytes.Buffer
+	_ = png.Encode(&b, image.NewRGBA(image.Rect(0, 0, 128, 128)))
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/logo.png" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(b.Bytes())
+	}))
+	defer srv.Close()
+	old := logoClient
+	logoClient = srv.Client()
+	defer func() { logoClient = old }()
+
+	load := func(m map[string]string) (Config, error) {
+		e := validEnv()
+		for k, v := range m {
+			e[k] = v
+		}
+		return Load(env(e))
+	}
+	if c, err := load(map[string]string{"HUB_LOGO_URL": srv.URL + "/logo.png"}); err != nil || !bytes.Equal(c.Logo, b.Bytes()) {
+		t.Fatalf("fetch: %v", err)
+	}
+	if c, err := load(map[string]string{"HUB_LOGO_URL": srv.URL + "/gone.png"}); err != nil || c.Logo != nil {
+		t.Fatalf("a 404 must leave the hub running without a logo: %v", err)
+	}
+	if _, err := load(map[string]string{"HUB_LOGO_URL": "http://insecure.example/logo.png"}); err != nil {
+		t.Fatalf("a bad URL is skipped like any failed fetch: %v", err)
+	}
+	if _, err := load(map[string]string{"HUB_LOGO_URL": srv.URL, "HUB_LOGO_FILE": "x.png"}); err == nil {
+		t.Fatal("both set must be an error")
+	}
+}
+
+func TestLogoFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, w, h int) string {
+		var b bytes.Buffer
+		if err := png.Encode(&b, image.NewRGBA(image.Rect(0, 0, w, h))); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, b.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	load := func(path string) (Config, error) {
+		e := validEnv()
+		e["HUB_LOGO_FILE"] = path
+		return Load(env(e))
+	}
+	if c, err := load(write("ok.png", 256, 256)); err != nil || len(c.Logo) == 0 {
+		t.Fatalf("valid logo: %v", err)
+	}
+	if c, err := Load(env(validEnv())); err != nil || c.Logo != nil {
+		t.Fatalf("no logo: %v", err)
+	}
+	notPNG := filepath.Join(dir, "x.png")
+	_ = os.WriteFile(notPNG, []byte("GIF89a"), 0o600)
+	for name, path := range map[string]string{
+		"small": write("small.png", 32, 32), "huge": write("huge.png", 2000, 2000), "not a png": notPNG, "missing": filepath.Join(dir, "none.png"),
+	} {
+		if _, err := load(path); err == nil || !strings.Contains(err.Error(), "HUB_LOGO_FILE") {
+			t.Fatalf("%s: %v", name, err)
+		}
 	}
 }

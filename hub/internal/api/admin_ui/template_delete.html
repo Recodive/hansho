@@ -1,0 +1,20 @@
+{{define "content"}}
+<h1>Delete {{.Data.ID}}?</h1>
+{{if .Data.Refused}}<p class="error" role="alert">The hub did not delete it because channels still use it.</p>{{end}}
+{{if .Data.UsedBy}}
+<p class="lead">A template cannot be deleted while a channel uses it, because that channel would be left pointing at nothing. These channels use it:</p>
+<ul class="uses">
+{{range .Data.UsedBy}}<li><a href="/admin/channels/{{.ID}}/edit">{{.Name}}</a> (<code>{{.ID}}</code>)</li>{{end}}
+</ul>
+<p>Change those channels to another template, or to none, then come back here.</p>
+<p><a class="btn ghost" href="/admin/templates">Back to templates</a></p>
+{{else}}
+<p class="lead">The template is removed from the hub and the apps stop receiving it. Messages already sent stay as they are. You can make a template with the same id again later.</p>
+{{template "iac" .}}
+<form method="post" action="/admin/templates/{{.Data.ID}}/delete" class="row">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button class="btn danger">Yes, delete it</button>
+<a class="btn ghost" href="/admin/templates">Cancel</a>
+</form>
+{{end}}
+{{end}}

@@ -1,5 +1,6 @@
 package app.hansho.sdk;
 
+import app.hansho.sdk.Models.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -22,14 +23,14 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
-/** Every operation and error of ../spec/api.json, produced by the SDK against a local fake hub. */
+/** Every operation and error of ../spec/openapi.json (x-conformance), produced by the SDK against a local fake hub. */
 class SpecTest {
     static final ObjectMapper MAPPER = new ObjectMapper();
     static final JsonNode SPEC = load();
 
     static JsonNode load() {
         try {
-            return MAPPER.readTree(Files.readString(Path.of("..", "spec", "api.json"), StandardCharsets.UTF_8));
+            return MAPPER.readTree(Files.readString(Path.of("..", "spec", "openapi.json"), StandardCharsets.UTF_8)).get("x-conformance");
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
@@ -48,6 +49,16 @@ class SpecTest {
     static {
         op("createPairingTicket", c -> c.createPairingTicket("user-42"), new PairingTicket(
                 "tk_abc", "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_abc&fp=ff00", Instant.parse("2026-11-08T12:10:00Z")));
+        op("createPairingTicketWithName", c -> c.createPairingTicket("user-42", "Zoë 日本語"), new PairingTicket(
+                "tk_def", "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_def&fp=ff00", Instant.parse("2026-11-08T12:10:00Z")));
+        op("setUserDisplayName", c -> {
+            c.setUserDisplayName("user-42", "Zoë 日本語");
+            return null;
+        }, null);
+        op("clearUserDisplayName", c -> {
+            c.setUserDisplayName("user 42", "");
+            return null;
+        }, null);
         op("unpair", c -> {
             c.unpair("user-42");
             return null;
@@ -55,12 +66,13 @@ class SpecTest {
         op("putChannel", c -> {
             c.putChannel("ops", Channel.builder("Operations", Level.ACTIVE, Level.CRITICAL)
                     .sound("ding").templateId("status").thread("ops-thread")
-                    .actions(List.of(Action.acknowledge("ack", "Acknowledge"), Action.text("reply", "Reply")))
+                    .actions(List.of(Action.acknowledge("ack", "Acknowledge"), Action.text("reply", "Reply"),
+                            Action.url("runbook", "Runbook", "https://example.com/runbook")))
                     .build());
             return null;
         }, null);
         op("getChannel", c -> c.getChannel("ops"),
-                new Channel("Operations", Level.ACTIVE, Level.CRITICAL, "", "", "ops", List.of()));
+                new Channel("ops", "Operations", Level.ACTIVE, Level.CRITICAL, "", "", "ops", List.of(), null));
         op("deleteChannel", c -> {
             c.deleteChannel("ops");
             return null;
@@ -76,13 +88,20 @@ class SpecTest {
                 .data(Map.of("disk", 97, "nested", Map.of("snake_case_key", List.of(1, 2))))
                 .sound("ding").actions(List.of(Action.acknowledge("ack", "Ack"))).collapseId("disk-db-1").build()),
                 new MessageResult("msg_1", Level.TIME_SENSITIVE, 2, "queued",
-                        List.of(new Delivery("dev_1", "queued", null), new Delivery("dev_2", "queued", null))));
+                        List.of(new Delivery("dev_1", "queued", null), new Delivery("dev_2", "queued", null)), List.of()));
         op("sendPage", c -> c.sendMessage(Message.builder("user-42", "ops", "Primary DB down", "Failover did not complete")
                 .level(Level.PAGE).page(PageOptions.of(60, 3)).build()),
-                new MessageResult("msg_2", Level.PAGE, 1, "queued", List.of(new Delivery("dev_1", "queued", null))));
+                new MessageResult("msg_2", Level.PAGE, 1, "queued", List.of(new Delivery("dev_1", "queued", null)), List.of()));
+        op("sendPageEach", c -> c.sendMessage(Message.forUsers(List.of("alice", "bob"), "ops", "Primary DB down", "Failover did not complete")
+                .level(Level.PAGE).page(new PageOptions(60, 3, PageAck.EACH)).build()),
+                new MessageResult(null, Level.PAGE, null, null, List.of(), List.of(
+                        new Recipient("alice", "msg_3", "queued", 1, List.of(new Delivery("dev_1", "queued", null))),
+                        new Recipient("bob", "msg_4", "queued", 1, List.of(new Delivery("dev_2", "queued", null))))));
+        op("getMessageAckedNoName", c -> c.getMessage("msg_3"), new MessageStatus("msg_3", "acked", Level.PAGE, 1,
+                List.of(new Delivery("dev_1", "sent", "")), Instant.parse("2026-11-08T12:05:00Z"), "alice", null));
         op("getMessage", c -> c.getMessage("msg_2"), new MessageStatus("msg_2", "acked", Level.PAGE, 2,
-                List.of(new Delivery("dev_1", "sent", null), new Delivery("dev_2", "failed", "unregistered")),
-                Instant.parse("2026-11-08T12:05:00Z")));
+                List.of(new Delivery("dev_1", "sent", ""), new Delivery("dev_2", "failed", "unregistered")),
+                Instant.parse("2026-11-08T12:05:00Z"), "user-42", "Zoë 日本語"));
         op("startActivity", c -> c.startActivity(Activity.of("user-42", "ops", "deploy", Map.of("progress", 0.1))
                 .withAlert(new ActivityAlert("Deploy started", "v1.2.3"))), new ActivityStarted("act_1", 1));
         op("updateActivity", c -> c.updateActivity("act_1", ActivityUpdate.of(Map.of("progress", 0.6)).withPriority(10)
@@ -111,9 +130,26 @@ class SpecTest {
         op("putFeedWithChannel", c -> c.putFeed("uptime", Feed.of("status", Map.of("up", true)).withChannel("ops")
                 .withAudience(Audience.only(List.of("alice"), List.of("oncall")))), new FeedResult("uptime", 1));
         op("sendToAudience", c -> c.sendMessage(Message.forAudience("ops", "Deploy done", "v1.2.3 is live").build()),
-                new MessageResult("", Level.ACTIVE, 0, "", List.of(), List.of(
+                new MessageResult(null, Level.ACTIVE, null, null, List.of(), List.of(
                         new Recipient("alice", "msg_7", "queued", 1, List.of(new Delivery("dev_1", "queued", null))),
-                        new Recipient("carol", null, Recipient.NO_ACCESS, 0, List.of()))));
+                        new Recipient("carol", null, Recipient.NO_ACCESS, null, List.of()))));
+        op("listChannels", c -> c.listChannels(), List.of(new Channel("ops", "Operations", Level.ACTIVE, Level.CRITICAL, "", "", "ops",
+                List.of(), new Audience(AudienceMode.EVERYONE, List.of(), List.of()))));
+        op("listTemplates", c -> c.listTemplates(), List.of(new Template("status", 2, Map.of("type", "text", "text", "{{title}}"))));
+        op("getTemplate", c -> c.getTemplate("status"), new Template("status", 2, Map.of("type", "text", "text", "{{title}}")));
+        op("deleteTemplate", c -> {
+            c.deleteTemplate("status");
+            return null;
+        }, null);
+        op("listSounds", c -> c.listSounds(), List.of(new Sound("ding", "audio/wav", 12, "00")));
+        op("getSound", c -> c.getSound("ding"), new Sound("ding", "audio/wav", 12, "00"));
+        op("deleteSound", c -> {
+            c.deleteSound("ding");
+            return null;
+        }, null);
+        op("listGroups", c -> c.listGroups(), List.of(new Group("oncall", List.of("alice", "bob"))));
+        op("getFeed", c -> c.getFeed("uptime", "user-42"), new FeedSettings("uptime", "user-42", "status", "Uptime", "ops",
+                new Audience(AudienceMode.ONLY, List.of("alice"), List.of()), 1762603200L));
     }
 
     @TestFactory
@@ -147,10 +183,28 @@ class SpecTest {
     }
 
     @Test
+    void everySpecOperationHasAClientMethod() {
+        java.util.Set<String> have = new java.util.HashSet<>();
+        for (java.lang.reflect.Method m : Hansho.class.getMethods()) {
+            have.add(m.getName());
+        }
+        List<String> missing = Models.SPEC_OPERATIONS.stream().filter(id -> !have.contains(id)).toList();
+        assertTrue(missing.isEmpty(), "Hansho has no method for the spec operation(s): " + missing);
+    }
+
+    @Test
+    void everySpecOperationHasAConformanceCase() {
+        java.util.Set<String> cases = new java.util.HashSet<>();
+        stream(SPEC.get("operations")).forEach(o -> cases.add(o.get("operation").asText()));
+        List<String> missing = Models.SPEC_OPERATIONS.stream().filter(id -> !cases.contains(id)).toList();
+        assertTrue(missing.isEmpty(), "no conformance case for the spec operation(s): " + missing);
+    }
+
+    @Test
     void coversEverySdkCall() {
         List<String> names = stream(SPEC.get("operations")).map(o -> o.get("name").asText()).toList();
         for (String k : CALLS.keySet()) {
-            assertTrue(names.contains(k), "SDK call " + k + " has no operation in sdk/spec/api.json");
+            assertTrue(names.contains(k), "SDK call " + k + " has no operation in x-conformance of sdk/spec/openapi.json");
         }
         assertEquals(names.size(), CALLS.size(), "every spec operation needs an SDK call");
     }
