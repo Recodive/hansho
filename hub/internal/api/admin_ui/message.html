@@ -1,0 +1,9 @@
+{{define "content"}}
+<h1>Message status</h1>
+<p class="lead">This is where the message is now. Use Refresh to look again.</p>
+{{template "messagefacts" .Data}}
+<div class="row">
+<a class="btn" href="/admin/messages/{{.Data.ID}}">Refresh</a>
+<a class="btn ghost" href="/admin/send">Send a test message</a>
+</div>
+{{end}}

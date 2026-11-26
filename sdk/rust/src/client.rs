@@ -7,15 +7,13 @@ use serde_json::{json, Map, Value};
 
 use crate::error::{ApiError, Error, NetworkError, Result};
 use crate::retry::{backoff, is_idempotent, is_retryable_status, parse_retry_after, DEFAULT_MAX_RETRIES, MAX_RETRY_WAIT};
-use crate::types::{
+use crate::types_gen::{
     Activity, ActivityStarted, ActivityUpdate, ActivityUpdated, Channel, Feed, FeedResult, FeedSettings, Group, Message, MessageResult,
-    MessageStatus, PairingTicket, SoundResult,
+    MessageStatus, PairingTicket, Sound, SoundResult, Template, VERSION,
 };
 
 /// Product codename.
 pub const NAME: &str = "hansho";
-/// SDK version, sent in the default `User-Agent`.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const MAX_SOUND_BYTES: usize = 1 << 20;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -167,10 +165,33 @@ impl Client {
     /// Creates a single-use pairing ticket (valid 10 minutes). Render `qr` as a QR
     /// code for the user to scan in the Hansho app.
     pub fn create_pairing_ticket(&self, external_user_id: &str) -> Result<PairingTicket> {
+        self.pairing_ticket(external_user_id, None)
+    }
+
+    /// Like [`create_pairing_ticket`](Client::create_pairing_ticket), and gives the user a display name with the ticket (see
+    /// [`set_user_display_name`](Client::set_user_display_name)). An empty name is sent as given.
+    pub fn create_pairing_ticket_with_name(&self, external_user_id: &str, display_name: &str) -> Result<PairingTicket> {
+        self.pairing_ticket(external_user_id, Some(display_name))
+    }
+
+    fn pairing_ticket(&self, external_user_id: &str, display_name: Option<&str>) -> Result<PairingTicket> {
         if external_user_id.is_empty() {
             return Err(Error::InvalidArgument("id must not be empty".into()));
         }
-        self.json("POST", "/api/v1/pairing-tickets".into(), Some(json!({ "external_user_id": external_user_id })))
+        let mut body = json!({ "external_user_id": external_user_id });
+        if let Some(name) = display_name {
+            body["display_name"] = json!(name);
+        }
+        self.json("POST", "/api/v1/pairing-tickets".into(), Some(body))
+    }
+
+    // --- users ---------------------------------------------------------------
+
+    /// Sets what other people see for the user instead of their external user id: any language, trimmed, at most 40
+    /// characters, no control characters. `""` clears it. The user need not be paired yet.
+    pub fn set_user_display_name(&self, external_user_id: &str, display_name: &str) -> Result<()> {
+        let path = format!("/api/v1/users/{}", seg(external_user_id)?);
+        self.json::<serde::de::IgnoredAny>("PUT", path, Some(json!({ "display_name": display_name }))).map(drop)
     }
 
     /// Revokes every pairing of the user.
@@ -186,6 +207,11 @@ impl Client {
     }
 
     // --- catalog -------------------------------------------------------------
+
+    /// Lists every channel.
+    pub fn list_channels(&self) -> Result<Vec<Channel>> {
+        self.list("/api/v1/channels")
+    }
 
     /// Creates or replaces a channel.
     pub fn put_channel(&self, id: &str, channel: &Channel) -> Result<()> {
@@ -203,6 +229,11 @@ impl Client {
         self.json::<serde::de::IgnoredAny>("DELETE", format!("/api/v1/channels/{}", seg(id)?), None).map(drop)
     }
 
+    /// Lists every group.
+    pub fn list_groups(&self) -> Result<Vec<Group>> {
+        self.list("/api/v1/groups")
+    }
+
     /// Creates a group or replaces its whole member list (external user ids, who may not have paired yet). Audiences that
     /// name the group follow at once. Ids match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`.
     pub fn put_group(&self, id: &str, members: &[&str]) -> Result<Group> {
@@ -217,6 +248,21 @@ impl Client {
     /// Deletes a group. An audience that still names it matches nobody through it.
     pub fn delete_group(&self, id: &str) -> Result<()> {
         self.json::<serde::de::IgnoredAny>("DELETE", format!("/api/v1/groups/{}", seg(id)?), None).map(drop)
+    }
+
+    /// Lists every template at its latest version.
+    pub fn list_templates(&self) -> Result<Vec<Template>> {
+        self.list("/api/v1/templates")
+    }
+
+    /// Reads a template; a missing one is an API error with code `unknown_template`.
+    pub fn get_template(&self, id: &str) -> Result<Template> {
+        self.json("GET", format!("/api/v1/templates/{}", seg(id)?), None)
+    }
+
+    /// Deletes a template.
+    pub fn delete_template(&self, id: &str) -> Result<()> {
+        self.json::<serde::de::IgnoredAny>("DELETE", format!("/api/v1/templates/{}", seg(id)?), None).map(drop)
     }
 
     /// Stores a template version; the version must increase.
@@ -240,6 +286,21 @@ impl Client {
             headers: Vec::new(),
         };
         self.decode(&call, self.send(&call)?)
+    }
+
+    /// Lists the metadata of every sound.
+    pub fn list_sounds(&self) -> Result<Vec<Sound>> {
+        self.list("/api/v1/sounds")
+    }
+
+    /// Reads a sound's metadata; a missing one is an API error with code `unknown_sound`.
+    pub fn get_sound(&self, id: &str) -> Result<Sound> {
+        self.json("GET", format!("/api/v1/sounds/{}", seg(id)?), None)
+    }
+
+    /// Deletes a sound.
+    pub fn delete_sound(&self, id: &str) -> Result<()> {
+        self.json::<serde::de::IgnoredAny>("DELETE", format!("/api/v1/sounds/{}", seg(id)?), None).map(drop)
     }
 
     // --- messages ------------------------------------------------------------
@@ -311,6 +372,18 @@ impl Client {
             call.content_type = Some("application/json".into());
         }
         self.decode(&call, self.send(&call)?)
+    }
+
+    /// A GET that answers with a JSON array. An empty or `null` answer is an empty list.
+    fn list<T: DeserializeOwned>(&self, path: &str) -> Result<Vec<T>> {
+        let call = Call { method: "GET", path: path.into(), body: Vec::new(), content_type: None, retry: true, headers: Vec::new() };
+        let text = self.send(&call)?;
+        match text.trim() {
+            "" => Ok(Vec::new()),
+            t => serde_json::from_str::<Option<Vec<T>>>(t)
+                .map(Option::unwrap_or_default)
+                .map_err(|_| self.network(&call, "unexpected JSON in response".into(), false)),
+        }
     }
 
     /// Parses a 2xx body. An empty or non-object body counts as `{}`.

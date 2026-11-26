@@ -94,6 +94,26 @@ func (s *Store) GetFeedForUser(id, userID string) (Feed, error) {
 	return f, err
 }
 
+// ListFeeds returns every feed, global and per user, sorted by id (a global feed first), without its data: DataJSON is
+// left empty. It is for the admin UI's read-only list.
+func (s *Store) ListFeeds() ([]Feed, error) {
+	rows, err := s.query(`SELECT f.id, f.external_user_id, f.template_id, f.title, f.channel_id, ` + feedAudienceCols + `, '', f.updated_at
+		FROM ` + feedFrom + ` ORDER BY f.id, f.external_user_id IS NOT NULL, f.external_user_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Feed
+	for rows.Next() {
+		f, err := scanFeed(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // FeedListing is one entry of ListFeedsForUser; the data stays behind GetFeedForUser.
 type FeedListing struct {
 	ID        string

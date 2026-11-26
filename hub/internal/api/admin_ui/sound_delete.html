@@ -1,0 +1,20 @@
+{{define "content"}}
+<h1>Delete {{.Data.ID}}?</h1>
+{{if .Data.Refused}}<p class="error" role="alert">The hub did not delete it because channels still use it.</p>{{end}}
+{{if .Data.UsedBy}}
+<p class="lead">A sound cannot be deleted while a channel uses it, because that channel would be left pointing at nothing. These channels use it:</p>
+<ul class="uses">
+{{range .Data.UsedBy}}<li><a href="/admin/channels/{{.ID}}/edit">{{.Name}}</a> (<code>{{.ID}}</code>)</li>{{end}}
+</ul>
+<p>Change those channels to another sound, or to the app's default, then come back here.</p>
+<p><a class="btn ghost" href="/admin/sounds">Back to sounds</a></p>
+{{else}}
+<p class="lead">The sound is removed from the hub and the apps stop downloading it. You can upload a sound with the same id again later.</p>
+{{template "iac" .}}
+<form method="post" action="/admin/sounds/{{.Data.ID}}/delete" class="row">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button class="btn danger">Yes, delete it</button>
+<a class="btn ghost" href="/admin/sounds">Cancel</a>
+</form>
+{{end}}
+{{end}}

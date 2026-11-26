@@ -1,0 +1,14 @@
+{{define "content"}}
+<h1>Settings</h1>
+<p class="lead">This is what the hub is using right now. These are set where the hub is deployed (environment variables or Helm values). Ask whoever manages the hub to change them.</p>
+<dl class="facts settings">
+{{range .Data}}
+<div>
+<dt>{{.Name}}</dt>
+<dd>{{.Value}}{{if .Logo}}<br><img class="logo" src="/_hub/logo.png" alt="The hub's logo" width="64" height="64">{{end}}</dd>
+{{with .Note}}<dd class="hint">{{.}}</dd>{{end}}
+{{if .Env}}<dd class="hint">Changed with {{range $i, $e := .Env}}{{if $i}} or {{end}}<code>{{$e}}</code>{{end}}</dd>{{end}}
+</div>
+{{end}}
+</dl>
+{{end}}

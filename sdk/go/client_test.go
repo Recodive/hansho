@@ -321,6 +321,32 @@ func TestIDsArePathEscaped(t *testing.T) {
 	}
 }
 
+func TestSetUserDisplayNameAndTicketName(t *testing.T) {
+	h := newHub(t, func(_ *recorded, w *respond) {
+		w.Status = 201
+		w.Body = `{"ticket":"t","qr":"q","expires_at":"2026-11-08T12:10:00Z"}`
+	})
+	if err := h.client.SetUserDisplayName(ctx(), "a/b c", "Ada"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.client.CreatePairingTicket(ctx(), "u"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.client.CreatePairingTicket(ctx(), "u", WithDisplayName("")); err != nil {
+		t.Fatal(err)
+	}
+	rs := h.requests()
+	if rs[0].Method != "PUT" || rs[0].EscapedPath != "/api/v1/users/a%2Fb%20c" || string(rs[0].Body) != `{"display_name":"Ada"}` {
+		t.Errorf("%+v", rs[0])
+	}
+	if string(rs[1].Body) != `{"external_user_id":"u"}` || string(rs[2].Body) != `{"display_name":"","external_user_id":"u"}` {
+		t.Errorf("%s / %s", rs[1].Body, rs[2].Body)
+	}
+	if err := h.client.SetUserDisplayName(ctx(), "", "x"); err != ErrEmptyID {
+		t.Errorf("got %v", err)
+	}
+}
+
 func TestEmptyIDsRejectedBeforeSending(t *testing.T) {
 	h := newHub(t, nil)
 	c := h.client

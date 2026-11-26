@@ -52,6 +52,31 @@ describe("basics", () => {
       assert.equal(h.requests[0]!.url, "/hansho/api/v1/messages/m1");
     }));
 
+  it("sets and clears a display name, escaping the id", () =>
+    withHub(undefined, async (h) => {
+      await h.client.setUserDisplayName("a/b c", "Ada");
+      await h.client.setUserDisplayName("a/b c", "");
+      assert.equal(h.requests[0]!.method, "PUT");
+      assert.equal(h.requests[0]!.url, "/api/v1/users/a%2Fb%20c");
+      assert.deepEqual(JSON.parse(h.requests[0]!.body.toString()), { display_name: "Ada" });
+      assert.deepEqual(JSON.parse(h.requests[1]!.body.toString()), { display_name: "" });
+      await assert.rejects(h.client.setUserDisplayName("", "x"), RangeError);
+    }));
+
+  it("omits display_name from a pairing ticket unless given", () =>
+    withHub(
+      (_r, reply) => {
+        reply.status = 201;
+        reply.body = '{"ticket":"t","qr":"q","expires_at":"2026-11-08T12:10:00Z"}';
+      },
+      async (h) => {
+        await h.client.createPairingTicket("u");
+        await h.client.createPairingTicket("u", { displayName: "Ada" });
+        assert.deepEqual(JSON.parse(h.requests[0]!.body.toString()), { external_user_id: "u" });
+        assert.deepEqual(JSON.parse(h.requests[1]!.body.toString()), { external_user_id: "u", display_name: "Ada" });
+      },
+    ));
+
   it("exports the codename constant", () => assert.equal(NAME, "hansho"));
 
   it("requires baseUrl and apiKey", () => {

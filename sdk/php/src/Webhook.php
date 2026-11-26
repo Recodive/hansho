@@ -70,10 +70,12 @@ final class Webhook
         $d = is_array($data) && $payload instanceof \stdClass ? $data : [];
         $id = self::s($env['id'] ?? null);
         $created = (new \DateTimeImmutable('@0'))->setTimestamp((int) self::n($env['created_at'] ?? null));
-        $mapped = self::mapPayload($name, $d);
-        if ($mapped === null) {
+        $payload = Spec::EVENTS[$name] ?? null;
+        if ($payload === null) {
             return new WebhookEvent('unknown', $id, $created, $data, $body, $name);
         }
+        // The payload's camelCase fields, leaving out what the hub did not send.
+        $mapped = array_filter(get_object_vars($payload::fromWire($d)), static fn ($v) => $v !== null);
 
         return new WebhookEvent($name, $id, $created, $mapped, $body);
     }
@@ -118,41 +120,5 @@ final class Webhook
     private static function n(mixed $v): int|float
     {
         return is_numeric($v) ? $v + 0 : 0;
-    }
-
-    /**
-     * @param array<string,mixed> $d
-     *
-     * @return array<string,mixed>|null null for an event this SDK does not know
-     */
-    private static function mapPayload(string $type, array $d): ?array
-    {
-        $s = self::s(...);
-        switch ($type) {
-            case 'pairing.created':
-                return ['pairingId' => $s($d['pairing_id'] ?? null), 'externalUserId' => $s($d['external_user_id'] ?? null), 'deviceName' => $s($d['device_name'] ?? null)];
-            case 'pairing.revoked':
-                return ['pairingId' => $s($d['pairing_id'] ?? null), 'externalUserId' => $s($d['external_user_id'] ?? null), 'by' => $s($d['by'] ?? null)];
-            case 'message.delivered':
-                return ['messageId' => $s($d['message_id'] ?? null), 'externalUserId' => $s($d['external_user_id'] ?? null), 'channel' => $s($d['channel'] ?? null), 'level' => $s($d['level'] ?? null), 'devices' => (int) self::n($d['devices'] ?? null)];
-            case 'message.undeliverable':
-                return ['messageId' => $s($d['message_id'] ?? null), 'externalUserId' => $s($d['external_user_id'] ?? null), 'channel' => $s($d['channel'] ?? null), 'reason' => $s($d['reason'] ?? null)];
-            case 'message.acked':
-            case 'message.dismissed':
-                return ['messageId' => $s($d['message_id'] ?? null), 'externalUserId' => $s($d['external_user_id'] ?? null), 'deviceId' => $s($d['device_id'] ?? null)];
-            case 'message.expired':
-                return ['messageId' => $s($d['message_id'] ?? null), 'externalUserId' => $s($d['external_user_id'] ?? null), 'channel' => $s($d['channel'] ?? null), 'attempts' => (int) self::n($d['attempts'] ?? null)];
-            case 'action':
-                $out = ['messageId' => $s($d['message_id'] ?? null), 'actionId' => $s($d['action_id'] ?? null), 'deviceId' => $s($d['device_id'] ?? null), 'externalUserId' => $s($d['external_user_id'] ?? null)];
-                if (isset($d['text']) && is_string($d['text'])) {
-                    $out['text'] = $d['text'];
-                }
-
-                return $out;
-            case 'activity.ended':
-                return ['activityId' => $s($d['activity_id'] ?? null), 'externalUserId' => $s($d['external_user_id'] ?? null), 'channel' => $s($d['channel'] ?? null), 'reason' => $s($d['reason'] ?? null)];
-            default:
-                return null;
-        }
     }
 }

@@ -1,0 +1,26 @@
+{{define "content"}}
+<h1>Channels</h1>
+<p class="lead">A channel is a stream of messages, such as "Billing alerts". It decides how loud its messages may get and who may receive them.</p>
+{{template "iac" .}}
+{{if .Data}}
+<ul class="people">
+{{range .Data}}
+<li class="person">
+<div class="head">
+<h2>{{.Name}}</h2>
+<div class="row">
+<a class="btn ghost" href="/admin/channels/{{.ID}}/edit" aria-label="Edit {{.Name}}">Edit</a>
+<a class="btn danger" href="/admin/channels/{{.ID}}/delete" aria-label="Delete {{.Name}}">Delete</a>
+</div>
+</div>
+<p class="meta">Id <code>{{.ID}}</code></p>
+<p class="meta">Starts at {{.Default}}, never above {{.Max}}</p>
+<p class="meta">Who may use it: {{.Who}}</p>
+</li>
+{{end}}
+</ul>
+{{else}}
+<p class="empty">There are no channels yet.</p>
+{{end}}
+<p><a class="btn" href="/admin/channels/new">Make a channel</a></p>
+{{end}}

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/recodive/hansho/hub/internal/level"
 	"github.com/recodive/hansho/hub/internal/store"
@@ -48,6 +49,18 @@ func senderViewOf(c store.Channel) senderChannelView {
 	return senderChannelView{viewOf(c), c.Audience.Normalized()}
 }
 
+// channelInput is the body of PUT /api/v1/channels/{id}, and what the admin UI's channel form fills in.
+type channelInput struct {
+	Name         string          `json:"name"`
+	DefaultLevel string          `json:"default_level"`
+	MaxLevel     string          `json:"max_level"`
+	Sound        string          `json:"sound"`
+	TemplateID   string          `json:"template_id"`
+	Thread       string          `json:"thread"`
+	Actions      json.RawMessage `json:"actions"`
+	Audience     *store.Audience `json:"audience"`
+}
+
 // PUT /api/v1/channels/{id}
 func (s *server) putChannel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -59,61 +72,50 @@ func (s *server) putChannel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var req struct {
-		Name         string          `json:"name"`
-		DefaultLevel string          `json:"default_level"`
-		MaxLevel     string          `json:"max_level"`
-		Sound        string          `json:"sound"`
-		TemplateID   string          `json:"template_id"`
-		Thread       string          `json:"thread"`
-		Actions      json.RawMessage `json:"actions"`
-		Audience     *store.Audience `json:"audience"`
-	}
+	var req channelInput
 	if !decodeJSON(w, body, &req) {
 		return
 	}
-	bad := func(field, msg string) { writeFieldErr(w, http.StatusBadRequest, "invalid_request", field, msg) }
-	switch {
-	case req.Name == "" || len(req.Name) > maxFieldLen:
-		bad("name", "required, at most 256 bytes")
-		return
-	case !level.Valid(req.DefaultLevel):
-		bad("default_level", "must be one of passive, active, time-sensitive, critical, page")
-		return
-	case !level.Valid(req.MaxLevel):
-		bad("max_level", "must be one of passive, active, time-sensitive, critical, page")
-		return
-	case level.Rank(req.DefaultLevel) > level.Rank(req.MaxLevel):
-		bad("default_level", "must not exceed max_level")
-		return
-	case len(req.Thread) > maxFieldLen:
-		bad("thread", "at most 256 bytes")
+	c, e := s.saveChannel(id, req)
+	if e != nil {
+		s.fail(w, e)
 		return
 	}
+	writeJSON(w, http.StatusOK, senderViewOf(c))
+}
+
+// saveChannel validates a channel and stores it (creating or replacing it, and undeleting it). The caller has checked
+// that id matches channelIDPattern. It is the one place the API and the admin UI share the rules.
+func (s *server) saveChannel(id string, req channelInput) (store.Channel, *apiError) {
+	switch {
+	case req.Name == "" || len(req.Name) > maxFieldLen:
+		return store.Channel{}, badField("name", "required, at most 256 bytes")
+	case !level.Valid(req.DefaultLevel):
+		return store.Channel{}, badField("default_level", "must be one of passive, active, time-sensitive, critical, page")
+	case !level.Valid(req.MaxLevel):
+		return store.Channel{}, badField("max_level", "must be one of passive, active, time-sensitive, critical, page")
+	case level.Rank(req.DefaultLevel) > level.Rank(req.MaxLevel):
+		return store.Channel{}, badField("default_level", "must not exceed max_level")
+	case len(req.Thread) > maxFieldLen:
+		return store.Channel{}, badField("thread", "at most 256 bytes")
+	}
 	if req.TemplateID != "" {
-		if _, err := s.Store.GetTemplate(req.TemplateID); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				bad("template_id", "unknown template")
-			} else {
-				s.internal(w, "template lookup failed", err)
-			}
-			return
+		if _, err := s.Store.GetTemplate(req.TemplateID); errors.Is(err, store.ErrNotFound) {
+			return store.Channel{}, badField("template_id", "unknown template")
+		} else if err != nil {
+			return store.Channel{}, internalErr("template lookup failed", err)
 		}
 	}
 	if req.Sound != "" {
-		if _, err := s.Store.GetSound(req.Sound); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				bad("sound", "unknown sound")
-			} else {
-				s.internal(w, "sound lookup failed", err)
-			}
-			return
+		if _, err := s.Store.GetSound(req.Sound); errors.Is(err, store.ErrNotFound) {
+			return store.Channel{}, badField("sound", "unknown sound")
+		} else if err != nil {
+			return store.Channel{}, internalErr("sound lookup failed", err)
 		}
 	}
 	actions, field, msg := checkActions(req.Actions)
 	if field != "" {
-		bad(field, msg)
-		return
+		return store.Channel{}, badField(field, msg)
 	}
 	thread := req.Thread
 	if thread == "" {
@@ -129,26 +131,22 @@ func (s *server) putChannel(w http.ResponseWriter, r *http.Request) {
 	} else {
 		var field, msg string
 		if audience, field, msg = checkAudience(*req.Audience, "audience"); field != "" {
-			bad(field, msg)
-			return
+			return store.Channel{}, badField(field, msg)
 		}
 		field, msg, err := s.checkGroupsExist(audience, "audience")
 		if err != nil {
-			s.internal(w, "group lookup failed", err)
-			return
+			return store.Channel{}, internalErr("group lookup failed", err)
 		}
 		if field != "" {
-			bad(field, msg)
-			return
+			return store.Channel{}, badField(field, msg)
 		}
 	}
 	c := store.Channel{ID: id, Name: req.Name, DefaultLevel: req.DefaultLevel, MaxLevel: req.MaxLevel,
 		Sound: req.Sound, TemplateID: req.TemplateID, Thread: thread, ActionsJSON: actions, Audience: audience.Normalized()}
 	if err := s.Store.UpsertChannel(c); err != nil {
-		s.internal(w, "upsert channel failed", err)
-		return
+		return store.Channel{}, internalErr("upsert channel failed", err)
 	}
-	writeJSON(w, http.StatusOK, senderViewOf(c))
+	return c, nil
 }
 
 // GET /api/v1/channels/{id}
@@ -163,6 +161,20 @@ func (s *server) getChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, senderViewOf(c))
+}
+
+// GET /api/v1/channels
+func (s *server) listChannels(w http.ResponseWriter, _ *http.Request) {
+	channels, err := s.Store.ListChannels()
+	if err != nil {
+		s.internal(w, "list channels failed", err)
+		return
+	}
+	out := make([]senderChannelView, 0, len(channels))
+	for _, c := range channels {
+		out = append(out, senderViewOf(c))
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // DELETE /api/v1/channels/{id}
@@ -197,37 +209,148 @@ func (s *server) putTemplate(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, body, &req) {
 		return
 	}
-	if req.Version < 1 {
-		writeFieldErr(w, http.StatusBadRequest, "invalid_request", "version", "must be a positive integer")
-		return
-	}
-	if len(req.Body) == 0 {
-		writeFieldErr(w, http.StatusBadRequest, "invalid_request", "body", "required")
-		return
-	}
-	if err := template.Validate(req.Body); err != nil {
-		var fe *template.FieldError
-		field := "body"
-		msg := err.Error()
-		if errors.As(err, &fe) {
-			if fe.Path != "" {
-				field = "body." + fe.Path
-			}
-			msg = fe.Msg
-		}
-		writeFieldErr(w, http.StatusBadRequest, "invalid_template", field, msg)
-		return
-	}
-	err := s.Store.PutTemplate(id, req.Version, req.Body)
-	if errors.Is(err, store.ErrVersionConflict) {
-		writeErr(w, http.StatusConflict, "version_conflict")
-		return
-	}
-	if err != nil {
-		s.internal(w, "put template failed", err)
+	if e := s.saveTemplate(id, req.Version, req.Body); e != nil {
+		s.fail(w, e)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "version": req.Version})
+}
+
+// checkTemplate validates a template body with the hub's validator. A failure names the first problem, as
+// "body.<path>" and the reason.
+func checkTemplate(body json.RawMessage) *apiError {
+	err := template.Validate(body)
+	if err == nil {
+		return nil
+	}
+	var fe *template.FieldError
+	field := "body"
+	msg := err.Error()
+	if errors.As(err, &fe) {
+		if fe.Path != "" {
+			field = "body." + fe.Path
+		}
+		msg = fe.Msg
+	}
+	return &apiError{Status: http.StatusBadRequest, Code: "invalid_template", Field: field, Msg: msg}
+}
+
+// saveTemplate validates a template body and stores it as version. The caller has checked that id matches idPattern.
+// It is the one place the API and the admin UI share the rules, including "the version must increase".
+func (s *server) saveTemplate(id string, version int, body json.RawMessage) *apiError {
+	if version < 1 {
+		return badField("version", "must be a positive integer")
+	}
+	if len(body) == 0 {
+		return badField("body", "required")
+	}
+	if e := checkTemplate(body); e != nil {
+		return e
+	}
+	err := s.Store.PutTemplate(id, version, body)
+	if errors.Is(err, store.ErrVersionConflict) {
+		return &apiError{Status: http.StatusConflict, Code: "version_conflict"}
+	}
+	if err != nil {
+		return internalErr("put template failed", err)
+	}
+	return nil
+}
+
+type templateView struct {
+	ID      string          `json:"id"`
+	Version int             `json:"version"`
+	Body    json.RawMessage `json:"body"`
+}
+
+// GET /api/v1/templates
+func (s *server) listTemplates(w http.ResponseWriter, _ *http.Request) {
+	templates, err := s.Store.ListTemplates()
+	if err != nil {
+		s.internal(w, "list templates failed", err)
+		return
+	}
+	out := make([]templateView, 0, len(templates))
+	for _, t := range templates {
+		out = append(out, templateView{t.ID, t.Version, t.Body})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// GET /api/v1/templates/{id}
+func (s *server) getTemplate(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Store.GetTemplate(r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "unknown_template")
+		return
+	}
+	if err != nil {
+		s.internal(w, "template lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, templateView{t.ID, t.Version, t.Body})
+}
+
+// DELETE /api/v1/templates/{id}
+//
+// A template a live channel still names is refused with 409: deleting it would leave that channel pointing at nothing.
+func (s *server) deleteTemplate(w http.ResponseWriter, r *http.Request) {
+	s.deleteCatalog(w, r, "unknown_template", "delete template failed", s.Store.DeleteTemplate)
+}
+
+// deleteCatalog answers a template or sound deletion.
+func (s *server) deleteCatalog(w http.ResponseWriter, r *http.Request, unknown, what string, del func(string) (bool, error)) {
+	ok, err := del(r.PathValue("id"))
+	switch {
+	case errors.Is(err, store.ErrInUse):
+		writeErr(w, http.StatusConflict, "in_use")
+	case err != nil:
+		s.internal(w, what, err)
+	case !ok:
+		writeErr(w, http.StatusNotFound, unknown)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+type soundView struct {
+	ID          string `json:"id"`
+	ContentType string `json:"content_type"`
+	Bytes       int    `json:"bytes"`
+	SHA256      string `json:"sha256"`
+}
+
+// GET /api/v1/sounds
+func (s *server) listSounds(w http.ResponseWriter, _ *http.Request) {
+	sounds, err := s.Store.ListSounds()
+	if err != nil {
+		s.internal(w, "list sounds failed", err)
+		return
+	}
+	out := make([]soundView, 0, len(sounds))
+	for _, x := range sounds {
+		out = append(out, soundView{x.ID, x.ContentType, x.Size, x.SHA256})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// GET /api/v1/sounds/{id}: metadata only; devices download the audio from the device API.
+func (s *server) getSound(w http.ResponseWriter, r *http.Request) {
+	x, err := s.Store.GetSound(r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "unknown_sound")
+		return
+	}
+	if err != nil {
+		s.internal(w, "sound lookup failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, soundView{x.ID, x.ContentType, x.Size, x.SHA256})
+}
+
+// DELETE /api/v1/sounds/{id}; refused with 409 while a live channel names the sound.
+func (s *server) deleteSound(w http.ResponseWriter, r *http.Request) {
+	s.deleteCatalog(w, r, "unknown_sound", "delete sound failed", s.Store.DeleteSound)
 }
 
 var soundTypes = map[string]string{"audio/x-caf": ".caf", "audio/wav": ".wav", "audio/aiff": ".aiff"}
@@ -240,8 +363,7 @@ func (s *server) putSound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ct, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	ext, supported := soundTypes[ct]
-	if err != nil || !supported {
+	if _, supported := soundTypes[ct]; err != nil || !supported {
 		writeErr(w, http.StatusUnsupportedMediaType, "unsupported_media_type")
 		return
 	}
@@ -249,45 +371,59 @@ func (s *server) putSound(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	switch ct {
-	case "audio/wav":
-		d, err := wavDuration(data)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_audio")
-			return
-		}
-		if d >= maxSoundDuration {
-			writeErr(w, http.StatusBadRequest, "sound_too_long")
-			return
-		}
-	case "audio/aiff":
-		d, err := aiffDuration(data)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_audio")
-			return
-		}
-		if d >= maxSoundDuration {
-			writeErr(w, http.StatusBadRequest, "sound_too_long")
-			return
-		}
-	case "audio/x-caf":
-		if !isCAF(data) {
-			writeErr(w, http.StatusBadRequest, "invalid_audio")
-			return
-		}
-	}
-	sum := sha256.Sum256(data)
-	snd := store.Sound{ID: id, Filename: id + ext, ContentType: ct, Data: data, SHA256: hex.EncodeToString(sum[:])}
-	if err := s.Store.PutSound(snd); err != nil {
-		s.internal(w, "put sound failed", err)
+	snd, e := s.saveSound(id, ct, data)
+	if e != nil {
+		s.fail(w, e)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "filename": snd.Filename, "sha256": snd.SHA256, "size": len(data)})
 }
 
+// saveSound checks a sound's type and audio and stores it. ct is the media type, without parameters. The caller has
+// checked that id matches idPattern. It is the one place the API and the admin UI share the rules.
+func (s *server) saveSound(id, ct string, data []byte) (store.Sound, *apiError) {
+	ext, supported := soundTypes[ct]
+	switch {
+	case !supported:
+		return store.Sound{}, &apiError{Status: http.StatusUnsupportedMediaType, Code: "unsupported_media_type"}
+	case len(data) > maxSoundBytes:
+		return store.Sound{}, &apiError{Status: http.StatusRequestEntityTooLarge, Code: "body_too_large"}
+	}
+	var d time.Duration
+	var err error
+	switch ct {
+	case "audio/wav":
+		d, err = wavDuration(data)
+	case "audio/aiff":
+		d, err = aiffDuration(data)
+	case "audio/x-caf": // its duration is not checked
+		if !isCAF(data) {
+			err = errBadAudio
+		}
+	}
+	if err != nil {
+		return store.Sound{}, &apiError{Status: http.StatusBadRequest, Code: "invalid_audio"}
+	}
+	if d >= maxSoundDuration {
+		return store.Sound{}, &apiError{Status: http.StatusBadRequest, Code: "sound_too_long"}
+	}
+	sum := sha256.Sum256(data)
+	snd := store.Sound{ID: id, Filename: id + ext, ContentType: ct, Data: data, SHA256: hex.EncodeToString(sum[:])}
+	if err := s.Store.PutSound(snd); err != nil {
+		return store.Sound{}, internalErr("put sound failed", err)
+	}
+	return snd, nil
+}
+
 // GET /device/v1/sync
 //
 // Channels the device's user cannot access are left out, not marked: the app learns nothing about them.
+// profileView is the user's display name and whether the person may change it in the app.
+type profileView struct {
+	DisplayName string `json:"display_name"`
+	Editable    bool   `json:"editable"`
+}
+
 func (s *server) sync(w http.ResponseWriter, _ *http.Request, dev store.DeviceWithPairing, _ []byte) {
 	channels, err := s.Store.ListChannels()
 	if err != nil {
@@ -324,7 +460,13 @@ func (s *server) sync(w http.ResponseWriter, _ *http.Request, dev store.DeviceWi
 		Channels  []channelView     `json:"channels"`
 		Templates []tpl             `json:"templates"`
 		Sounds    []snd             `json:"sounds"`
+		Profile   profileView       `json:"profile"`
 	}{Hub: s.hubInfo(), Channels: []channelView{}, Templates: []tpl{}, Sounds: []snd{}}
+	if out.Profile.DisplayName, err = s.Store.DisplayName(dev.Pairing.ExternalUserID); err != nil {
+		s.internal(w, "profile lookup failed", err)
+		return
+	}
+	out.Profile.Editable = s.Cfg.AllowDisplayNameEdit
 	for _, c := range channels {
 		if acc.Allows(c.Audience) {
 			out.Channels = append(out.Channels, viewOf(c))
