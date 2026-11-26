@@ -1,0 +1,11 @@
+{{define "content"}}
+<h1>Key made: {{.Data.Name}}</h1>
+<p class="warn" role="note"><strong>Copy it now.</strong> The hub does not keep the key itself, so it cannot show it again. If you lose it, revoke it and make a new one.</p>
+<div class="field">
+<label for="key">API key</label>
+<input id="key" type="text" value="{{.Data.Key}}" readonly data-select autocomplete="off" spellcheck="false">
+<button type="button" class="btn ghost" data-copy="key" hidden>Copy key</button>
+</div>
+<p>Your software sends it with every request as <code>Authorization: Bearer</code> followed by the key. Keep it secret, like a password.</p>
+<p><a class="btn" href="/admin/keys">Back to API keys</a></p>
+{{end}}

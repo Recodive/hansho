@@ -201,6 +201,19 @@ describe("forward compatibility", () => {
     if (ev.type === "message.acked") assert.deepEqual(ev.data, { messageId: "m", externalUserId: "u", deviceId: "d" });
   });
 
+  it("maps acked_by and acked_by_name on message.acked, only when present", () => {
+    const mk = (data: string) => {
+      const body = `{"id":"9","event":"message.acked","created_at":5,"data":${data}}`;
+      return verifyWebhook({ secret: "s", header: sign("s", t, body), body });
+    };
+    const named = mk('{"message_id":"m","device_id":"d","external_user_id":"u","acked_by":"bob","acked_by_name":"Bob ボブ"}');
+    if (named.type === "message.acked") assert.deepEqual(named.data, { messageId: "m", externalUserId: "u", deviceId: "d", ackedBy: "bob", ackedByName: "Bob ボブ" });
+    else assert.fail("wrong type");
+    const bare = mk('{"message_id":"m","device_id":"d","external_user_id":"u","acked_by":"bob"}');
+    if (bare.type === "message.acked") assert.deepEqual(bare.data, { messageId: "m", externalUserId: "u", deviceId: "d", ackedBy: "bob" });
+    else assert.fail("wrong type");
+  });
+
   it("maps every known event to camelCase payloads", () => {
     const want: Record<string, unknown> = {
       "pairing.created": { pairingId: "pair_1", externalUserId: "user-42", deviceName: "Bas’s iPhone <Ünï>" },

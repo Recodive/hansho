@@ -8,7 +8,7 @@ fully type-hinted (ships `py.typed`).
 pip install hansho
 ```
 
-See [../README.md](../README.md) for the model shared with the Go and Node SDKs.
+See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) for the model shared with the Go and Node SDKs.
 
 ## Quick start
 
@@ -36,8 +36,10 @@ between threads. The API key never appears in `repr(client)`, errors or exceptio
 `"page"` (the `Level` literal type, so a type checker flags `"pager"`). Requests and
 results are dataclasses whose field names match the hub's JSON, except
 `PageOptions.interval_seconds` (`interval_s` on the wire). Fields left as `None` are
-not sent, and fields the SDK does not know about in a response are ignored.
-Timestamps are timezone-aware `datetime` objects (UTC).
+not sent, and fields the SDK does not know about in a response are ignored; so is an
+enum value it does not know (it stays the raw string). An optional list is `[]` when
+absent and is not sent when empty. Timestamps are timezone-aware `datetime` objects (UTC).
+The types are generated from `sdk/spec/openapi.json` (`hansho/_types_gen.py`, not edited by hand).
 
 ## Pairing
 
@@ -51,6 +53,16 @@ hansho.unpair("user-42")  # revokes every pairing of the user
 hansho.kick("user-42")    # the same call; the app tells the person that you ended it
 ```
 
+## Users
+
+```python
+# What other people see for the user instead of their id (any language, max 40 characters).
+hansho.set_user_display_name("user-42", "Ada Lovelace")
+hansho.set_user_display_name("user-42", "")  # clears it
+# Or give it with the pairing ticket:
+hansho.create_pairing_ticket("user-42", display_name="Ada Lovelace")
+```
+
 ## Audiences and groups
 
 A channel or feed is open to everyone unless it has an `Audience`: `"only"` the listed users and groups, or
@@ -62,7 +74,7 @@ applies at once.
 ```python
 from hansho import RECIPIENT_NO_ACCESS, Audience, Channel, Feed, Message
 
-hansho.put_group("oncall", ["alice", "bob"])  # replaces the whole member list; get_group, delete_group
+hansho.put_group("oncall", ["alice", "bob"])  # replaces the whole member list; get_group, list_groups, delete_group
 hansho.put_channel("pager", Channel(
     name="Pager", default_level="page", max_level="page",
     audience=Audience("only", groups=["oncall"]),
@@ -83,12 +95,31 @@ for r in res.recipients:
 
 `Message` takes exactly one of `external_user_id`, `external_user_ids` (at most 1000) and `to_audience`. The
 answer has one `Recipient` per user in `res.recipients` (`message_id` is `None` for `"no_access"`). For
-`external_user_id` the top-level fields describe that one recipient (`message_id == ""`, `status == "no_access"`
-and `devices == 0` without access); for several users or an audience `message_id`, `devices` and `deliveries` are
-empty and each message is under `recipients`.
+`external_user_id` the top-level fields describe that one recipient (`message_id is None`, `status == "no_access"`
+and `devices == 0` without access); for several users or an audience `message_id` and `status` are `None`,
+`devices` is 0 and `deliveries` is empty; each message is under `recipients`.
 
 Error codes: `CODE_NO_ACCESS` (403, `start_activity` for a user outside the channel's audience) and
 `CODE_UNKNOWN_GROUP` (404), compared against `HanshoError.code`.
+
+## Channels, templates and sounds
+
+```python
+hansho.list_channels()                 # every channel; each has its `id`, set by the hub
+hansho.get_channel("ops")
+hansho.delete_channel("ops")
+
+hansho.list_templates()                # every template at its latest version
+tpl = hansho.get_template("status")    # tpl.id, tpl.version, tpl.body
+hansho.delete_template("status")       # refused with code "in_use" while a channel names it
+
+hansho.list_sounds()                   # metadata: id, content_type, bytes, sha256
+hansho.get_sound("ding")
+hansho.delete_sound("ding")            # refused with code "in_use" while a channel names it
+```
+
+A channel's `actions` (and a message's) may hold a button that opens a link: `Action(id="runbook", title="Runbook",
+kind="url", url="https://example.com/runbook")`.
 
 ## Sending
 
@@ -111,6 +142,12 @@ page = hansho.send_message(Message(
     page=PageOptions(interval_seconds=60, max_retries=10),
 ))
 status = hansho.get_message(page.message_id)  # queued, delivered, undeliverable, paging, acked, expired
+# status.acked_by is who acknowledged (external user id), status.acked_by_name their display name if they have one.
+
+# A page to several people stops for everyone at the first acknowledgement (ack="any", the default).
+# ack="each" keeps paging each person until they acknowledge for themselves.
+Message(external_user_ids=["alice", "bob"], channel="ops", level="page", title="DB down", body="...",
+        page=PageOptions(ack="each"))
 
 # A templated message; data is sent exactly as given (its keys are never renamed).
 hansho.put_template("status", 1, {"type": "vstack", "children": [{"type": "text", "style": "headline", "text": "{{title}}"}]})
@@ -161,7 +198,7 @@ class Hook(BaseHTTPRequestHandler):
             self.send_response(400)  # non-2xx: the hub retries
         else:
             if event.type == "message.acked":
-                print("acknowledged:", event.data.message_id)
+                print("acknowledged:", event.data.message_id, event.data.acked_by, event.data.acked_by_name)
             elif event.type == "action":
                 print("button", event.data.action_id, "on", event.data.message_id)
             elif event.type == "unknown":
@@ -227,7 +264,7 @@ uv run --python 3.9 -m unittest     # unit tests: the shared spec and webhook ve
 ../scripts/run-integration.sh                        # end to end against the real hub
 ```
 
-The unit tests load `../spec/api.json` and `../spec/webhook-vectors.json` and need
+The unit tests load the `x-conformance` section of `../spec/openapi.json` and `../spec/webhook-vectors.json` and need
 no packages. `tests/test_integration.py` is skipped unless `HANSHO_HUB_URL` is set;
 `sdk/scripts/run-integration.sh` starts the hub and sets it.
 
@@ -235,4 +272,4 @@ no packages. `tests/test_integration.py` is skipped unless `HANSHO_HUB_URL` is s
 
 MIT, see [LICENSE](LICENSE) (the same licence as the other SDKs; the hub itself is AGPL-3.0).
 
-This package is not published yet; see [../README.md](../README.md).
+Not published on PyPI yet.

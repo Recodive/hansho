@@ -186,6 +186,38 @@ func (s *Store) GetGroup(id string) ([]string, error) {
 	return out, rows.Err()
 }
 
+// Group is a named list of external user ids.
+type Group struct {
+	ID      string
+	Members []string
+}
+
+// ListGroups returns all groups ordered by id, members sorted.
+func (s *Store) ListGroups() ([]Group, error) {
+	rows, err := s.query(`SELECT g.id, m.external_user_id FROM groups g
+		LEFT JOIN group_members m ON m.group_id = g.id ORDER BY g.id, m.external_user_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Group
+	for rows.Next() {
+		var id string
+		var member sql.NullString
+		if err := rows.Scan(&id, &member); err != nil {
+			return nil, err
+		}
+		if len(out) == 0 || out[len(out)-1].ID != id {
+			out = append(out, Group{ID: id, Members: []string{}})
+		}
+		if member.Valid {
+			g := &out[len(out)-1]
+			g.Members = append(g.Members, member.String)
+		}
+	}
+	return out, rows.Err()
+}
+
 // DeleteGroup removes a group and its members; false if it does not exist. An audience that still names it
 // simply matches nobody through it.
 func (s *Store) DeleteGroup(id string) (bool, error) {

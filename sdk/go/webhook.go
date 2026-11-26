@@ -20,21 +20,6 @@ const WebhookSignatureHeader = HeaderPrefix + "Webhook-Signature"
 // DefaultTolerance is how far a webhook timestamp may be from now.
 const DefaultTolerance = 300 * time.Second
 
-// The events the hub sends. An event this SDK does not know has Type
-// EventUnknown; its wire name is in Event.Name.
-const (
-	EventPairingCreated       = "pairing.created"
-	EventPairingRevoked       = "pairing.revoked"
-	EventMessageDelivered     = "message.delivered"
-	EventMessageUndeliverable = "message.undeliverable"
-	EventMessageAcked         = "message.acked"
-	EventMessageDismissed     = "message.dismissed"
-	EventMessageExpired       = "message.expired"
-	EventAction               = "action"
-	EventActivityEnded        = "activity.ended"
-	EventUnknown              = "unknown"
-)
-
 // Verification errors; test with errors.Is.
 var (
 	// ErrBadSignature: no v1 signature matches the body and secret.
@@ -165,132 +150,23 @@ func decodeEvent(body []byte) (Event, error) {
 		return Event{}, ErrMalformedBody
 	}
 	ev := Event{ID: string(env.ID), Type: env.Event, Name: env.Event, CreatedAt: time.Unix(env.CreatedAt, 0), Payload: env.Data, Raw: body}
-	switch env.Event {
-	case EventPairingCreated, EventPairingRevoked, EventMessageDelivered, EventMessageUndeliverable,
-		EventMessageAcked, EventMessageDismissed, EventMessageExpired, EventAction, EventActivityEnded:
-	default:
+	if !isEvent(env.Event) {
 		ev.Type = EventUnknown
 	}
 	return ev, nil
 }
 
-// Typed payloads. Fields the hub adds later are ignored.
-
-type PairingCreated struct {
-	PairingID      string `json:"pairing_id"`
-	ExternalUserID string `json:"external_user_id"`
-	DeviceName     string `json:"device_name"`
-}
-
-type PairingRevoked struct {
-	PairingID      string `json:"pairing_id"`
-	ExternalUserID string `json:"external_user_id"`
-	// By is who revoked: "sender", "device" or "relay".
-	By string `json:"by"`
-}
-
-type MessageDelivered struct {
-	MessageID      string `json:"message_id"`
-	ExternalUserID string `json:"external_user_id"`
-	Channel        string `json:"channel"`
-	Level          Level  `json:"level"`
-	Devices        int    `json:"devices"`
-}
-
-type MessageUndeliverable struct {
-	MessageID      string `json:"message_id"`
-	ExternalUserID string `json:"external_user_id"`
-	Channel        string `json:"channel"`
-	// Reason is "no_devices" or "all_deliveries_failed".
-	Reason string `json:"reason"`
-}
-
-type MessageAcked struct {
-	MessageID      string `json:"message_id"`
-	ExternalUserID string `json:"external_user_id"`
-	DeviceID       string `json:"device_id"`
-}
-
-// MessageDismissed: the person swiped away a message that asked to be acknowledged, without acknowledging it.
-type MessageDismissed struct {
-	MessageID      string `json:"message_id"`
-	ExternalUserID string `json:"external_user_id"`
-	DeviceID       string `json:"device_id"`
-}
-
-type MessageExpired struct {
-	MessageID      string `json:"message_id"`
-	ExternalUserID string `json:"external_user_id"`
-	Channel        string `json:"channel"`
-	Attempts       int    `json:"attempts"`
-}
-
-// ActionTaken is the payload of an "action" event (a button press).
-type ActionTaken struct {
-	MessageID      string `json:"message_id"`
-	ActionID       string `json:"action_id"`
-	DeviceID       string `json:"device_id"`
-	ExternalUserID string `json:"external_user_id"`
-	// Text is the reply text of a text action, if any.
-	Text string `json:"text,omitempty"`
-}
-
-type ActivityEnded struct {
-	ActivityID     string `json:"activity_id"`
-	ExternalUserID string `json:"external_user_id"`
-	Channel        string `json:"channel"`
-	Reason         string `json:"reason"`
-}
-
 // Data decodes the payload into the typed struct for e.Type (PairingCreated,
 // MessageAcked, ...). For EventUnknown it returns the payload as json.RawMessage.
 func (e Event) Data() (any, error) {
-	var v any
-	switch e.Type {
-	case EventPairingCreated:
-		v = new(PairingCreated)
-	case EventPairingRevoked:
-		v = new(PairingRevoked)
-	case EventMessageDelivered:
-		v = new(MessageDelivered)
-	case EventMessageUndeliverable:
-		v = new(MessageUndeliverable)
-	case EventMessageAcked:
-		v = new(MessageAcked)
-	case EventMessageDismissed:
-		v = new(MessageDismissed)
-	case EventMessageExpired:
-		v = new(MessageExpired)
-	case EventAction:
-		v = new(ActionTaken)
-	case EventActivityEnded:
-		v = new(ActivityEnded)
-	default:
+	v, ok, err := decodePayload(e.Type, e.Payload)
+	if !ok {
 		return e.Payload, nil
 	}
-	if err := json.Unmarshal(e.Payload, v); err != nil {
+	if err != nil {
 		return nil, err
 	}
-	switch p := v.(type) {
-	case *PairingCreated:
-		return *p, nil
-	case *PairingRevoked:
-		return *p, nil
-	case *MessageDelivered:
-		return *p, nil
-	case *MessageUndeliverable:
-		return *p, nil
-	case *MessageAcked:
-		return *p, nil
-	case *MessageDismissed:
-		return *p, nil
-	case *MessageExpired:
-		return *p, nil
-	case *ActionTaken:
-		return *p, nil
-	default:
-		return *(v.(*ActivityEnded)), nil
-	}
+	return v, nil
 }
 
 const maxWebhookBody = 1 << 20

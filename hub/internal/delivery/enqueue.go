@@ -31,6 +31,8 @@ type EnqueueInput struct {
 	Sound          string // sound filename, "" = default
 	PageIntervalS  int    // level page only; 0 = default
 	PageMaxRetries *int   // level page only; nil = default
+	SendID         string // shared by the messages of one send
+	PageAck        string // level page only: store.PageAckAny or PageAckEach; "" = each
 }
 
 // EnqueueResult is the stored message and its initial deliveries.
@@ -99,6 +101,12 @@ func Enqueue(ctx context.Context, st *store.Store, wh *webhook.Dispatcher, cfg c
 		}
 		if in.PageMaxRetries != nil {
 			m.PageMaxRetries = *in.PageMaxRetries
+		}
+		m.SendID = in.SendID
+		if in.PageAck == store.PageAckAny {
+			m.PageAck = store.PageAckAny
+		} else {
+			m.PageAck = store.PageAckEach
 		}
 		if m.CollapseID == "" {
 			// Resends replace the earlier banner instead of stacking up.

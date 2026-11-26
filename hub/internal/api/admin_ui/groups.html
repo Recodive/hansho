@@ -1,0 +1,24 @@
+{{define "content"}}
+<h1>Groups</h1>
+<p class="lead">A group is a named list of people, such as "on-call". Use it to let a channel include or leave out a whole team at once.</p>
+{{template "iac" .}}
+{{if .Data}}
+<ul class="people">
+{{range .Data}}
+<li class="person">
+<div class="head">
+<h2>{{.ID}}</h2>
+<div class="row">
+<a class="btn ghost" href="/admin/groups/{{.ID}}/edit" aria-label="Edit {{.ID}}">Edit</a>
+<a class="btn danger" href="/admin/groups/{{.ID}}/delete" aria-label="Delete {{.ID}}">Delete</a>
+</div>
+</div>
+<p class="meta">{{.Summary}}{{if .Members}}: {{range $i, $m := .Members}}{{if $i}}, {{end}}{{$m}}{{end}}{{end}}</p>
+</li>
+{{end}}
+</ul>
+{{else}}
+<p class="empty">There are no groups yet.</p>
+{{end}}
+<p><a class="btn" href="/admin/groups/new">Make a group</a></p>
+{{end}}

@@ -15,19 +15,8 @@ module Hansho
     # Default allowed distance between the signed timestamp and now, in seconds.
     DEFAULT_TOLERANCE = 300
 
-    PairingCreated = Struct.new(:pairing_id, :external_user_id, :device_name, keyword_init: true)
-    # +by+ is who revoked: "sender", "device" or "relay".
-    PairingRevoked = Struct.new(:pairing_id, :external_user_id, :by, keyword_init: true)
-    MessageDelivered = Struct.new(:message_id, :external_user_id, :channel, :level, :devices, keyword_init: true)
-    # +reason+ is "no_devices" or "all_deliveries_failed".
-    MessageUndeliverable = Struct.new(:message_id, :external_user_id, :channel, :reason, keyword_init: true)
-    MessageAcked = Struct.new(:message_id, :external_user_id, :device_id, keyword_init: true)
-    # The person swiped away a message that asked to be acknowledged, without acknowledging it.
-    MessageDismissed = Struct.new(:message_id, :external_user_id, :device_id, keyword_init: true)
-    MessageExpired = Struct.new(:message_id, :external_user_id, :channel, :attempts, keyword_init: true)
-    # A button press. +text+ is the reply of a text action, else nil.
-    ActionTaken = Struct.new(:message_id, :action_id, :device_id, :external_user_id, :text, keyword_init: true)
-    ActivityEnded = Struct.new(:activity_id, :external_user_id, :channel, :reason, keyword_init: true)
+    # The payload types are generated (Hansho::PairingCreated, Hansho::MessageAcked, ...); these names are kept.
+    EVENTS.each_value { |type| const_set(type.name.split("::").last, type) }
 
     # A verified webhook. +type+ is the event name ("message.acked", ...) or "unknown"
     # for an event this SDK does not know; then +name+ is the name as sent and +data+
@@ -37,19 +26,6 @@ module Hansho
         type == "unknown"
       end
     end
-
-    SCHEMAS = {
-      "pairing.created" => [PairingCreated, { pairing_id: :s, external_user_id: :s, device_name: :s }],
-      "pairing.revoked" => [PairingRevoked, { pairing_id: :s, external_user_id: :s, by: :s }],
-      "message.delivered" => [MessageDelivered, { message_id: :s, external_user_id: :s, channel: :s, level: :s, devices: :n }],
-      "message.undeliverable" => [MessageUndeliverable, { message_id: :s, external_user_id: :s, channel: :s, reason: :s }],
-      "message.acked" => [MessageAcked, { message_id: :s, external_user_id: :s, device_id: :s }],
-      "message.dismissed" => [MessageDismissed, { message_id: :s, external_user_id: :s, device_id: :s }],
-      "message.expired" => [MessageExpired, { message_id: :s, external_user_id: :s, channel: :s, attempts: :n }],
-      "action" => [ActionTaken, { message_id: :s, action_id: :s, device_id: :s, external_user_id: :s, text: :opt }],
-      "activity.ended" => [ActivityEnded, { activity_id: :s, external_user_id: :s, channel: :s, reason: :s }]
-    }.freeze
-    private_constant :SCHEMAS
 
     HEX_SIGNATURE = /\A[0-9a-fA-F]{64}\z/
     private_constant :HEX_SIGNATURE
@@ -138,20 +114,10 @@ module Hansho
       created_at = Time.at(num(env["created_at"]))
       id = str(env["id"])
       payload = env["data"].is_a?(Hash) ? env["data"] : {}
-      schema = SCHEMAS[name]
-      return Event.new(type: "unknown", id: id, created_at: created_at, data: env["data"], raw: raw, name: name) unless schema
+      klass = EVENTS[name]
+      return Event.new(type: "unknown", id: id, created_at: created_at, data: env["data"], raw: raw, name: name) unless klass
 
-      klass, fields = schema
-      data = klass.new(**fields.to_h { |field, cast| [field, cast_value(payload[field.to_s], cast)] })
-      Event.new(type: name, id: id, created_at: created_at, data: data, raw: raw)
-    end
-
-    def cast_value(value, cast)
-      case cast
-      when :n then num(value)
-      when :opt then value.is_a?(String) ? value : nil
-      else str(value)
-      end
+      Event.new(type: name, id: id, created_at: created_at, data: klass.from_wire(payload), raw: raw)
     end
 
     def str(value)
@@ -166,6 +132,6 @@ module Hansho
       else 0
       end
     end
-    private_class_method :parse_header, :build_event, :cast_value, :str, :num
+    private_class_method :parse_header, :build_event, :str, :num
   end
 end

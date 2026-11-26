@@ -192,13 +192,62 @@ class ClientTest < Minitest::Test
     end
   end
 
+  def test_display_name_put_path_escaping_and_empty_id
+    with_hub(->(_r) { reply(204, "") }) do |h|
+      assert_nil h.client.set_user_display_name("a/b c", "Ada")
+      h.client.set_user_display_name("u", "")
+      r = h.requests
+      assert_equal "PUT", r[0].method
+      assert_equal "/api/v1/users/a%2Fb%20c", r[0].target
+      assert_equal({ "display_name" => "Ada" }, body_of(r[0]))
+      assert_equal({ "display_name" => "" }, body_of(r[1]))
+      assert_raises(ArgumentError) { h.client.set_user_display_name("", "x") }
+      assert_equal 2, h.requests.length
+    end
+  end
+
+  def test_pairing_ticket_body_with_and_without_display_name
+    with_hub(->(_r) { reply(201, '{"ticket":"t","qr":"q","expires_at":"2026-11-08T12:10:00Z"}') }) do |h|
+      h.client.create_pairing_ticket("u")
+      h.client.create_pairing_ticket("u", display_name: "")
+      h.client.create_pairing_ticket("u", display_name: "Ada")
+      assert_equal({ "external_user_id" => "u" }, body_of(h.requests[0]))
+      assert_equal({ "external_user_id" => "u", "display_name" => "" }, body_of(h.requests[1]))
+      assert_equal "Ada", body_of(h.requests[2])["display_name"]
+    end
+  end
+
+  def test_page_ack_option_is_sent_only_when_set
+    with_hub do |h|
+      h.client.send_message(**MSG, level: :page, page: { interval_seconds: 60 })
+      h.client.send_message(**MSG, level: :page, page: { ack: :each })
+      h.client.send_message(**MSG, level: :page, page: { ack: "any" })
+      assert_equal({ "interval_s" => 60 }, body_of(h.requests[0])["page"])
+      assert_equal({ "ack" => "each" }, body_of(h.requests[1])["page"])
+      assert_equal({ "ack" => "any" }, body_of(h.requests[2])["page"])
+    end
+  end
+
+  def test_message_status_acked_by_present_and_absent
+    with_hub(->(_r) { reply(200, '{"message_id":"m","status":"acked","acked_by":"bob","acked_by_name":"Bob ボブ"}') }) do |h|
+      ms = h.client.get_message("m")
+      assert_equal "bob", ms.acked_by
+      assert_equal "Bob ボブ", ms.acked_by_name
+    end
+    with_hub(->(_r) { reply(200, '{"message_id":"m","status":"acked"}') }) do |h|
+      ms = h.client.get_message("m")
+      assert_nil ms.acked_by
+      assert_nil ms.acked_by_name
+    end
+  end
+
   def test_missing_optional_response_fields_are_nil_or_empty
     with_hub(->(_r) { reply(200, '{"message_id":"m","status":"queued"}') }) do |h|
       ms = h.client.get_message("m")
       assert_nil ms.acked_at
       assert_equal [], ms.deliveries
       ch = h.client.get_channel("c")
-      assert_nil ch.actions
+      assert_equal [], ch.actions
       assert_nil ch.sound
     end
   end
@@ -515,10 +564,28 @@ class ClientTest < Minitest::Test
     end
   end
 
-  def test_unknown_levels_are_left_to_the_hub
+  def test_an_unknown_enum_value_or_field_in_an_answer_is_kept_or_ignored
+    body = '{"name":"C","default_level":"loud","max_level":"page","audience":{"mode":"someday"},"actions":[{"id":"a","title":"A","new":1}],"new":true}'
+    with_hub(->(_r) { reply(200, body) }) do |h|
+      ch = h.client.get_channel("c")
+      assert_equal %w[loud page someday], [ch.default_level, ch.max_level, ch.audience.mode]
+      assert_equal "a", ch.actions.first.id
+    end
+  end
+
+  def test_levels_and_audience_modes_are_strict_for_what_you_send
     with_hub do |h|
-      h.client.send_message(**MSG, level: "pager")
-      assert_equal "pager", body_of(h.requests[0])["level"]
+      h.client.send_message(**MSG, level: :time_sensitive)
+      assert_equal "time-sensitive", body_of(h.requests[0])["level"]
+      assert_raises(ArgumentError) { h.client.put_channel("c", name: "C", default_level: "active", max_level: "loud") }
+      assert_raises(ArgumentError) { h.client.put_channel("c", name: "C", default_level: "active", max_level: "page", audience: { mode: :some }) }
+    end
+  end
+
+  def test_unknown_levels_are_refused_before_sending
+    with_hub do |h|
+      assert_raises(ArgumentError) { h.client.send_message(**MSG, level: "pager") }
+      assert_empty h.requests
     end
   end
 end

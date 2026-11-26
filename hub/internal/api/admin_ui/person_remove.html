@@ -1,0 +1,11 @@
+{{define "content"}}
+<h1>Remove {{.Data.Name}}?</h1>
+<p class="lead">{{.Data.Name}} stops receiving messages from {{.Hub}} on {{len .Data.Devices}} device{{if ne (len .Data.Devices) 1}}s{{end}}, and the app tells them so. To get back in, they need a new pair code.</p>
+<ul class="plain">{{range .Data.Devices}}<li>{{.Name}} ({{.Platform}})</li>{{end}}</ul>
+<form method="post" action="/admin/people/remove" class="row">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="person" value="{{.Data.Name}}">
+<button class="btn danger">Yes, remove {{.Data.Name}}</button>
+<a class="btn ghost" href="/admin/people">Cancel</a>
+</form>
+{{end}}

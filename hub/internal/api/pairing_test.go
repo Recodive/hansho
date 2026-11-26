@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"encoding/base64"
+	"encoding/json"
 	"maps"
 	"math/big"
 	"net/url"
@@ -639,5 +640,60 @@ func TestAuthFailureNamesTheCauseOnlyToTheKeyHolder(t *testing.T) {
 	ghost.ID = "dev_doesnotexist"
 	if w := ghost.request("GET", "/device/v1/sync", nil); w.Code != 401 || code(w) != "unauthorized" {
 		t.Fatalf("unknown device: %d %s, want generic unauthorized", w.Code, w.Body)
+	}
+}
+
+func TestTicketStatus(t *testing.T) {
+	e := newEnv(t)
+	status := func(tk string) (int, map[string]string) {
+		w := e.do("GET", "/device/v1/pairing-tickets/"+tk, nil, nil)
+		var m map[string]string
+		_ = json.Unmarshal(w.Body.Bytes(), &m)
+		return w.Code, m
+	}
+	issue := func(user string) string {
+		return decode[struct{ Ticket string }](t, e.api("POST", "/api/v1/pairing-tickets", map[string]string{"external_user_id": user})).Ticket
+	}
+
+	tk := issue("alice")
+	for i := 0; i < 3; i++ { // asking never consumes or extends it
+		code, m := status(tk)
+		if code != 200 || m["state"] != "valid" || m["expires_at"] != t0.Add(10*time.Minute).UTC().Format(time.RFC3339) {
+			t.Fatalf("valid: %d %v", code, m)
+		}
+	}
+	if w := e.do("GET", "/device/v1/pairing-tickets/"+tk, nil, nil); w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("cache-control %q", w.Header().Get("Cache-Control"))
+	}
+	if w := e.do("POST", "/device/v1/pairings", e.newDevice("a").redeemBody(tk), nil); w.Code != 201 {
+		t.Fatalf("redeem after status: %d %s", w.Code, w.Body)
+	}
+	if code, m := status(tk); code != 200 || m["state"] != "used" || len(m) != 1 {
+		t.Fatalf("used: %d %v", code, m)
+	}
+
+	old := issue("bob")
+	e.clk.Advance(10*time.Minute + time.Second)
+	if code, m := status(old); code != 200 || m["state"] != "expired" || m["expires_at"] != t0.Add(10*time.Minute).UTC().Format(time.RFC3339) {
+		t.Fatalf("expired: %d %v", code, m)
+	}
+	if w := e.do("POST", "/device/v1/pairings", e.newDevice("b").redeemBody(old), nil); w.Code != 410 {
+		t.Fatalf("redeem of an expired ticket: %d", w.Code)
+	}
+
+	if code, m := status("bogus"); code != 404 || m["error"] != "unknown_ticket" {
+		t.Fatalf("unknown: %d %v", code, m)
+	}
+}
+
+func TestTicketStatusAfterUnpairUser(t *testing.T) {
+	e := newEnv(t)
+	tk := decode[struct{ Ticket string }](t, e.api("POST", "/api/v1/pairing-tickets", map[string]string{"external_user_id": "carol"})).Ticket
+	if w := e.api("DELETE", "/api/v1/users/carol/pairings", nil); w.Code != 200 {
+		t.Fatalf("unpair user: %d %s", w.Code, w.Body)
+	}
+	w := e.do("GET", "/device/v1/pairing-tickets/"+tk, nil, nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"state":"expired"`) {
+		t.Fatalf("%d %s", w.Code, w.Body)
 	}
 }
