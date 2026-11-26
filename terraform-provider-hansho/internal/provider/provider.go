@@ -3,7 +3,12 @@ package provider
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -12,7 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"github.com/recodive/hansho/terraform-provider-hansho/internal/client"
+	hansho "github.com/recodive/hansho/sdk/go"
 )
 
 type hanshoProvider struct{}
@@ -71,12 +76,55 @@ func (p *hanshoProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	c, err := client.New(endpoint, key)
+	base, err := checkEndpoint(endpoint, key)
 	if err != nil {
 		resp.Diagnostics.AddAttributeError(path.Root("endpoint"), "Invalid provider configuration", err.Error())
 		return
 	}
-	resp.ResourceData = c
+	resp.ResourceData = hansho.New(base, key) // the SDK's default HTTP client has a 30 second timeout and follows no redirects
+}
+
+// checkEndpoint validates the hub URL and the key and returns the URL without a trailing slash. The endpoint must be
+// https; plain http is accepted only for a loopback host, so the API key cannot be sent in the clear by mistake.
+func checkEndpoint(endpoint, apiKey string) (string, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Hostname() == "" || u.RawQuery != "" || u.Fragment != "" {
+		return "", errors.New("endpoint must be an https URL such as https://hub.example.com")
+	}
+	loopback := u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"
+	if u.Scheme != "https" && !(u.Scheme == "http" && loopback) {
+		return "", errors.New("endpoint must use https (http is only accepted for localhost)")
+	}
+	if apiKey == "" {
+		return "", errors.New("api_key must not be empty")
+	}
+	return strings.TrimRight(u.String(), "/"), nil
+}
+
+// isNotFound reports whether err is a 404 from the hub.
+func isNotFound(err error) bool {
+	ae, ok := hansho.IsAPIError(err)
+	return ok && ae.Status == http.StatusNotFound
+}
+
+// hubError is the text of err for a diagnostic. The SDK's APIError leaves out the hub's validation message, which is
+// what tells the user what to fix, so it is put back: "hub answered 400 invalid_request (name): required, ...".
+func hubError(err error) string {
+	ae, ok := hansho.IsAPIError(err)
+	if !ok {
+		return err.Error()
+	}
+	s := fmt.Sprintf("hub answered %d", ae.Status)
+	if ae.Code != "" {
+		s += " " + ae.Code
+	}
+	if ae.Field != "" {
+		s += " (" + ae.Field + ")"
+	}
+	if ae.Message != "" {
+		s += ": " + ae.Message
+	}
+	return s
 }
 
 func (p *hanshoProvider) Resources(context.Context) []func() resource.Resource {
@@ -86,11 +134,11 @@ func (p *hanshoProvider) Resources(context.Context) []func() resource.Resource {
 func (p *hanshoProvider) DataSources(context.Context) []func() datasource.DataSource { return nil }
 
 // base holds what every resource shares: the client, and the hub's id as the import id.
-type base struct{ c *client.Client }
+type base struct{ c *hansho.Client }
 
 func (b *base) Configure(_ context.Context, req resource.ConfigureRequest, _ *resource.ConfigureResponse) {
 	if req.ProviderData != nil { // nil while Terraform only validates the configuration
-		b.c = req.ProviderData.(*client.Client)
+		b.c = req.ProviderData.(*hansho.Client)
 	}
 }
 

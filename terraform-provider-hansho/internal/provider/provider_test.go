@@ -2,11 +2,13 @@ package provider
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -97,6 +99,51 @@ resource "hansho_channel" "ops" {
 			{ // the hub's validation message reaches the user
 				Config:      cfg(`  name = ""`),
 				ExpectError: regexp.MustCompile(`(?s)400 invalid_request \(name\).*required, at most 256 bytes`),
+			},
+		},
+	})
+}
+
+// ack = false has to survive the round trip: the SDK drops a false ack from the PUT, so the provider keeps the planned
+// false, and neither the apply nor the next plan may differ from the configuration.
+func TestChannelAckFalse(t *testing.T) {
+	hub, prov := setup(t)
+	cfg := func(actions string) string {
+		return prov + `
+resource "hansho_channel" "c" {
+  id            = "ack"
+  name          = "Ack"
+  default_level = "active"
+  max_level     = "page"
+  actions       = [` + actions + `]
+}
+`
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: factories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg(`{ id = "a", title = "A", ack = false }, { id = "b", title = "B" }, { id = "c", title = "C", ack = true }`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("hansho_channel.c", "actions.0.ack", "false"),
+					resource.TestCheckNoResourceAttr("hansho_channel.c", "actions.1.ack"),
+					resource.TestCheckResourceAttr("hansho_channel.c", "actions.2.ack", "true"),
+					func(*terraform.State) error { // the audience is sent even when the configuration leaves it out
+						var c struct {
+							Audience struct{ Mode string }
+						}
+						if err := json.Unmarshal(hub.channels["ack"], &c); err != nil || c.Audience.Mode != "everyone" {
+							return fmt.Errorf("stored channel %s: audience mode %q, %v", hub.channels["ack"], c.Audience.Mode, err)
+						}
+						return nil
+					}),
+			},
+			{ // a refresh reads the same, and drift of the ack to true on the hub is seen
+				PreConfig: func() {
+					hub.channels["ack"] = json.RawMessage(strings.Replace(string(hub.channels["ack"]), `"id":"a"`, `"id":"a","ack":true`, 1))
+				},
+				Config: cfg(`{ id = "a", title = "A", ack = false }, { id = "b", title = "B" }, { id = "c", title = "C", ack = true }`),
+				Check:  resource.TestCheckResourceAttr("hansho_channel.c", "actions.0.ack", "false"),
 			},
 		},
 	})
