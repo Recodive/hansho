@@ -50,8 +50,10 @@ type Action struct {
 	Title string `json:"title"`
 	// Pressing it acknowledges a page.
 	Ack bool `json:"ack,omitempty"`
-	// `text` asks for a reply.
+	// `text` asks for a reply; `url` opens `url`.
 	Kind string `json:"kind,omitempty"`
+	// For kind `url`: the https URL the button opens.
+	URL string `json:"url,omitempty"`
 }
 
 // ActionTaken is a button press.

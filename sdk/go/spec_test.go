@@ -293,7 +293,8 @@ var calls = map[string]struct {
 var specChannel = Channel{
 	Name: "Operations", DefaultLevel: LevelActive, MaxLevel: LevelCritical,
 	Sound: "ding", TemplateID: "status", Thread: "ops-thread",
-	Actions: []Action{{ID: "ack", Title: "Acknowledge", Ack: true}, {ID: "reply", Title: "Reply", Kind: "text"}},
+	Actions: []Action{{ID: "ack", Title: "Acknowledge", Ack: true}, {ID: "reply", Title: "Reply", Kind: "text"},
+		{ID: "runbook", Title: "Runbook", Kind: "url", URL: "https://example.com/runbook"}},
 }
 
 func TestSpecOperations(t *testing.T) {

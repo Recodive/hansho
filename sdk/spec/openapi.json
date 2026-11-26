@@ -1075,7 +1075,11 @@
           },
           "kind": {
             "type": "string",
-            "description": "`text` asks for a reply."
+            "description": "`text` asks for a reply; `url` opens `url`."
+          },
+          "url": {
+            "type": "string",
+            "description": "For kind `url`: the https URL the button opens."
           }
         }
       },
@@ -1965,6 +1969,12 @@
                 "id": "reply",
                 "title": "Reply",
                 "kind": "text"
+              },
+              {
+                "id": "runbook",
+                "title": "Runbook",
+                "kind": "url",
+                "url": "https://example.com/runbook"
               }
             ]
           }
@@ -1989,6 +1999,12 @@
                 "id": "reply",
                 "title": "Reply",
                 "kind": "text"
+              },
+              {
+                "id": "runbook",
+                "title": "Runbook",
+                "kind": "url",
+                "url": "https://example.com/runbook"
               }
             ]
           }
