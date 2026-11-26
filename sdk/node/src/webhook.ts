@@ -54,6 +54,10 @@ export interface MessageAcked {
   messageId: string;
   externalUserId: string;
   deviceId: string;
+  /** Who acknowledged: their external user id (differs from `externalUserId` when a page went to several people). */
+  ackedBy?: string;
+  /** The acknowledger's display name, only when they have one. */
+  ackedByName?: string;
 }
 /** The person swiped away a message that asked to be acknowledged, without acknowledging it. */
 export interface MessageDismissed {
@@ -148,7 +152,13 @@ function mapPayload(type: string, d: Wire): HanshoEvent["data"] | undefined {
     case "message.undeliverable":
       return { messageId: s(d.message_id), externalUserId: s(d.external_user_id), channel: s(d.channel), reason: s(d.reason) };
     case "message.acked":
-      return { messageId: s(d.message_id), externalUserId: s(d.external_user_id), deviceId: s(d.device_id) };
+      return undef({
+        messageId: s(d.message_id),
+        externalUserId: s(d.external_user_id),
+        deviceId: s(d.device_id),
+        ackedBy: typeof d.acked_by === "string" ? d.acked_by : undefined,
+        ackedByName: typeof d.acked_by_name === "string" ? d.acked_by_name : undefined,
+      });
     case "message.dismissed":
       return { messageId: s(d.message_id), externalUserId: s(d.external_user_id), deviceId: s(d.device_id) };
     case "message.expired":

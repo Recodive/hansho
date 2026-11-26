@@ -183,6 +183,16 @@ pub struct Channel {
     pub audience: Option<Audience>,
 }
 
+/// Who must acknowledge a page sent to several people.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PageAck {
+    /// The first acknowledgement stops the page for everyone (the hub default).
+    Any,
+    /// Every person keeps being paged until they acknowledge for themselves.
+    Each,
+}
+
 /// Resend schedule of a page.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub struct PageOptions {
@@ -192,6 +202,9 @@ pub struct PageOptions {
     /// Resends before the page expires (hub default 5).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_retries: Option<u32>,
+    /// Who must acknowledge a page sent to several people; the hub default is [`PageAck::Any`]. Sent only when set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ack: Option<PageAck>,
 }
 
 /// A notification, or a page when `level` is [`Level::Page`].
@@ -337,6 +350,10 @@ pub struct MessageStatus {
     /// When a page was acknowledged.
     #[serde(deserialize_with = "time_optional")]
     pub acked_at: Option<SystemTime>,
+    /// Who acknowledged a page: their external user id.
+    pub acked_by: Option<String>,
+    /// The display name of whoever acknowledged, only when they have one.
+    pub acked_by_name: Option<String>,
 }
 
 /// An alert shown when a Live Activity starts or updates.

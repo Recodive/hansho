@@ -227,7 +227,7 @@ def _group(w: Wire, id: str) -> Group:
 def _message_to_wire(m: Message) -> Wire:
     page = None
     if m.page is not None:
-        page = _drop_none({"interval_s": m.page.interval_seconds, "max_retries": m.page.max_retries})
+        page = _drop_none({"interval_s": m.page.interval_seconds, "max_retries": m.page.max_retries, "ack": m.page.ack})
     return _drop_none(
         {
             "external_user_id": m.external_user_id,
@@ -314,19 +314,28 @@ class Hansho:
 
     # --- pairing -------------------------------------------------------------
 
-    def create_pairing_ticket(self, external_user_id: str) -> PairingTicket:
+    def create_pairing_ticket(self, external_user_id: str, display_name: Optional[str] = None) -> PairingTicket:
         """Creates a single-use pairing ticket (valid 10 minutes).
 
-        Render ``qr`` as a QR code for the user to scan in the Hansho app.
+        Render ``qr`` as a QR code for the user to scan in the Hansho app. ``display_name`` (when not
+        ``None``) is what other people see for the user instead of their id; ``""`` is sent as given.
         """
         if external_user_id == "":
             raise ValueError("hansho: id must not be empty")
         return self._json(
             "POST",
             "/api/v1/pairing-tickets",
-            {"external_user_id": external_user_id},
+            _drop_none({"external_user_id": external_user_id, "display_name": display_name}),
             lambda w: PairingTicket(_s(w.get("ticket")), _s(w.get("qr")), _time(w.get("expires_at"))),
         )
+
+    def set_user_display_name(self, external_user_id: str, display_name: str) -> None:
+        """Sets what other people see for the user instead of their external user id.
+
+        Any language, trimmed, at most 40 characters, no control characters. ``""`` clears it. The user does
+        not need to be paired yet.
+        """
+        self._json_void("PUT", f"/api/v1/users/{_seg(external_user_id)}", {"display_name": display_name})
 
     def unpair(self, external_user_id: str) -> None:
         """Revokes every pairing of the user."""
@@ -417,6 +426,8 @@ class Hansho:
                 _i(w.get("attempts")),
                 _deliveries(w.get("deliveries")),
                 _time(w["acked_at"]) if isinstance(w.get("acked_at"), str) else None,
+                w["acked_by"] if isinstance(w.get("acked_by"), str) else None,
+                w["acked_by_name"] if isinstance(w.get("acked_by_name"), str) else None,
             ),
         )
 

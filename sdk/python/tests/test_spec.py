@@ -61,6 +61,12 @@ CALLS: Dict[str, Tuple[Callable[[Hansho], Any], Any]] = {
         lambda c: c.create_pairing_ticket("user-42"),
         PairingTicket("tk_abc", "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_abc&fp=ff00", utc(2026, 11, 8, 12, 10)),
     ),
+    "createPairingTicketWithName": (
+        lambda c: c.create_pairing_ticket("user-42", display_name="Zoë 日本語"),
+        PairingTicket("tk_def", "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_def&fp=ff00", utc(2026, 11, 8, 12, 10)),
+    ),
+    "setUserDisplayName": (lambda c: c.set_user_display_name("user-42", "Zoë 日本語"), None),
+    "clearUserDisplayName": (lambda c: c.set_user_display_name("user 42", ""), None),
     "unpair": (lambda c: c.unpair("user-42"), None),
     "putChannel": (lambda c: c.put_channel("ops", spec_channel()), None),
     "getChannel": (
@@ -107,6 +113,33 @@ CALLS: Dict[str, Tuple[Callable[[Hansho], Any], Any]] = {
         ),
         MessageResult("msg_2", "page", 1, "queued", [Delivery("dev_1", "queued")]),
     ),
+    "sendPageEach": (
+        lambda c: c.send_message(
+            Message(
+                external_user_ids=["alice", "bob"],
+                channel="ops",
+                level="page",
+                title="Primary DB down",
+                body="Failover did not complete",
+                page=PageOptions(interval_seconds=60, max_retries=3, ack="each"),
+            )
+        ),
+        MessageResult(
+            "",
+            "page",
+            0,
+            "",
+            [],
+            [
+                Recipient("alice", "queued", "msg_3", 1, [Delivery("dev_1", "queued")]),
+                Recipient("bob", "queued", "msg_4", 1, [Delivery("dev_2", "queued")]),
+            ],
+        ),
+    ),
+    "getMessageAckedNoName": (
+        lambda c: c.get_message("msg_3"),
+        MessageStatus("msg_3", "acked", "page", 1, [Delivery("dev_1", "sent")], utc(2026, 11, 8, 12, 5), "alice"),
+    ),
     "getMessage": (
         lambda c: c.get_message("msg_2"),
         MessageStatus(
@@ -116,6 +149,8 @@ CALLS: Dict[str, Tuple[Callable[[Hansho], Any], Any]] = {
             2,
             [Delivery("dev_1", "sent"), Delivery("dev_2", "failed", "unregistered")],
             utc(2026, 11, 8, 12, 5),
+            "user-42",
+            "Zoë 日本語",
         ),
     ),
     "startActivity": (

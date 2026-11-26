@@ -49,6 +49,17 @@ hansho.unpair("user-42"); // revokes every pairing of the user
 hansho.kick("user-42");   // the same call; the app tells the person that you ended it
 ```
 
+## Users
+
+A user can have a display name, which other people see instead of their external user id (any language, trimmed, at
+most 40 characters, no control characters). Set it with the ticket, or any time later; `""` clears it.
+
+```java
+PairingTicket ticket = hansho.createPairingTicket("user-42", "Ada Lovelace");
+hansho.setUserDisplayName("user-42", "Ada L."); // PUT /api/v1/users/user-42
+hansho.setUserDisplayName("user-42", "");       // back to the id
+```
+
 ## Audiences and groups
 
 A channel or feed is open to everyone unless it has an `Audience`: `Audience.only(users, groups)` the listed users and
@@ -101,6 +112,12 @@ hansho.sendMessage(Message.builder("user-42", "ops", "Deploy failed", "web-3 rol
 MessageResult page = hansho.sendMessage(Message.builder("user-42", "ops", "Primary DB down", "Failover did not complete")
     .level(Level.PAGE).page(PageOptions.of(60, 10)).build());
 MessageStatus status = hansho.getMessage(page.messageId()); // queued, delivered, undeliverable, paging, acked, expired
+// Once acked: status.ackedAt(), status.ackedBy() (external user id) and status.ackedByName() (null unless they have one).
+
+// A page to several people: by default the first acknowledgement stops it for everyone (Ack.ANY).
+// With Ack.EACH every recipient has to acknowledge for themselves.
+hansho.sendMessage(Message.forUsers(List.of("alice", "bob"), "ops", "Primary DB down", "Failover did not complete")
+    .level(Level.PAGE).page(PageOptions.of(60, 10).withAck(PageOptions.Ack.EACH)).build());
 
 // A templated message; data is sent exactly as given (its keys are never renamed).
 hansho.putTemplate("status", 1, Map.of("type", "vstack", "children",

@@ -93,6 +93,9 @@ type Channel struct {
 type PageOptions struct {
 	IntervalSeconds int `json:"interval_s,omitempty"`
 	MaxRetries      int `json:"max_retries,omitempty"`
+	// Ack is "any" (the hub's default: the first acknowledgement stops the page for everyone it was sent to) or
+	// "each" (every recipient must acknowledge for themselves). "" means the hub default.
+	Ack string `json:"ack,omitempty"`
 }
 
 // Message is a notification for one user, for several, or for a channel's audience.
@@ -168,6 +171,10 @@ type MessageStatus struct {
 	Attempts   int        `json:"attempts"`
 	Deliveries []Delivery `json:"deliveries"`
 	AckedAt    time.Time  `json:"acked_at"`
+	// AckedBy is who acknowledged a page (their external user id) and AckedByName their display name, empty unless
+	// they have one.
+	AckedBy     string `json:"acked_by,omitempty"`
+	AckedByName string `json:"acked_by_name,omitempty"`
 }
 
 // ActivityAlert is the optional banner shown with a Live Activity change.

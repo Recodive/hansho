@@ -25,6 +25,13 @@ class SpecTest < Minitest::Test
       Hansho::PairingTicket.new(ticket: "tk_abc", qr: "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_abc&fp=ff00",
                                 expires_at: Time.utc(2026, 11, 8, 12, 10, 0))
     ],
+    "createPairingTicketWithName" => [
+      ->(c) { c.create_pairing_ticket("user-42", display_name: "Zoë 日本語") },
+      Hansho::PairingTicket.new(ticket: "tk_def", qr: "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_def&fp=ff00",
+                                expires_at: Time.utc(2026, 11, 8, 12, 10, 0))
+    ],
+    "setUserDisplayName" => [->(c) { c.set_user_display_name("user-42", "Zoë 日本語") }, nil],
+    "clearUserDisplayName" => [->(c) { c.set_user_display_name("user 42", "") }, nil],
     "unpair" => [->(c) { c.unpair("user-42") }, nil],
     "putChannel" => [->(c) { c.put_channel("ops", **SPEC_CHANNEL) }, nil],
     "getChannel" => [
@@ -63,13 +70,34 @@ class SpecTest < Minitest::Test
       Hansho::MessageResult.new(message_id: "msg_2", level: "page", devices: 1, status: "queued",
                                 deliveries: [Hansho::Delivery.new(device_id: "dev_1", status: "queued")], recipients: [])
     ],
+    "sendPageEach" => [
+      lambda { |c|
+        c.send_message(external_user_ids: %w[alice bob], channel: "ops", level: :page, title: "Primary DB down",
+                       body: "Failover did not complete", page: { interval_seconds: 60, max_retries: 3, ack: "each" })
+      },
+      Hansho::MessageResult.new(
+        message_id: nil, level: "page", devices: nil, status: nil, deliveries: [],
+        recipients: [
+          Hansho::Recipient.new(external_user_id: "alice", message_id: "msg_3", status: "queued", devices: 1,
+                                deliveries: [Hansho::Delivery.new(device_id: "dev_1", status: "queued")]),
+          Hansho::Recipient.new(external_user_id: "bob", message_id: "msg_4", status: "queued", devices: 1,
+                                deliveries: [Hansho::Delivery.new(device_id: "dev_2", status: "queued")])
+        ]
+      )
+    ],
+    "getMessageAckedNoName" => [
+      ->(c) { c.get_message("msg_3") },
+      Hansho::MessageStatus.new(message_id: "msg_3", status: "acked", level: "page", attempts: 1,
+                                deliveries: [Hansho::Delivery.new(device_id: "dev_1", status: "sent")],
+                                acked_at: Time.utc(2026, 11, 8, 12, 5, 0), acked_by: "alice")
+    ],
     "getMessage" => [
       ->(c) { c.get_message("msg_2") },
       Hansho::MessageStatus.new(
         message_id: "msg_2", status: "acked", level: "page", attempts: 2,
         deliveries: [Hansho::Delivery.new(device_id: "dev_1", status: "sent"),
                      Hansho::Delivery.new(device_id: "dev_2", status: "failed", error: "unregistered")],
-        acked_at: Time.utc(2026, 11, 8, 12, 5, 0)
+        acked_at: Time.utc(2026, 11, 8, 12, 5, 0), acked_by: "user-42", acked_by_name: "Zoë 日本語"
       )
     ],
     "startActivity" => [

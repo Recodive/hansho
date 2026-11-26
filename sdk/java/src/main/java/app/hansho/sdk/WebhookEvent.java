@@ -50,8 +50,18 @@ public sealed interface WebhookEvent {
         }
     }
 
-    /** {@code message.acked}. */
-    record MessageAcked(String id, Instant createdAt, byte[] raw, String messageId, String externalUserId, String deviceId) implements WebhookEvent {
+    /**
+     * {@code message.acked}. {@code ackedBy} is who acknowledged (an external user id; differs from
+     * {@code externalUserId} when a page went to several people) and {@code ackedByName} their display name; each is
+     * {@code null} when the hub did not send it.
+     */
+    record MessageAcked(String id, Instant createdAt, byte[] raw, String messageId, String externalUserId, String deviceId,
+                        String ackedBy, String ackedByName) implements WebhookEvent {
+        /** Without the acknowledger: {@code ackedBy} and {@code ackedByName} are {@code null}. */
+        public MessageAcked(String id, Instant createdAt, byte[] raw, String messageId, String externalUserId, String deviceId) {
+            this(id, createdAt, raw, messageId, externalUserId, deviceId, null, null);
+        }
+
         @Override
         public String type() {
             return "message.acked";

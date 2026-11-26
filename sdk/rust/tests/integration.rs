@@ -240,7 +240,7 @@ fn runs_the_whole_flow_against_the_real_hub() {
     let page = c
         .send_message(&Message {
             level: Some(Level::Page),
-            page: Some(PageOptions { interval_seconds: Some(60), max_retries: Some(3) }),
+            page: Some(PageOptions { interval_seconds: Some(60), max_retries: Some(3), ..Default::default() }),
             ..Message::new(&user, &ch, "Primary DB down", "Failover failed")
         })
         .unwrap();

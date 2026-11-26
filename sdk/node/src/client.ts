@@ -20,6 +20,7 @@ import type {
   MessageResult,
   MessageStatus,
   PairingTicket,
+  PairingTicketOptions,
   Recipient,
   RequestOptions,
   SoundResult,
@@ -144,7 +145,7 @@ function messageToWire(m: Message): Wire {
     sound: m.sound,
     actions: actionsToWire(m.actions),
     collapse_id: m.collapseId,
-    page: m.page && defined({ interval_s: m.page.intervalSeconds, max_retries: m.page.maxRetries }),
+    page: m.page && defined({ interval_s: m.page.intervalSeconds, max_retries: m.page.maxRetries, ack: m.page.ack }),
   });
 }
 
@@ -181,10 +182,20 @@ export class Hansho {
    * Creates a single-use pairing ticket (valid 10 minutes). Render `qr` as a QR
    * code for the user to scan in the Hansho app.
    */
-  async createPairingTicket(externalUserId: string, opts?: RequestOptions): Promise<PairingTicket> {
+  async createPairingTicket(externalUserId: string, opts?: PairingTicketOptions): Promise<PairingTicket> {
     if (externalUserId === "") throw new RangeError("hansho: id must not be empty");
-    const w = await this.#json("POST", "/api/v1/pairing-tickets", { external_user_id: externalUserId }, opts);
+    const body = defined({ external_user_id: externalUserId, display_name: opts?.displayName });
+    const w = await this.#json("POST", "/api/v1/pairing-tickets", body, opts);
     return { ticket: w.ticket as string, qr: w.qr as string, expiresAt: new Date(w.expires_at as string) };
+  }
+
+  /**
+   * Sets what other people see for the user instead of their `externalUserId`: any language, trimmed, at most 40
+   * characters, no control characters. `""` clears it. The user does not need to be paired yet.
+   */
+  async setUserDisplayName(externalUserId: string, displayName: string, opts?: RequestOptions): Promise<void> {
+    if (externalUserId === "") throw new RangeError("hansho: id must not be empty");
+    await this.#json("PUT", `/api/v1/users/${seg(externalUserId)}`, { display_name: displayName }, opts);
   }
 
   /** Revokes every pairing of the user. */
@@ -288,6 +299,8 @@ export class Hansho {
       attempts: w.attempts as number,
       deliveries: deliveryFromWire(w.deliveries),
       ackedAt: typeof w.acked_at === "string" ? new Date(w.acked_at) : undefined,
+      ackedBy: typeof w.acked_by === "string" ? w.acked_by : undefined,
+      ackedByName: typeof w.acked_by_name === "string" ? w.acked_by_name : undefined,
     });
   }
 

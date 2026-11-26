@@ -50,6 +50,18 @@ let ticket = hansho.create_pairing_ticket("user-42")?;
 
 hansho.unpair("user-42")?; // revokes every pairing of the user
 hansho.kick("user-42")?; // the same call; the app tells the person that you ended it
+
+// Optionally give the user a display name with the ticket:
+hansho.create_pairing_ticket_with_name("user-42", "Ada Lovelace")?;
+```
+
+## Users
+
+```rust
+// What other people see for a user instead of their external id (acknowledged-by, ...): any language,
+// trimmed, at most 40 characters, no control characters. The user need not be paired yet.
+hansho.set_user_display_name("user-42", "Ada Lovelace")?;
+hansho.set_user_display_name("user-42", "")?; // clears it
 ```
 
 ## Audiences and groups
@@ -103,7 +115,7 @@ An audience that names a group that does not exist is refused with `400 invalid_
 ## Sending
 
 ```rust
-use hansho::{json, Action, Activity, ActivityUpdate, Feed, Level, Message, PageOptions};
+use hansho::{json, Action, Activity, ActivityUpdate, Feed, Level, Message, PageAck, PageOptions};
 
 // A notification. The level defaults to the channel's default and is capped at its max.
 hansho.send_message(&Message {
@@ -117,10 +129,21 @@ hansho.send_message(&Message {
 // device, then the hub sends message.acked. Defaults: 120 s, 5 resends.
 let page = hansho.send_message(&Message {
     level: Some(Level::Page),
-    page: Some(PageOptions { interval_seconds: Some(60), max_retries: Some(10) }),
+    page: Some(PageOptions { interval_seconds: Some(60), max_retries: Some(10), ..Default::default() }),
     ..Message::new("user-42", "ops", "Primary DB down", "Failover did not complete")
 })?;
 let status = hansho.get_message(&page.message_id)?; // queued, delivered, undeliverable, paging, acked, expired
+// status.acked_by: who acknowledged (their external user id); status.acked_by_name: their display name, if they
+// have one. The message.acked webhook (MessageAcked) carries both too.
+
+// A page to several people stops for everyone at the first acknowledgement (PageAck::Any, the default).
+// With PageAck::Each every person keeps being paged until they acknowledge for themselves.
+hansho.send_message(&Message {
+    level: Some(Level::Page),
+    external_user_ids: vec!["alice".into(), "bob".into()],
+    page: Some(PageOptions { ack: Some(PageAck::Each), ..Default::default() }),
+    ..Message::new("", "ops", "DB down", "...")
+})?;
 
 // A templated message; data is sent exactly as given (its keys are never renamed).
 hansho.put_template("status", 1, &json!({"type": "vstack", "children": [{"type": "text", "style": "headline", "text": "{{title}}"}]}))?;

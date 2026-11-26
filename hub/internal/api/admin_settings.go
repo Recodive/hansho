@@ -85,6 +85,7 @@ func (s *server) adminSettingsList() []adminSetting {
 		logo,
 		webhook,
 		{Name: "Webhook signing secret", Value: secret, Env: []string{"HUB_WEBHOOK_SECRET"}, Note: "Lets your software check that a webhook came from this hub."},
+		{Name: "People can edit their display name", Value: adminOnOff(c.AllowDisplayNameEdit), Env: []string{"HUB_ALLOW_DISPLAY_NAME_EDIT"}, Note: "When on, a person can change their own display name in the app. You can always set it here, on the People page, or through the API."},
 		{Name: "Encrypted Live Activities", Value: adminOnOff(c.LAEncrypt), Env: []string{"HUB_LA_ENCRYPT"}, Note: "When on, the content of a Live Activity is encrypted on its way to the phone."},
 		{Name: "Admin pages", Value: adminOnOff(c.Admin), Env: []string{"HUB_ADMIN", "HUB_ADMIN_PASSWORD"}, Note: "These pages. The password is never shown."},
 		{Name: "Pairing fingerprint", Value: strings.Join(groups(s.fp), " "), Env: []string{"HUB_KEY_PATH"}, Note: "Identifies this hub's key. People can compare it with the one the app shows. It comes from the key file, which stays as it is."},

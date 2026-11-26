@@ -498,6 +498,15 @@ func TestAdminPeople(t *testing.T) {
 	if strings.Contains(body, "Gone phone") || strings.Contains(body, "<b>phone") {
 		t.Error("revoked pairing listed or markup not escaped")
 	}
+	if w := b.post("/admin/people/name", "person", "alice", "display_name", "Álice M."); w.Code != http.StatusSeeOther {
+		t.Fatalf("save name: %d %s", w.Code, w.Body)
+	}
+	if !strings.Contains(b.get("/admin/people").Body.String(), "Álice M.") {
+		t.Error("display name not listed")
+	}
+	if w := b.post("/admin/people/name", "person", "alice", "display_name", strings.Repeat("x", 41)); w.Code != http.StatusBadRequest {
+		t.Errorf("too long: %d", w.Code)
+	}
 	if strings.Index(body, ">alice<") > strings.Index(body, ">bob<") {
 		t.Error("people are not in name order")
 	}

@@ -31,8 +31,10 @@ module Hansho
   MessageResult = Struct.new(:message_id, :level, :devices, :status, :deliveries, :recipients, keyword_init: true)
 
   # The answer to #get_message. #status is one of queued, delivered, undeliverable, paging, acked, expired.
-  # #acked_at is a Time or nil.
-  MessageStatus = Struct.new(:message_id, :status, :level, :attempts, :deliveries, :acked_at, keyword_init: true)
+  # #acked_at is a Time or nil. #acked_by is who acknowledged (their external user id) and #acked_by_name their display
+  # name; each is nil when absent (the name only when they have one).
+  MessageStatus = Struct.new(:message_id, :status, :level, :attempts, :deliveries, :acked_at, :acked_by, :acked_by_name,
+                             keyword_init: true)
 
   ActivityStarted = Struct.new(:activity_id, :devices, keyword_init: true)
   ActivityUpdated = Struct.new(:activity_id, :update, keyword_init: true)

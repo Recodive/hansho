@@ -51,6 +51,17 @@ await hansho.UnpairAsync("user-42"); // revokes every pairing of the user
 await hansho.KickAsync("user-42");   // the same call; the app tells the person that you ended it
 ```
 
+## Users
+
+A user can have a display name, which other people see instead of their external user id (any language, trimmed, at
+most 40 characters, no control characters). Set it with the ticket, or any time later; `""` clears it.
+
+```csharp
+var ticket = await hansho.CreatePairingTicketAsync("user-42", "Ada Lovelace");
+await hansho.SetUserDisplayNameAsync("user-42", "Ada L."); // PUT /api/v1/users/user-42
+await hansho.SetUserDisplayNameAsync("user-42", "");       // back to the id
+```
+
 ## Audiences and groups
 
 A channel or feed is open to everyone unless it has an `Audience`: `AudienceMode.Only` the listed users and groups, or
@@ -110,6 +121,17 @@ var page = await hansho.SendMessageAsync(new Message
     Page = new PageOptions { IntervalSeconds = 60, MaxRetries = 10 },
 });
 var status = await hansho.GetMessageAsync(page.MessageId); // queued, delivered, undeliverable, paging, acked, expired
+// Once acked: status.AckedAt, status.AckedBy (external user id) and status.AckedByName (null unless they have one).
+// The message.acked webhook (MessageAcked) carries AckedBy and AckedByName too.
+
+// A page to several people: by default the first acknowledgement stops it for everyone (PageAck.Any).
+// With PageAck.Each every recipient has to acknowledge for themselves.
+await hansho.SendMessageAsync(new Message
+{
+    ExternalUserIds = new[] { "alice", "bob" }, Channel = "ops", Level = Level.Page,
+    Title = "Primary DB down", Body = "Failover did not complete",
+    Page = new PageOptions { Ack = PageAck.Each },
+});
 
 // A templated message. Data is sent exactly as given: a dictionary, an anonymous or plain object,
 // a JsonElement or a JsonNode. Keys are never renamed (no camelCase or snake_case policy).

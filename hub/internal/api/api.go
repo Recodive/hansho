@@ -97,6 +97,7 @@ func New(d Deps) http.Handler {
 
 	// Sender API.
 	mux.HandleFunc("POST /api/v1/pairing-tickets", s.withAPIKey(s.createTicket))
+	mux.HandleFunc("PUT /api/v1/users/{external_user_id}", s.withAPIKey(s.putUser))
 	mux.HandleFunc("DELETE /api/v1/users/{external_user_id}/pairings", s.withAPIKey(s.unpairUser))
 
 	mux.HandleFunc("GET /api/v1/channels", s.withAPIKey(s.listChannels))
@@ -129,6 +130,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /device/v1/feeds/{id}", s.withDevice(s.getFeed))
 	mux.HandleFunc("POST /device/v1/actions", s.withDevice(s.deviceAction))
 	mux.HandleFunc("GET /device/v1/acks", s.withDevice(s.deviceAcks))
+	mux.HandleFunc("PUT /device/v1/profile", s.withDevice(s.putProfile))
 	mux.HandleFunc("GET /device/v1/sync", s.withDevice(s.sync))
 	mux.HandleFunc("GET /device/v1/sounds/{id}", s.withDevice(s.downloadSound))
 	mux.HandleFunc("GET /device/v1/hub", s.publicHubInfo)

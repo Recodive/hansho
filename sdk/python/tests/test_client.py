@@ -353,6 +353,35 @@ class PathEscaping(unittest.TestCase):
                 self.assertFalse(any(ch in seg for ch in "/?# "), target)
                 self.assertEqual(unquote(seg), id)
 
+    def test_display_name_put_and_ticket_body(self) -> None:
+        def serve(r: Recorded, reply: Reply) -> None:
+            reply.body = '{"ticket":"t","qr":"q","expires_at":"2026-11-08T12:10:00Z"}'
+
+        with Hub(serve) as h:
+            h.client.set_user_display_name("a/b c", "Ada")
+            h.client.set_user_display_name("u", "")
+            h.client.create_pairing_ticket("u")
+            h.client.create_pairing_ticket("u", display_name="")
+            h.client.create_pairing_ticket("u", "Zoë")
+            r = h.requests
+            self.assertEqual((r[0].method, r[0].url), ("PUT", "/api/v1/users/a%2Fb%20c"))
+            self.assertEqual(json.loads(r[0].body), {"display_name": "Ada"})
+            self.assertEqual(json.loads(r[1].body), {"display_name": ""})
+            self.assertEqual(json.loads(r[2].body), {"external_user_id": "u"})
+            self.assertEqual(json.loads(r[3].body), {"external_user_id": "u", "display_name": ""})
+            self.assertEqual(json.loads(r[4].body), {"external_user_id": "u", "display_name": "Zoë"})
+            for bad in ("", ".", ".."):
+                with self.assertRaises(ValueError):
+                    h.client.set_user_display_name(bad, "x")
+            self.assertEqual(len(h.requests), 5)
+
+    def test_page_ack_option_is_sent_only_when_set(self) -> None:
+        with Hub() as h:
+            h.client.send_message(Message("u", "c", "t", "b", level="page", page=PageOptions(max_retries=1)))
+            h.client.send_message(Message("u", "c", "t", "b", level="page", page=PageOptions(ack="each")))
+            self.assertEqual(json.loads(h.requests[0].body)["page"], {"max_retries": 1})
+            self.assertEqual(json.loads(h.requests[1].body)["page"], {"ack": "each"})
+
     def test_exact_encoding(self) -> None:
         with Hub() as h:
             h.client.put_channel("ü x/y?z", CHANNEL)

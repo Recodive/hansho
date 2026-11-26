@@ -9,13 +9,17 @@ import (
 type adminDevice struct{ Name, Platform, Joined string }
 
 type adminPerson struct {
-	Name, Paired string
-	Devices      []adminDevice
+	Name, DisplayName, Paired string
+	Devices                   []adminDevice
 }
 
 // adminPersons groups active devices by the person (external_user_id) they belong to, people in name order.
 func (s *server) adminPersons() ([]adminPerson, error) {
 	devs, err := s.Store.AllActiveDevices()
+	if err != nil {
+		return nil, err
+	}
+	names, err := s.Store.DisplayNames()
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +30,7 @@ func (s *server) adminPersons() ([]adminPerson, error) {
 		if !ok {
 			i = len(out)
 			at[d.Pairing.ExternalUserID] = i
-			out = append(out, adminPerson{Name: d.Pairing.ExternalUserID, Paired: adminTime(d.Pairing.CreatedAt)})
+			out = append(out, adminPerson{Name: d.Pairing.ExternalUserID, DisplayName: names[d.Pairing.ExternalUserID], Paired: adminTime(d.Pairing.CreatedAt)})
 		}
 		out[i].Devices = append(out[i].Devices, adminDevice{Name: d.Name, Platform: d.Platform, Joined: adminTime(d.CreatedAt)})
 	}
@@ -42,6 +46,23 @@ func (s *server) adminPeople(w http.ResponseWriter, _ *http.Request, csrf string
 		return
 	}
 	s.adminRender(w, http.StatusOK, "people", "people", "People", csrf, people)
+}
+
+// adminSetName sets or clears a person's display name, like PUT /api/v1/users/{id}.
+func (s *server) adminSetName(w http.ResponseWriter, r *http.Request, csrf string) {
+	person := r.PostForm.Get("person")
+	name, ok := cleanDisplayName(r.PostForm.Get("display_name"))
+	if !ok || !validExternalUserID(person) {
+		s.adminNotice(w, http.StatusBadRequest, csrf, "That name cannot be used", "A display name can be at most 40 characters and cannot contain line breaks or other control characters.", "/admin/people", "Back to people")
+		return
+	}
+	if err := s.Store.SetDisplayName(person, name, s.Now()); err != nil {
+		s.log.Error("admin: set display name failed", "err", lc(err.Error()))
+		s.adminNotice(w, http.StatusInternalServerError, csrf, "Something went wrong", "The hub could not save the name. Try again.", "/admin/people", "Back to people")
+		return
+	}
+	s.log.Info("admin: display name saved", "external_user_id", lc(person))
+	http.Redirect(w, r, "/admin/people", http.StatusSeeOther)
 }
 
 // adminRemovePage asks before removing someone.

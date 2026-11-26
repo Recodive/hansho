@@ -58,11 +58,24 @@ module Hansho
 
     # Creates a single-use pairing ticket (valid 10 minutes). Render +qr+ as a QR
     # code for the user to scan in the Hansho app. Returns a PairingTicket.
-    def create_pairing_ticket(external_user_id)
+    # +display_name+ gives the user a display name with the ticket (see #set_user_display_name); "" is sent as given.
+    def create_pairing_ticket(external_user_id, display_name: nil)
       raise ArgumentError, "hansho: id must not be empty" if external_user_id.to_s.empty?
 
-      w = json(:post, "/api/v1/pairing-tickets", { external_user_id: external_user_id })
+      wire = { external_user_id: external_user_id, display_name: display_name }.compact
+      w = json(:post, "/api/v1/pairing-tickets", wire)
       PairingTicket.new(ticket: w["ticket"], qr: w["qr"], expires_at: time(w["expires_at"]))
+    end
+
+    # --- users -------------------------------------------------------------
+
+    # Sets what other people see for the user instead of their external user id: any language, trimmed, at most 40
+    # characters, no control characters. "" clears it. The user need not be paired yet.
+    def set_user_display_name(external_user_id, display_name)
+      raise ArgumentError, "hansho: display_name must be a String" unless display_name.is_a?(String)
+
+      json(:put, "/api/v1/users/#{seg(external_user_id)}", { display_name: display_name })
+      nil
     end
 
     # Revokes every pairing of the user.
@@ -154,7 +167,9 @@ module Hansho
     # Sends a notification, or a page when +level+ is +:page+. +level+ is a String or
     # Symbol (+:time_sensitive+ is read as "time-sensitive"); it defaults to the
     # channel's default and is capped at its max. +data+ is sent as given (its keys
-    # are never renamed). +page+ is `{ interval_seconds: 60, max_retries: 3 }`.
+    # are never renamed). +page+ is `{ interval_seconds: 60, max_retries: 3, ack: "each" }`;
+    # +ack+ (optional) is "any" (hub default: the first acknowledgement stops the page for everyone) or "each" (every
+    # person is paged until they acknowledge for themselves).
     #
     # It is never retried automatically (a repeat would notify twice) unless you pass
     # an +idempotency_key+, which is sent as the Idempotency-Key header, never in the
@@ -193,7 +208,8 @@ module Hansho
     def get_message(id)
       w = json(:get, "/api/v1/messages/#{seg(id)}")
       MessageStatus.new(message_id: w["message_id"], status: w["status"], level: w["level"], attempts: w["attempts"],
-                        deliveries: deliveries_from_wire(w["deliveries"]), acked_at: time(w["acked_at"]))
+                        deliveries: deliveries_from_wire(w["deliveries"]), acked_at: time(w["acked_at"]),
+                        acked_by: str_or_nil(w["acked_by"]), acked_by_name: str_or_nil(w["acked_by_name"]))
     end
 
     # --- live activities and feeds -----------------------------------------
@@ -282,7 +298,7 @@ module Hansho
       return nil if page.nil?
 
       p = symbolize(page, "page")
-      { interval_s: p[:interval_seconds], max_retries: p[:max_retries] }.compact
+      { interval_s: p[:interval_seconds], max_retries: p[:max_retries], ack: p[:ack]&.to_s }.compact
     end
 
     def alert_to_wire(alert)
@@ -332,6 +348,10 @@ module Hansho
         err = d["error"]
         Delivery.new(device_id: d["device_id"], status: d["status"], error: err.nil? || err == "" ? nil : err)
       end
+    end
+
+    def str_or_nil(value)
+      value.is_a?(String) ? value : nil
     end
 
     def time(value)

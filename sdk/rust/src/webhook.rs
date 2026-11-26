@@ -123,6 +123,10 @@ pub struct MessageAcked {
     pub external_user_id: String,
     /// The device that acknowledged.
     pub device_id: String,
+    /// Who acknowledged: their external user id (differs from `external_user_id` when a page went to several people).
+    pub acked_by: Option<String>,
+    /// The acknowledger's display name, only when they have one.
+    pub acked_by_name: Option<String>,
 }
 
 /// `message.dismissed`: the person swiped away a message that asked to be acknowledged, without acknowledging it.
@@ -413,6 +417,8 @@ fn parse_event(raw: &[u8]) -> Result<Event, WebhookError> {
             message_id: d.s("message_id"),
             external_user_id: d.s("external_user_id"),
             device_id: d.s("device_id"),
+            acked_by: d.opt("acked_by"),
+            acked_by_name: d.opt("acked_by_name"),
         }),
         "message.dismissed" => EventData::MessageDismissed(MessageDismissed {
             message_id: d.s("message_id"),
@@ -452,6 +458,10 @@ struct Fields<'a>(&'a Map<String, Value>);
 impl Fields<'_> {
     fn s(&self, key: &str) -> String {
         text(self.0.get(key))
+    }
+
+    fn opt(&self, key: &str) -> Option<String> {
+        self.0.get(key).and_then(Value::as_str).map(str::to_owned)
     }
 
     fn n(&self, key: &str) -> i64 {

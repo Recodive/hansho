@@ -272,6 +272,23 @@ public class WebhookTests
     }
 
     [Fact]
+    public void ParsesWhoAcknowledged()
+    {
+        string Acked(string extra) => "{\"id\":\"9\",\"event\":\"message.acked\",\"created_at\":5,\"data\":{\"message_id\":\"m\",\"device_id\":\"d\",\"external_user_id\":\"u\"" + extra + "}}";
+        var with = Acked(",\"acked_by\":\"alice\",\"acked_by_name\":\"Zoë 日本語\"");
+        var a = Assert.IsType<MessageAcked>(HanshoWebhook.Verify("s", Sign("s", Now, with), with));
+        Assert.Equal(("u", "alice", "Zoë 日本語"), (a.ExternalUserId, a.AckedBy, a.AckedByName));
+        var noName = Acked(",\"acked_by\":\"alice\"");
+        a = Assert.IsType<MessageAcked>(HanshoWebhook.Verify("s", Sign("s", Now, noName), noName));
+        Assert.Equal("alice", a.AckedBy);
+        Assert.Null(a.AckedByName);
+        var without = Acked("");
+        a = Assert.IsType<MessageAcked>(HanshoWebhook.Verify("s", Sign("s", Now, without), without));
+        Assert.Null(a.AckedBy);
+        Assert.Null(a.AckedByName);
+    }
+
+    [Fact]
     public void KeepsALevelItDoesNotKnow()
     {
         var body = "{\"id\":\"1\",\"event\":\"message.delivered\",\"created_at\":1,\"data\":{\"level\":\"emergency\",\"devices\":2}}";

@@ -51,6 +51,16 @@ $hansho->unpair('user-42'); // revokes every pairing of the user
 $hansho->kick('user-42');   // the same call; the app tells the person that you ended it
 ```
 
+## Users
+
+```php
+// What other people see for the user instead of their id (any language, max 40 characters).
+$hansho->setUserDisplayName('user-42', 'Ada Lovelace');
+$hansho->setUserDisplayName('user-42', '');  // clears it
+// Or give it with the pairing ticket:
+$ticket = $hansho->createPairingTicket('user-42', displayName: 'Ada Lovelace');
+```
+
 ## Audiences and groups
 
 A channel or feed is open to everyone unless it has an `Audience`: `AudienceMode::Only` the listed users and groups, or
@@ -107,6 +117,11 @@ $page = $hansho->sendMessage(new Message(
 ));
 $status = $hansho->getMessage($page->messageId); // queued, delivered, undeliverable, paging, acked, expired
 // $status->status, ->attempts, ->deliveries, ->ackedAt (DateTimeImmutable|null)
+// ->ackedBy is who acknowledged (external user id), ->ackedByName their display name; both null when unknown.
+
+// A page to several people stops for everyone at the first acknowledgement (ack: 'any', the default).
+// ack: 'each' keeps paging each person until they acknowledge for themselves.
+new PageOptions(intervalSeconds: 60, ack: 'each');
 
 // A templated message.
 $hansho->putTemplate('status', 1, ['type' => 'vstack', 'children' => [['type' => 'text', 'style' => 'headline', 'text' => '{{title}}']]]);
@@ -144,7 +159,7 @@ try {
         body: file_get_contents('php://input'),
     );
     switch ($event->type) {
-        case 'message.acked': error_log('acknowledged: ' . $event->data['messageId']); break;
+        case 'message.acked': error_log('acknowledged: ' . $event->data['messageId'] . ' by ' . ($event->data['ackedBy'] ?? '?')); break;
         case 'action': error_log('button ' . $event->data['actionId'] . ' on ' . $event->data['messageId']); break;
         case 'unknown': error_log('newer hub event: ' . $event->name); break;
     }

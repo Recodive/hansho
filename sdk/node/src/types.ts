@@ -9,6 +9,12 @@ export interface Action {
   kind?: string;
 }
 
+/** Options of `createPairingTicket`. */
+export interface PairingTicketOptions extends RequestOptions {
+  /** What other people see for this user instead of their id (max 40 characters, any language). */
+  displayName?: string;
+}
+
 export interface PairingTicket {
   ticket: string;
   /** Render this string as a QR code for the user to scan in the app. */
@@ -55,6 +61,11 @@ export interface PageOptions {
   intervalSeconds?: number;
   /** Resends before the page expires (hub default 5). */
   maxRetries?: number;
+  /**
+   * Who must acknowledge a page sent to several people: `"any"` (hub default) stops it for everyone at the first
+   * acknowledgement, `"each"` keeps paging each person until they acknowledge for themselves.
+   */
+  ack?: "any" | "each";
 }
 
 export interface Message {
@@ -126,6 +137,10 @@ export interface MessageStatus {
   attempts: number;
   deliveries: Delivery[];
   ackedAt?: Date;
+  /** Who acknowledged a page: their external user id. */
+  ackedBy?: string;
+  /** The display name of whoever acknowledged, only when they have one. */
+  ackedByName?: string;
 }
 
 export interface ActivityAlert {

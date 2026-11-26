@@ -25,7 +25,8 @@ func (s *server) createTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		ExternalUserID string `json:"external_user_id"`
+		ExternalUserID string  `json:"external_user_id"`
+		DisplayName    *string `json:"display_name"`
 	}
 	if !decodeJSON(w, body, &req) {
 		return
@@ -33,6 +34,17 @@ func (s *server) createTicket(w http.ResponseWriter, r *http.Request) {
 	if !validExternalUserID(req.ExternalUserID) {
 		writeFieldErr(w, http.StatusBadRequest, "invalid_request", "external_user_id", "required, at most 256 bytes")
 		return
+	}
+	if req.DisplayName != nil { // optional: set along with pairing so the person has a name from the start
+		name, ok := cleanDisplayName(*req.DisplayName)
+		if !ok {
+			writeFieldErr(w, http.StatusBadRequest, "invalid_request", "display_name", displayNameHelp)
+			return
+		}
+		if err := s.Store.SetDisplayName(req.ExternalUserID, name, s.Now()); err != nil {
+			s.internal(w, "set display name failed", err)
+			return
+		}
 	}
 	ticket, qr, expires, err := s.issueTicket(req.ExternalUserID)
 	if err != nil {

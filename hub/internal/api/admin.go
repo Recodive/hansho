@@ -84,6 +84,7 @@ func (s *server) adminRoutes() []adminRoute {
 		{"GET /admin/pair", adminSignedIn, s.adminPairPage},
 		{"POST /admin/pair", adminSignedInPost, s.adminPair},
 		{"GET /admin/people", adminSignedIn, s.adminPeople},
+		{"POST /admin/people/name", adminSignedInPost, s.adminSetName},
 		{"GET /admin/people/remove", adminSignedIn, s.adminRemovePage},
 		{"POST /admin/people/remove", adminSignedInPost, s.adminRemove},
 		{"GET /admin/channels", adminSignedIn, s.adminChannels},

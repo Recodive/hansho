@@ -15,6 +15,10 @@ final class MessageStatus
         /** @var list<Delivery> */
         public readonly array $deliveries,
         public readonly ?\DateTimeImmutable $ackedAt = null,
+        /** Who acknowledged a page: their external user id. */
+        public readonly ?string $ackedBy = null,
+        /** The display name of whoever acknowledged; only when they have one. */
+        public readonly ?string $ackedByName = null,
     ) {
     }
 }

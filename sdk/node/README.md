@@ -46,6 +46,17 @@ await hansho.unpair("user-42"); // revokes every pairing of the user
 await hansho.kick("user-42"); // the same call; the app tells the person that you ended it
 ```
 
+## Users
+
+A user can have a display name, which other people see instead of their `externalUserId` (any language, trimmed, at
+most 40 characters, no control characters). Set it with the ticket, or any time later; `""` clears it.
+
+```ts
+const ticket = await hansho.createPairingTicket("user-42", { displayName: "Ada Lovelace" });
+await hansho.setUserDisplayName("user-42", "Ada L."); // PUT /api/v1/users/user-42
+await hansho.setUserDisplayName("user-42", ""); // back to the id
+```
+
 ## Audiences and groups
 
 A channel or feed is open to everyone unless it has an `audience`: `"only"` the listed users and groups, or `"except"`
@@ -97,6 +108,15 @@ const page = await hansho.sendMessage({
   page: { intervalSeconds: 60, maxRetries: 10 },
 });
 const status = await hansho.getMessage(page.messageId); // queued, delivered, undeliverable, paging, acked, expired
+// Once acked: status.ackedAt, status.ackedBy (external user id) and status.ackedByName (only when they have one).
+
+// A page to several people: by default the first acknowledgement stops it for everyone ("any").
+// With ack: "each" every recipient has to acknowledge for themselves.
+await hansho.sendMessage({
+  externalUserIds: ["alice", "bob"], channel: "ops", level: "page",
+  title: "Primary DB down", body: "Failover did not complete",
+  page: { ack: "each" },
+});
 
 // A templated message; data is sent exactly as given (its keys are never renamed).
 await hansho.putTemplate("status", 1, { type: "vstack", children: [{ type: "text", style: "headline", text: "{{title}}" }] });

@@ -209,6 +209,10 @@ type MessageAcked struct {
 	MessageID      string `json:"message_id"`
 	ExternalUserID string `json:"external_user_id"`
 	DeviceID       string `json:"device_id"`
+	// AckedBy is who acknowledged (an external user id; differs from ExternalUserID when a page went to several
+	// people) and AckedByName their display name, empty unless they have one.
+	AckedBy     string `json:"acked_by,omitempty"`
+	AckedByName string `json:"acked_by_name,omitempty"`
 }
 
 // MessageDismissed: the person swiped away a message that asked to be acknowledged, without acknowledging it.

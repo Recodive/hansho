@@ -141,7 +141,8 @@ public final class Webhook {
                     id, createdAt, body, Json.str(d.get("message_id")), user, Json.str(d.get("channel")),
                     Json.str(d.get("reason")));
             case "message.acked" -> new WebhookEvent.MessageAcked(
-                    id, createdAt, body, Json.str(d.get("message_id")), user, Json.str(d.get("device_id")));
+                    id, createdAt, body, Json.str(d.get("message_id")), user, Json.str(d.get("device_id")),
+                    Json.optStr(d.get("acked_by")), Json.optStr(d.get("acked_by_name")));
             case "message.dismissed" -> new WebhookEvent.MessageDismissed(
                     id, createdAt, body, Json.str(d.get("message_id")), user, Json.str(d.get("device_id")));
             case "message.expired" -> new WebhookEvent.MessageExpired(

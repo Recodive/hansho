@@ -167,10 +167,33 @@ impl Client {
     /// Creates a single-use pairing ticket (valid 10 minutes). Render `qr` as a QR
     /// code for the user to scan in the Hansho app.
     pub fn create_pairing_ticket(&self, external_user_id: &str) -> Result<PairingTicket> {
+        self.pairing_ticket(external_user_id, None)
+    }
+
+    /// Like [`create_pairing_ticket`](Client::create_pairing_ticket), and gives the user a display name with the ticket (see
+    /// [`set_user_display_name`](Client::set_user_display_name)). An empty name is sent as given.
+    pub fn create_pairing_ticket_with_name(&self, external_user_id: &str, display_name: &str) -> Result<PairingTicket> {
+        self.pairing_ticket(external_user_id, Some(display_name))
+    }
+
+    fn pairing_ticket(&self, external_user_id: &str, display_name: Option<&str>) -> Result<PairingTicket> {
         if external_user_id.is_empty() {
             return Err(Error::InvalidArgument("id must not be empty".into()));
         }
-        self.json("POST", "/api/v1/pairing-tickets".into(), Some(json!({ "external_user_id": external_user_id })))
+        let mut body = json!({ "external_user_id": external_user_id });
+        if let Some(name) = display_name {
+            body["display_name"] = json!(name);
+        }
+        self.json("POST", "/api/v1/pairing-tickets".into(), Some(body))
+    }
+
+    // --- users ---------------------------------------------------------------
+
+    /// Sets what other people see for the user instead of their external user id: any language, trimmed, at most 40
+    /// characters, no control characters. `""` clears it. The user need not be paired yet.
+    pub fn set_user_display_name(&self, external_user_id: &str, display_name: &str) -> Result<()> {
+        let path = format!("/api/v1/users/{}", seg(external_user_id)?);
+        self.json::<serde::de::IgnoredAny>("PUT", path, Some(json!({ "display_name": display_name }))).map(drop)
     }
 
     /// Revokes every pairing of the user.

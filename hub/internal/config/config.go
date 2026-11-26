@@ -38,6 +38,8 @@ type Config struct {
 	// least MinAdminPassword characters, required with Admin).
 	Admin         bool
 	AdminPassword string
+	// AllowDisplayNameEdit lets a person change their own display name in the app (HUB_ALLOW_DISPLAY_NAME_EDIT, default false).
+	AllowDisplayNameEdit bool
 }
 
 // MinAdminPassword is the shortest HUB_ADMIN_PASSWORD the hub accepts, in characters.
@@ -73,6 +75,13 @@ func Load(getenv func(string) string) (Config, error) {
 		c.LAEncrypt = false
 	default:
 		return Config{}, errors.New("config: HUB_LA_ENCRYPT must be true or false")
+	}
+	switch strings.ToLower(getenv("HUB_ALLOW_DISPLAY_NAME_EDIT")) {
+	case "", "0", "false":
+	case "1", "true":
+		c.AllowDisplayNameEdit = true
+	default:
+		return Config{}, errors.New("config: HUB_ALLOW_DISPLAY_NAME_EDIT must be true or false")
 	}
 	switch strings.ToLower(getenv("HUB_ADMIN")) {
 	case "", "0", "false":

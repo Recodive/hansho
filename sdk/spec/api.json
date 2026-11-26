@@ -11,6 +11,27 @@
       "response": {"status": 201, "body": {"ticket": "tk_abc", "qr": "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_abc&fp=ff00", "expires_at": "2026-11-08T12:10:00Z", "future_field": {"ignored": true}}}
     },
     {
+      "name": "createPairingTicketWithName",
+      "method": "POST",
+      "path": "/api/v1/pairing-tickets",
+      "request": {"content_type": "application/json", "body": {"external_user_id": "user-42", "display_name": "Zoë 日本語"}},
+      "response": {"status": 201, "body": {"ticket": "tk_def", "qr": "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_def&fp=ff00", "expires_at": "2026-11-08T12:10:00Z"}}
+    },
+    {
+      "name": "setUserDisplayName",
+      "method": "PUT",
+      "path": "/api/v1/users/user-42",
+      "request": {"content_type": "application/json", "body": {"display_name": "Zoë 日本語"}},
+      "response": {"status": 204, "body": null}
+    },
+    {
+      "name": "clearUserDisplayName",
+      "method": "PUT",
+      "path": "/api/v1/users/user%2042",
+      "request": {"content_type": "application/json", "body": {"display_name": ""}},
+      "response": {"status": 204, "body": null}
+    },
+    {
       "name": "unpair",
       "method": "DELETE",
       "path": "/api/v1/users/user-42/pairings",
@@ -96,6 +117,20 @@
       "response": {"status": 202, "body": {"message_id": "msg_2", "level": "page", "devices": 1, "status": "queued", "deliveries": [{"device_id": "dev_1", "status": "queued"}]}}
     },
     {
+      "name": "sendPageEach",
+      "method": "POST",
+      "path": "/api/v1/messages",
+      "request": {"content_type": "application/json", "body": {
+        "external_user_ids": ["alice", "bob"], "channel": "ops", "level": "page",
+        "title": "Primary DB down", "body": "Failover did not complete",
+        "page": {"interval_s": 60, "max_retries": 3, "ack": "each"}
+      }},
+      "response": {"status": 202, "body": {"level": "page", "recipients": [
+        {"external_user_id": "alice", "message_id": "msg_3", "status": "queued", "devices": 1, "deliveries": [{"device_id": "dev_1", "status": "queued"}]},
+        {"external_user_id": "bob", "message_id": "msg_4", "status": "queued", "devices": 1, "deliveries": [{"device_id": "dev_2", "status": "queued"}]}
+      ]}}
+    },
+    {
       "name": "getMessage",
       "method": "GET",
       "path": "/api/v1/messages/msg_2",
@@ -103,7 +138,18 @@
       "response": {"status": 200, "body": {
         "message_id": "msg_2", "status": "acked", "level": "page", "attempts": 2,
         "deliveries": [{"device_id": "dev_1", "status": "sent", "error": ""}, {"device_id": "dev_2", "status": "failed", "error": "unregistered"}],
-        "acked_at": "2026-11-08T12:05:00Z"
+        "acked_at": "2026-11-08T12:05:00Z", "acked_by": "user-42", "acked_by_name": "Zoë 日本語"
+      }}
+    },
+    {
+      "name": "getMessageAckedNoName",
+      "method": "GET",
+      "path": "/api/v1/messages/msg_3",
+      "request": null,
+      "response": {"status": 200, "body": {
+        "message_id": "msg_3", "status": "acked", "level": "page", "attempts": 1,
+        "deliveries": [{"device_id": "dev_1", "status": "sent", "error": ""}],
+        "acked_at": "2026-11-08T12:05:00Z", "acked_by": "alice"
       }}
     },
     {

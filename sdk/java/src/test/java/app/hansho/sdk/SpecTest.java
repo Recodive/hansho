@@ -48,6 +48,16 @@ class SpecTest {
     static {
         op("createPairingTicket", c -> c.createPairingTicket("user-42"), new PairingTicket(
                 "tk_abc", "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_abc&fp=ff00", Instant.parse("2026-11-08T12:10:00Z")));
+        op("createPairingTicketWithName", c -> c.createPairingTicket("user-42", "Zoë 日本語"), new PairingTicket(
+                "tk_def", "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_def&fp=ff00", Instant.parse("2026-11-08T12:10:00Z")));
+        op("setUserDisplayName", c -> {
+            c.setUserDisplayName("user-42", "Zoë 日本語");
+            return null;
+        }, null);
+        op("clearUserDisplayName", c -> {
+            c.setUserDisplayName("user 42", "");
+            return null;
+        }, null);
         op("unpair", c -> {
             c.unpair("user-42");
             return null;
@@ -80,9 +90,16 @@ class SpecTest {
         op("sendPage", c -> c.sendMessage(Message.builder("user-42", "ops", "Primary DB down", "Failover did not complete")
                 .level(Level.PAGE).page(PageOptions.of(60, 3)).build()),
                 new MessageResult("msg_2", Level.PAGE, 1, "queued", List.of(new Delivery("dev_1", "queued", null))));
+        op("sendPageEach", c -> c.sendMessage(Message.forUsers(List.of("alice", "bob"), "ops", "Primary DB down", "Failover did not complete")
+                .level(Level.PAGE).page(new PageOptions(60, 3, PageOptions.Ack.EACH)).build()),
+                new MessageResult("", Level.PAGE, 0, "", List.of(), List.of(
+                        new Recipient("alice", "msg_3", "queued", 1, List.of(new Delivery("dev_1", "queued", null))),
+                        new Recipient("bob", "msg_4", "queued", 1, List.of(new Delivery("dev_2", "queued", null))))));
+        op("getMessageAckedNoName", c -> c.getMessage("msg_3"), new MessageStatus("msg_3", "acked", Level.PAGE, 1,
+                List.of(new Delivery("dev_1", "sent", null)), Instant.parse("2026-11-08T12:05:00Z"), "alice", null));
         op("getMessage", c -> c.getMessage("msg_2"), new MessageStatus("msg_2", "acked", Level.PAGE, 2,
                 List.of(new Delivery("dev_1", "sent", null), new Delivery("dev_2", "failed", "unregistered")),
-                Instant.parse("2026-11-08T12:05:00Z")));
+                Instant.parse("2026-11-08T12:05:00Z"), "user-42", "Zoë 日本語"));
         op("startActivity", c -> c.startActivity(Activity.of("user-42", "ops", "deploy", Map.of("progress", 0.1))
                 .withAlert(new ActivityAlert("Deploy started", "v1.2.3"))), new ActivityStarted("act_1", 1));
         op("updateActivity", c -> c.updateActivity("act_1", ActivityUpdate.of(Map.of("progress", 0.6)).withPriority(10)

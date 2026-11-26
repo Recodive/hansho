@@ -31,6 +31,10 @@ public class SpecTests
     {
         ["createPairingTicket"] = (async c => await c.CreatePairingTicketAsync("user-42"),
             new PairingTicket("tk_abc", "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_abc&fp=ff00", new DateTimeOffset(2026, 11, 8, 12, 10, 0, TimeSpan.Zero))),
+        ["createPairingTicketWithName"] = (async c => await c.CreatePairingTicketAsync("user-42", "Zoë 日本語"),
+            new PairingTicket("tk_def", "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_def&fp=ff00", new DateTimeOffset(2026, 11, 8, 12, 10, 0, TimeSpan.Zero))),
+        ["setUserDisplayName"] = (async c => { await c.SetUserDisplayNameAsync("user-42", "Zoë 日本語"); return null; }, null),
+        ["clearUserDisplayName"] = (async c => { await c.SetUserDisplayNameAsync("user 42", ""); return null; }, null),
         ["unpair"] = (async c => { await c.UnpairAsync("user-42"); return null; }, null),
         ["putChannel"] = (async c => { await c.PutChannelAsync("ops", SpecChannel); return null; }, null),
         ["getChannel"] = (async c => await c.GetChannelAsync("ops"),
@@ -70,8 +74,24 @@ public class SpecTests
             Body = "Failover did not complete",
             Page = new PageOptions { IntervalSeconds = 60, MaxRetries = 3 },
         }), new MessageResult("msg_2", Level.Page, 1, "queued", new[] { new Delivery("dev_1", "queued", null) })),
+        ["sendPageEach"] = (async c => await c.SendMessageAsync(new Message
+        {
+            ExternalUserIds = new[] { "alice", "bob" },
+            Channel = "ops",
+            Level = Level.Page,
+            Title = "Primary DB down",
+            Body = "Failover did not complete",
+            Page = new PageOptions { IntervalSeconds = 60, MaxRetries = 3, Ack = PageAck.Each },
+        }), new MessageResult("", Level.Page, 0, "", Array.Empty<Delivery>(), new[]
+        {
+            new Recipient("alice", "msg_3", "queued", 1, new[] { new Delivery("dev_1", "queued", null) }),
+            new Recipient("bob", "msg_4", "queued", 1, new[] { new Delivery("dev_2", "queued", null) }),
+        })),
+        ["getMessageAckedNoName"] = (async c => await c.GetMessageAsync("msg_3"),
+            new MessageStatus("msg_3", "acked", Level.Page, 1, new[] { new Delivery("dev_1", "sent", null) }, new DateTimeOffset(2026, 11, 8, 12, 5, 0, TimeSpan.Zero)) { AckedBy = "alice" }),
         ["getMessage"] = (async c => await c.GetMessageAsync("msg_2"),
-            new MessageStatus("msg_2", "acked", Level.Page, 2, new[] { new Delivery("dev_1", "sent", null), new Delivery("dev_2", "failed", "unregistered") }, new DateTimeOffset(2026, 11, 8, 12, 5, 0, TimeSpan.Zero))),
+            new MessageStatus("msg_2", "acked", Level.Page, 2, new[] { new Delivery("dev_1", "sent", null), new Delivery("dev_2", "failed", "unregistered") }, new DateTimeOffset(2026, 11, 8, 12, 5, 0, TimeSpan.Zero))
+            { AckedBy = "user-42", AckedByName = "Zoë 日本語" }),
         ["startActivity"] = (async c => await c.StartActivityAsync(new Activity
         {
             ExternalUserId = "user-42",

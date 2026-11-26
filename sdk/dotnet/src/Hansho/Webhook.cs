@@ -70,8 +70,15 @@ public sealed record MessageUndeliverable(string MessageId, string ExternalUserI
     public override string Type => "message.undeliverable";
 }
 
+/// <summary>
+/// <c>AckedBy</c> is who acknowledged (an external user id; differs from <c>ExternalUserId</c> when a page went to
+/// several people) and <c>AckedByName</c> their display name; each is null when the hub did not send it.
+/// </summary>
 public sealed record MessageAcked(string MessageId, string ExternalUserId, string DeviceId) : WebhookEvent
 {
+    public string? AckedBy { get; init; }
+    public string? AckedByName { get; init; }
+
     public override string Type => "message.acked";
 }
 
@@ -240,7 +247,11 @@ public static class HanshoWebhook
                 "pairing.revoked" => new PairingRevoked(S(data, "pairing_id"), S(data, "external_user_id"), S(data, "by")),
                 "message.delivered" => new MessageDelivered(S(data, "message_id"), S(data, "external_user_id"), S(data, "channel"), new Level(S(data, "level")), N(data, "devices")),
                 "message.undeliverable" => new MessageUndeliverable(S(data, "message_id"), S(data, "external_user_id"), S(data, "channel"), S(data, "reason")),
-                "message.acked" => new MessageAcked(S(data, "message_id"), S(data, "external_user_id"), S(data, "device_id")),
+                "message.acked" => new MessageAcked(S(data, "message_id"), S(data, "external_user_id"), S(data, "device_id"))
+                {
+                    AckedBy = OptS(data, "acked_by"),
+                    AckedByName = OptS(data, "acked_by_name"),
+                },
                 "message.dismissed" => new MessageDismissed(S(data, "message_id"), S(data, "external_user_id"), S(data, "device_id")),
                 "message.expired" => new MessageExpired(S(data, "message_id"), S(data, "external_user_id"), S(data, "channel"), N(data, "attempts")),
                 "action" => new ActionTaken(S(data, "message_id"), S(data, "action_id"), S(data, "device_id"), S(data, "external_user_id"), data.ValueKind == JsonValueKind.Object && data.TryGetProperty("text", out var tx) && tx.ValueKind == JsonValueKind.String ? tx.GetString() : null),
@@ -258,6 +269,9 @@ public static class HanshoWebhook
     }
 
     // A forgiving read, like the other SDKs: a missing or oddly typed field reads as empty, never as an exception.
+    private static string? OptS(JsonElement o, string key) =>
+        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
     private static string S(JsonElement o, string key)
     {
         if (o.ValueKind != JsonValueKind.Object || !o.TryGetProperty(key, out var v)) return "";

@@ -418,6 +418,12 @@ func (s *server) saveSound(id, ct string, data []byte) (store.Sound, *apiError) 
 // GET /device/v1/sync
 //
 // Channels the device's user cannot access are left out, not marked: the app learns nothing about them.
+// profileView is the user's display name and whether the person may change it in the app.
+type profileView struct {
+	DisplayName string `json:"display_name"`
+	Editable    bool   `json:"editable"`
+}
+
 func (s *server) sync(w http.ResponseWriter, _ *http.Request, dev store.DeviceWithPairing, _ []byte) {
 	channels, err := s.Store.ListChannels()
 	if err != nil {
@@ -454,7 +460,13 @@ func (s *server) sync(w http.ResponseWriter, _ *http.Request, dev store.DeviceWi
 		Channels  []channelView     `json:"channels"`
 		Templates []tpl             `json:"templates"`
 		Sounds    []snd             `json:"sounds"`
+		Profile   profileView       `json:"profile"`
 	}{Hub: s.hubInfo(), Channels: []channelView{}, Templates: []tpl{}, Sounds: []snd{}}
+	if out.Profile.DisplayName, err = s.Store.DisplayName(dev.Pairing.ExternalUserID); err != nil {
+		s.internal(w, "profile lookup failed", err)
+		return
+	}
+	out.Profile.Editable = s.Cfg.AllowDisplayNameEdit
 	for _, c := range channels {
 		if acc.Allows(c.Audience) {
 			out.Channels = append(out.Channels, viewOf(c))

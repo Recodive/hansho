@@ -89,6 +89,16 @@ class WebhookTest < Minitest::Test
     end
   end
 
+  def test_message_acked_carries_who_acked_when_present_and_nil_when_absent
+    full = '{"id":"9","event":"message.acked","created_at":5,"data":{"message_id":"m","device_id":"d","external_user_id":"u","acked_by":"bob","acked_by_name":"Bob ボブ"}}'
+    d = Hansho::Webhook.verify(secret: "s", header: sign("s", T, full), body: full, now: T).data
+    assert_equal ["bob", "Bob ボブ"], [d.acked_by, d.acked_by_name]
+    bare = '{"id":"9","event":"message.acked","created_at":5,"data":{"message_id":"m","device_id":"d","external_user_id":"u"}}'
+    d = Hansho::Webhook.verify(secret: "s", header: sign("s", T, bare), body: bare, now: T).data
+    assert_nil d.acked_by
+    assert_nil d.acked_by_name
+  end
+
   def test_rejects_a_body_that_was_parsed_and_reserialised
     v = VECTORS["vectors"].find { |x| x["name"] == "valid message.acked" }
     parsed = JSON.parse(v["body"])
