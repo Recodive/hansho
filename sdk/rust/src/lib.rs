@@ -37,18 +37,12 @@ mod client;
 mod error;
 mod retry;
 mod types;
+mod types_gen;
 mod webhook;
 
-pub use client::{Client, ClientBuilder, NAME, VERSION};
+pub use client::{Client, ClientBuilder, NAME};
 pub use error::{ApiError, Error, NetworkError, Result, CODE_NO_ACCESS, CODE_UNKNOWN_GROUP};
 pub use serde_json::{json, Value};
-pub use types::{
-    Action, Activity, ActivityAlert, ActivityStarted, ActivityUpdate, ActivityUpdated, Audience, AudienceMode, Channel, Delivery, Feed,
-    FeedResult, FeedSettings, Group, Level, Message, MessageResult, MessageStatus, PageAck, PageOptions, PairingTicket, Recipient,
-    SoundResult, RECIPIENT_NO_ACCESS,
-};
-pub use webhook::{
-    verify_webhook, ActionTaken, ActivityEnded, Event, EventData, MessageAcked, MessageDelivered, MessageDismissed, MessageExpired,
-    MessageUndeliverable, PairingCreated, PairingRevoked, Verifier, WebhookError, WebhookErrorCode, DEFAULT_TOLERANCE,
-    WEBHOOK_SIGNATURE_HEADER,
-};
+pub use types::RECIPIENT_NO_ACCESS;
+pub use types_gen::*;
+pub use webhook::{verify_webhook, Event, Verifier, WebhookError, WebhookErrorCode, DEFAULT_TOLERANCE, WEBHOOK_SIGNATURE_HEADER};

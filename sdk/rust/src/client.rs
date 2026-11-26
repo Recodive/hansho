@@ -7,15 +7,13 @@ use serde_json::{json, Map, Value};
 
 use crate::error::{ApiError, Error, NetworkError, Result};
 use crate::retry::{backoff, is_idempotent, is_retryable_status, parse_retry_after, DEFAULT_MAX_RETRIES, MAX_RETRY_WAIT};
-use crate::types::{
+use crate::types_gen::{
     Activity, ActivityStarted, ActivityUpdate, ActivityUpdated, Channel, Feed, FeedResult, FeedSettings, Group, Message, MessageResult,
-    MessageStatus, PairingTicket, SoundResult,
+    MessageStatus, PairingTicket, Sound, SoundResult, Template, VERSION,
 };
 
 /// Product codename.
 pub const NAME: &str = "hansho";
-/// SDK version, sent in the default `User-Agent`.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const MAX_SOUND_BYTES: usize = 1 << 20;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -210,6 +208,11 @@ impl Client {
 
     // --- catalog -------------------------------------------------------------
 
+    /// Lists every channel.
+    pub fn list_channels(&self) -> Result<Vec<Channel>> {
+        self.list("/api/v1/channels")
+    }
+
     /// Creates or replaces a channel.
     pub fn put_channel(&self, id: &str, channel: &Channel) -> Result<()> {
         let body = serde_json::to_value(channel).map_err(encode_error)?;
@@ -226,6 +229,11 @@ impl Client {
         self.json::<serde::de::IgnoredAny>("DELETE", format!("/api/v1/channels/{}", seg(id)?), None).map(drop)
     }
 
+    /// Lists every group.
+    pub fn list_groups(&self) -> Result<Vec<Group>> {
+        self.list("/api/v1/groups")
+    }
+
     /// Creates a group or replaces its whole member list (external user ids, who may not have paired yet). Audiences that
     /// name the group follow at once. Ids match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`.
     pub fn put_group(&self, id: &str, members: &[&str]) -> Result<Group> {
@@ -240,6 +248,21 @@ impl Client {
     /// Deletes a group. An audience that still names it matches nobody through it.
     pub fn delete_group(&self, id: &str) -> Result<()> {
         self.json::<serde::de::IgnoredAny>("DELETE", format!("/api/v1/groups/{}", seg(id)?), None).map(drop)
+    }
+
+    /// Lists every template at its latest version.
+    pub fn list_templates(&self) -> Result<Vec<Template>> {
+        self.list("/api/v1/templates")
+    }
+
+    /// Reads a template; a missing one is an API error with code `unknown_template`.
+    pub fn get_template(&self, id: &str) -> Result<Template> {
+        self.json("GET", format!("/api/v1/templates/{}", seg(id)?), None)
+    }
+
+    /// Deletes a template.
+    pub fn delete_template(&self, id: &str) -> Result<()> {
+        self.json::<serde::de::IgnoredAny>("DELETE", format!("/api/v1/templates/{}", seg(id)?), None).map(drop)
     }
 
     /// Stores a template version; the version must increase.
@@ -263,6 +286,21 @@ impl Client {
             headers: Vec::new(),
         };
         self.decode(&call, self.send(&call)?)
+    }
+
+    /// Lists the metadata of every sound.
+    pub fn list_sounds(&self) -> Result<Vec<Sound>> {
+        self.list("/api/v1/sounds")
+    }
+
+    /// Reads a sound's metadata; a missing one is an API error with code `unknown_sound`.
+    pub fn get_sound(&self, id: &str) -> Result<Sound> {
+        self.json("GET", format!("/api/v1/sounds/{}", seg(id)?), None)
+    }
+
+    /// Deletes a sound.
+    pub fn delete_sound(&self, id: &str) -> Result<()> {
+        self.json::<serde::de::IgnoredAny>("DELETE", format!("/api/v1/sounds/{}", seg(id)?), None).map(drop)
     }
 
     // --- messages ------------------------------------------------------------
@@ -334,6 +372,18 @@ impl Client {
             call.content_type = Some("application/json".into());
         }
         self.decode(&call, self.send(&call)?)
+    }
+
+    /// A GET that answers with a JSON array. An empty or `null` answer is an empty list.
+    fn list<T: DeserializeOwned>(&self, path: &str) -> Result<Vec<T>> {
+        let call = Call { method: "GET", path: path.into(), body: Vec::new(), content_type: None, retry: true, headers: Vec::new() };
+        let text = self.send(&call)?;
+        match text.trim() {
+            "" => Ok(Vec::new()),
+            t => serde_json::from_str::<Option<Vec<T>>>(t)
+                .map(Option::unwrap_or_default)
+                .map_err(|_| self.network(&call, "unexpected JSON in response".into(), false)),
+        }
     }
 
     /// Parses a 2xx body. An empty or non-object body counts as `{}`.
