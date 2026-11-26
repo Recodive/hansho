@@ -13,8 +13,8 @@ use Recodive\Hansho\Exception\ApiException;
 use Recodive\Hansho\Feed;
 use Recodive\Hansho\FeedSettings;
 use Recodive\Hansho\Group;
+use Recodive\Hansho\Hansho;
 use Recodive\Hansho\Message;
-use Recodive\Hansho\Recipient;
 
 /** Groups, audiences, kick and per-recipient send results. */
 final class AudienceTest extends TestCase
@@ -86,7 +86,7 @@ final class AudienceTest extends TestCase
             'name' => 'Pager', 'default_level' => 'page', 'max_level' => 'page',
             'audience' => ['mode' => 'except', 'users' => ['bob'], 'groups' => null],
         ]));
-        $this->assertEquals(new Audience('except', ['bob'], []), $c->getChannel('pager')->audience);
+        $this->assertEquals(new Audience('except', ['bob']), $c->getChannel('pager')->audience);
     }
 
     public function testFeedsCarryChannelAndAudienceAndAreReadBack(): void
@@ -121,26 +121,26 @@ final class AudienceTest extends TestCase
     {
         [$c, $t] = FakeTransport::client(fn () => FakeTransport::reply(202, ['level' => 'active']));
 
-        $c->sendMessage(new Message(null, 'pager', 't', 'b', externalUserIds: ['alice', 'carol']));
+        $c->sendMessage(new Message('pager', 't', 'b', externalUserIds: ['alice', 'carol']));
         $b = self::body($t, 0);
         $this->assertSame(['alice', 'carol'], $b['external_user_ids']);
         $this->assertArrayNotHasKey('external_user_id', $b);
         $this->assertArrayNotHasKey('to_audience', $b);
 
-        $c->sendMessage(new Message(null, 'pager', 't', 'b', toAudience: true));
+        $c->sendMessage(new Message('pager', 't', 'b', toAudience: true));
         $b = self::body($t, 1);
         $this->assertTrue($b['to_audience']);
         $this->assertArrayNotHasKey('external_user_id', $b);
         $this->assertArrayNotHasKey('external_user_ids', $b);
 
-        $c->sendMessage(new Message('alice', 'pager', 't', 'b'));
+        $c->sendMessage(new Message('pager', 't', 'b', externalUserId: 'alice'));
         $b = self::body($t, 2);
         $this->assertSame('alice', $b['external_user_id']);
         $this->assertArrayNotHasKey('external_user_ids', $b);
         $this->assertArrayNotHasKey('to_audience', $b);
     }
 
-    public function testPerRecipientResultsAndTheOldTopLevelFields(): void
+    public function testPerRecipientResultsAndTheTopLevelFields(): void
     {
         [$c] = FakeTransport::client(fn ($r) => str_contains((string) $r['body'], 'external_user_ids')
             ? FakeTransport::reply(202, ['level' => 'page', 'recipients' => [
@@ -150,17 +150,17 @@ final class AudienceTest extends TestCase
             : FakeTransport::reply(202, ['message_id' => '', 'level' => 'page', 'devices' => 0, 'status' => 'no_access', 'deliveries' => [],
                 'recipients' => [['external_user_id' => 'carol', 'status' => 'no_access']]]));
 
-        $res = $c->sendMessage(new Message(null, 'pager', 't', 'b', externalUserIds: ['alice', 'carol']));
-        $this->assertSame('', $res->messageId);
+        $res = $c->sendMessage(new Message('pager', 't', 'b', externalUserIds: ['alice', 'carol']));
+        $this->assertNull($res->messageId);
         $this->assertSame('page', $res->level);
         $this->assertCount(2, $res->recipients);
         $this->assertSame('msg_1', $res->recipients[0]->messageId);
         $this->assertSame(1, $res->recipients[0]->devices);
         $this->assertCount(1, $res->recipients[0]->deliveries);
         $this->assertNull($res->recipients[1]->messageId);
-        $this->assertSame(Recipient::NO_ACCESS, $res->recipients[1]->status);
+        $this->assertSame(Hansho::RECIPIENT_NO_ACCESS, $res->recipients[1]->status);
 
-        $one = $c->sendMessage(new Message('carol', 'pager', 't', 'b'));
+        $one = $c->sendMessage(new Message('pager', 't', 'b', externalUserId: 'carol'));
         $this->assertSame(['', 'no_access', 0], [$one->messageId, $one->status, $one->devices]);
         $this->assertSame('carol', $one->recipients[0]->externalUserId);
     }
@@ -168,9 +168,9 @@ final class AudienceTest extends TestCase
     public function testASendWithoutRecipientsStillParses(): void
     {
         [$c] = FakeTransport::client(fn () => FakeTransport::reply(202, ['message_id' => 'msg_1', 'level' => 'active', 'devices' => 1, 'status' => 'queued', 'deliveries' => []]));
-        $res = $c->sendMessage(new Message('u', 'c', 't', 'b'));
+        $res = $c->sendMessage(new Message('c', 't', 'b', externalUserId: 'u'));
         $this->assertSame('msg_1', $res->messageId);
-        $this->assertSame([], $res->recipients);
+        $this->assertNull($res->recipients);
     }
 
     public function testNoAccessAndAnUnknownGroupInAnAudienceAreApiErrors(): void

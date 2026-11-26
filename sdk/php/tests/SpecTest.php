@@ -87,7 +87,6 @@ final class SpecTest extends TestCase
                 page: new PageOptions(60, 3),
             )), new MessageResult('page', 'msg_2', 1, 'queued', [new Delivery('dev_1', 'queued')])],
             'sendPageEach' => [fn (Hansho $c) => $c->sendMessage(new Message(
-                null,
                 externalUserIds: ['alice', 'bob'],
                 channel: 'ops',
                 title: 'Primary DB down',
@@ -122,10 +121,10 @@ final class SpecTest extends TestCase
             'getFeed' => [fn (Hansho $c) => $c->getFeed('uptime', 'user-42'),
                 new FeedSettings('uptime', 'status', 1762603200, 'user-42', 'Uptime', 'ops', new Audience('only', ['alice']))],
             'putFeedWithChannel' => [fn (Hansho $c) => $c->putFeed('uptime', new Feed('status', ['up' => true], channel: 'ops', audience: $only)), new FeedResult('uptime', 1)],
-            'sendToAudience' => [fn (Hansho $c) => $c->sendMessage(new Message(null, 'ops', 'Deploy done', 'v1.2.3 is live', toAudience: true)),
+            'sendToAudience' => [fn (Hansho $c) => $c->sendMessage(new Message('ops', 'Deploy done', 'v1.2.3 is live', toAudience: true)),
                 new MessageResult('active', recipients: [
                     new Recipient('alice', 'queued', 'msg_7', 1, [new Delivery('dev_1', 'queued')]),
-                    new Recipient('carol', Recipient::NO_ACCESS),
+                    new Recipient('carol', Hansho::RECIPIENT_NO_ACCESS),
                 ])],
         ];
     }
@@ -215,7 +214,7 @@ final class SpecTest extends TestCase
     {
         [$client, $t] = FakeTransport::client(fn () => FakeTransport::reply($e['status'], $e['body'], $e['headers'], $e['raw'] ?? null));
         try {
-            $client->sendMessage(new Message('u', 'c', 't', 'b'));
+            $client->sendMessage(new Message('c', 't', 'b', externalUserId: 'u'));
             $this->fail('expected ApiException');
         } catch (ApiException $ex) {
             $this->assertSame($e['status'], $ex->status);

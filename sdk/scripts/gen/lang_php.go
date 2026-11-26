@@ -10,43 +10,16 @@ import (
 func init() {
 	langs = append(langs, lang{
 		name: "php", out: "php/generated/types.php", tmpl: "php.tmpl",
-		funcs: template.FuncMap{"phpDoc": phpDoc, "phpParams": phpParams, "phpExtra": phpExtra, "q": phpQuote},
+		funcs: template.FuncMap{"phpDoc": phpDoc, "phpParams": phpParams, "q": phpQuote},
 		// The client's User-Agent constant stays where it is, so the version is rewritten there too.
 		manifest: []manifestVersion{{"php/src/Hansho.php", regexp.MustCompile(`(?m)^    public const VERSION = '([^']+)'`)}},
 	})
-}
-
-// phpCtorOrder fixes the constructor order of a type whose positional calls predate the generator. Every other type
-// takes its required fields first (spec order), then the optional ones (spec order), then the read-only ones.
-var phpCtorOrder = map[string][]string{
-	"Message": {"external_user_id", "channel", "title", "body", "level", "subtitle", "image_url", "template_id", "data",
-		"sound", "actions", "collapse_id", "page", "idempotency_key", "external_user_ids", "to_audience"},
-}
-
-// phpLegacyDefault names the optional response fields that read as a value (never null) when the hub leaves them out,
-// as the hand-written mappers did: "[]" for a list, "”" for a string, "0" for a number. An empty list is also left
-// out of a request. Every other optional field is null when absent, and an empty list is sent as given.
-var phpLegacyDefault = map[string]string{
-	"Audience.users": "[]", "Audience.groups": "[]",
-	"MessageResult.message_id": "''", "MessageResult.devices": "0", "MessageResult.status": "''",
-	"MessageResult.deliveries": "[]", "MessageResult.recipients": "[]",
-	"Recipient.devices": "0", "Recipient.deliveries": "[]",
-}
-
-// phpExtras are members written by hand into a generated class, so public constants keep their place.
-var phpExtras = map[string]string{
-	"Recipient": `    /** The status of a user outside the channel's audience: no message and no push. */
-    public const NO_ACCESS = 'no_access';
-
-`,
 }
 
 // phpQuote is a single-quoted PHP string.
 func phpQuote(s string) string {
 	return "'" + strings.NewReplacer(`\\`, `\\\\`, "'", `\'`).Replace(s) + "'"
 }
-
-func phpExtra(typ string) string { return phpExtras[typ] }
 
 // phpParam is one constructor parameter of a generated class, with how it reads from and writes to the wire.
 type phpParam struct {
@@ -59,37 +32,18 @@ type phpParam struct {
 }
 
 func phpParams(t *Type) []phpParam {
-	fields := append([]*Field(nil), t.Fields...)
-	if order, ok := phpCtorOrder[t.Name]; ok {
-		byWire := map[string]*Field{}
-		for _, f := range fields {
-			byWire[f.Wire] = f
+	var req, opt, ro []*Field
+	for _, f := range t.Fields {
+		switch {
+		case f.ReadOnly:
+			ro = append(ro, f)
+		case f.Required:
+			req = append(req, f)
+		default:
+			opt = append(opt, f)
 		}
-		if len(order) != len(fields) {
-			panic("php: constructor order of " + t.Name + " does not list every field")
-		}
-		fields = fields[:0]
-		for _, w := range order {
-			f := byWire[w]
-			if f == nil {
-				panic("php: constructor order of " + t.Name + " names unknown field " + w)
-			}
-			fields = append(fields, f)
-		}
-	} else {
-		var req, opt, ro []*Field
-		for _, f := range fields {
-			switch {
-			case f.ReadOnly:
-				ro = append(ro, f)
-			case f.Required:
-				req = append(req, f)
-			default:
-				opt = append(opt, f)
-			}
-		}
-		fields = append(append(req, opt...), ro...)
 	}
+	fields := append(append(req, opt...), ro...)
 	// An optional parameter before a required one cannot have a default.
 	lastRequired := -1
 	for i, f := range fields {
@@ -104,8 +58,6 @@ func phpParams(t *Type) []phpParam {
 		required := phpRequired(t, f)
 		def := ""
 		switch {
-		case phpLegacyDefault[t.Name+"."+f.Wire] != "":
-			def = " = " + phpLegacyDefault[t.Name+"."+f.Wire]
 		case f.T.Kind == "any":
 			if !required && i > lastRequired {
 				def = " = null"
@@ -138,7 +90,7 @@ func phpParams(t *Type) []phpParam {
 
 // phpRequired: the field is always there in a value the SDK holds (constructor, answer).
 func phpRequired(t *Type, f *Field) bool {
-	return (f.Required && !f.ReadOnly) || phpLegacyDefault[t.Name+"."+f.Wire] != ""
+	return f.Required && !f.ReadOnly
 }
 
 func phpNullable(native string) string {
@@ -251,14 +203,10 @@ func phpTo(t *Type, f *Field) string {
 		}
 		return p + "?->toWire()"
 	case "array":
-		omit := ""
-		if phpLegacyDefault[t.Name+"."+f.Wire] == "[]" {
-			omit = ", true"
-		}
 		if f.T.Elem.Kind == "object" {
-			return "Spec::wires(" + p + omit + ")"
+			return "Spec::wires(" + p + ")"
 		}
-		return "Spec::list(" + p + omit + ")"
+		return "Spec::list(" + p + ")"
 	}
 	panic("php: no encoder for " + f.T.Kind)
 }

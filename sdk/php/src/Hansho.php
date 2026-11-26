@@ -17,6 +17,9 @@ final class Hansho
     /** SDK version, sent in the default User-Agent. */
     public const VERSION = '0.2.0';
 
+    /** `Recipient::$status` of a user outside the channel's audience: no message and no push. */
+    public const RECIPIENT_NO_ACCESS = 'no_access';
+
     private const MAX_SOUND_BYTES = 1 << 20;
 
     private readonly string $baseUrl;

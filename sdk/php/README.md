@@ -70,7 +70,7 @@ A channel or feed is open to everyone unless it has an `Audience`: `AudienceMode
 keep on the hub. The hub decides who has access and checks it on every request, so a change applies at once.
 
 ```php
-use Recodive\Hansho\{Audience, AudienceMode, Channel, Feed, Level, Message, Recipient};
+use Recodive\Hansho\{Audience, AudienceMode, Channel, Feed, Hansho, Level, Message};
 
 $hansho->putGroup('oncall', ['alice', 'bob']); // replaces the whole member list; also getGroup, deleteGroup, listGroups
 $hansho->putChannel('pager', new Channel('Pager', Level::Page, Level::Page,
@@ -85,16 +85,16 @@ $hansho->putFeed('queue', new Feed('status', ['value' => 3], channel: 'pager'));
 $settings = $hansho->getFeed('queue'); // settings without the data; getFeed('queue', 'user-42') for a per-user feed
 
 // Send to several users, or to everyone in the channel's audience. People outside it are not delivered to.
-// externalUserId stays the first argument: pass null when you use externalUserIds or toAudience.
-$res = $hansho->sendMessage(new Message(null, 'pager', 'DB down', '...', toAudience: true));
+// Set exactly one of externalUserId, externalUserIds and toAudience.
+$res = $hansho->sendMessage(new Message('pager', 'DB down', '...', toAudience: true));
 foreach ($res->recipients as $r) {
-    if ($r->status === Recipient::NO_ACCESS) { /* only with externalUserId(s): not in the audience, no messageId */ }
+    if ($r->status === Hansho::RECIPIENT_NO_ACCESS) { /* only with externalUserId(s): not in the audience, no messageId */ }
 }
 ```
 
 `$res->recipients` has one entry per user. A send to one `externalUserId` keeps filling the top-level `messageId`,
 `devices`, `status` and `deliveries` too (for a user without access: empty `messageId`, `devices` 0, status `no_access`);
-for several users or an audience the top-level `messageId` is empty and each message is under `recipients`. An audience
+for several users or an audience the top-level `messageId` is not set (null) and each message is under `recipients`. An audience
 that names a group that does not exist is refused with `400 invalid_request`. Error codes on `ApiException::$apiCode`:
 `ApiException::NO_ACCESS` (403, `startActivity` for a user outside the channel's audience) and
 `ApiException::UNKNOWN_GROUP` (404, `getGroup`, `deleteGroup`).
@@ -129,7 +129,7 @@ new PageOptions(intervalSeconds: 60, ack: PageAck::Each); // or 'each'
 
 // A templated message.
 $hansho->putTemplate('status', 1, ['type' => 'vstack', 'children' => [['type' => 'text', 'style' => 'headline', 'text' => '{{title}}']]]);
-$hansho->sendMessage(new Message('user-42', 'ops', 'Uptime', '99.98%', templateId: 'status', data: ['title' => 'Uptime']));
+$hansho->sendMessage(new Message('ops', 'Uptime', '99.98%', templateId: 'status', data: ['title' => 'Uptime'], externalUserId: 'user-42'));
 
 // A Live Activity.
 $act = $hansho->startActivity(new Activity('user-42', 'ops', 'deploy', ['progress' => 0.1], new ActivityAlert('Deploy started')));

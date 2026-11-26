@@ -157,9 +157,9 @@ final class Spec
      *
      * @return list<mixed>|null
      */
-    public static function list(?array $v, bool $omitEmpty = false): ?array
+    public static function list(?array $v): ?array
     {
-        return $v === null || ($omitEmpty && $v === []) ? null : array_values($v);
+        return $v === null ? null : array_values($v);
     }
 
     /**
@@ -169,9 +169,9 @@ final class Spec
      *
      * @return list<array<string,mixed>>|null
      */
-    public static function wires(?array $v, bool $omitEmpty = false): ?array
+    public static function wires(?array $v): ?array
     {
-        return $v === null || ($omitEmpty && $v === []) ? null : array_values(array_map(static fn ($e) => $e->toWire(), $v));
+        return $v === null ? null : array_values(array_map(static fn ($e) => $e->toWire(), $v));
     }
 
     /**
@@ -561,13 +561,13 @@ final class Audience
     public function __construct(
         public readonly AudienceMode|string $mode,
         /**
-         * @var list<string>
+         * @var list<string>|null
          */
-        public readonly array $users = [],
+        public readonly ?array $users = null,
         /**
-         * @var list<string>
+         * @var list<string>|null
          */
-        public readonly array $groups = [],
+        public readonly ?array $groups = null,
     ) {
     }
 
@@ -582,8 +582,8 @@ final class Audience
 
         return new self(
             mode: Spec::str($w, 'mode'),
-            users: Spec::strings($w['users'] ?? null),
-            groups: Spec::strings($w['groups'] ?? null),
+            users: is_array($w['users'] ?? null) ? Spec::strings($w['users'] ?? null) : null,
+            groups: is_array($w['groups'] ?? null) ? Spec::strings($w['groups'] ?? null) : null,
         );
     }
 
@@ -598,8 +598,8 @@ final class Audience
     {
         return Spec::defined([
             'mode' => Spec::value($this->mode),
-            'users' => Spec::list($this->users, true),
-            'groups' => Spec::list($this->groups, true),
+            'users' => Spec::list($this->users),
+            'groups' => Spec::list($this->groups),
         ]);
     }
 }
@@ -922,11 +922,19 @@ final class Group
 final class Message
 {
     public function __construct(
-        /** Exactly one of `external_user_id`, `external_user_ids` and `to_audience` is required. */
-        public readonly ?string $externalUserId,
         public readonly string $channel,
         public readonly string $title,
         public readonly string $body,
+        /** Exactly one of `external_user_id`, `external_user_ids` and `to_audience` is required. */
+        public readonly ?string $externalUserId = null,
+        /**
+         * Sends to several users at once (at most 1000).
+         *
+         * @var list<string>|null
+         */
+        public readonly ?array $externalUserIds = null,
+        /** Sends to every paired user in the channel's audience, resolved when you send. */
+        public readonly ?bool $toAudience = null,
         public readonly Level|string|null $level = null,
         public readonly ?string $subtitle = null,
         public readonly ?string $imageUrl = null,
@@ -945,14 +953,6 @@ final class Message
          * hub ignores it today, so a retried send is at-least-once.
          */
         public readonly ?string $idempotencyKey = null,
-        /**
-         * Sends to several users at once (at most 1000).
-         *
-         * @var list<string>|null
-         */
-        public readonly ?array $externalUserIds = null,
-        /** Sends to every paired user in the channel's audience, resolved when you send. */
-        public readonly ?bool $toAudience = null,
     ) {
     }
 
@@ -966,10 +966,12 @@ final class Message
         $w = is_array($raw) ? $raw : [];
 
         return new self(
-            externalUserId: Spec::optStr($w, 'external_user_id'),
             channel: Spec::str($w, 'channel'),
             title: Spec::str($w, 'title'),
             body: Spec::str($w, 'body'),
+            externalUserId: Spec::optStr($w, 'external_user_id'),
+            externalUserIds: is_array($w['external_user_ids'] ?? null) ? Spec::strings($w['external_user_ids'] ?? null) : null,
+            toAudience: Spec::optBool($w, 'to_audience'),
             level: Spec::optStr($w, 'level'),
             subtitle: Spec::optStr($w, 'subtitle'),
             imageUrl: Spec::optStr($w, 'image_url'),
@@ -979,8 +981,6 @@ final class Message
             actions: is_array($w['actions'] ?? null) ? Spec::objects($w['actions'] ?? null, Action::fromWire(...)) : null,
             collapseId: Spec::optStr($w, 'collapse_id'),
             page: is_array($w['page'] ?? null) ? PageOptions::fromWire($w['page']) : null,
-            externalUserIds: is_array($w['external_user_ids'] ?? null) ? Spec::strings($w['external_user_ids'] ?? null) : null,
-            toAudience: Spec::optBool($w, 'to_audience'),
         );
     }
 
@@ -994,10 +994,12 @@ final class Message
     public function toWire(): array
     {
         return Spec::defined([
-            'external_user_id' => $this->externalUserId,
             'channel' => $this->channel,
             'title' => $this->title,
             'body' => $this->body,
+            'external_user_id' => $this->externalUserId,
+            'external_user_ids' => Spec::list($this->externalUserIds),
+            'to_audience' => $this->toAudience,
             'level' => Spec::value($this->level),
             'subtitle' => $this->subtitle,
             'image_url' => $this->imageUrl,
@@ -1007,8 +1009,6 @@ final class Message
             'actions' => Spec::wires($this->actions),
             'collapse_id' => $this->collapseId,
             'page' => $this->page?->toWire(),
-            'external_user_ids' => Spec::list($this->externalUserIds),
-            'to_audience' => $this->toAudience,
         ]);
     }
 }
@@ -1144,19 +1144,19 @@ final class MessageResult
 {
     public function __construct(
         public readonly Level|string $level,
-        public readonly string $messageId = '',
-        public readonly int $devices = 0,
-        public readonly string $status = '',
+        public readonly ?string $messageId = null,
+        public readonly ?int $devices = null,
+        public readonly ?string $status = null,
         /**
-         * @var list<Delivery>
+         * @var list<Delivery>|null
          */
-        public readonly array $deliveries = [],
+        public readonly ?array $deliveries = null,
         /**
          * One entry per user.
          *
-         * @var list<Recipient>
+         * @var list<Recipient>|null
          */
-        public readonly array $recipients = [],
+        public readonly ?array $recipients = null,
     ) {
     }
 
@@ -1171,11 +1171,11 @@ final class MessageResult
 
         return new self(
             level: Spec::str($w, 'level'),
-            messageId: Spec::str($w, 'message_id'),
-            devices: Spec::int($w, 'devices'),
-            status: Spec::str($w, 'status'),
-            deliveries: Spec::objects($w['deliveries'] ?? null, Delivery::fromWire(...)),
-            recipients: Spec::objects($w['recipients'] ?? null, Recipient::fromWire(...)),
+            messageId: Spec::optStr($w, 'message_id'),
+            devices: Spec::optInt($w, 'devices'),
+            status: Spec::optStr($w, 'status'),
+            deliveries: is_array($w['deliveries'] ?? null) ? Spec::objects($w['deliveries'] ?? null, Delivery::fromWire(...)) : null,
+            recipients: is_array($w['recipients'] ?? null) ? Spec::objects($w['recipients'] ?? null, Recipient::fromWire(...)) : null,
         );
     }
 
@@ -1193,8 +1193,8 @@ final class MessageResult
             'message_id' => $this->messageId,
             'devices' => $this->devices,
             'status' => $this->status,
-            'deliveries' => Spec::wires($this->deliveries, true),
-            'recipients' => Spec::wires($this->recipients, true),
+            'deliveries' => Spec::wires($this->deliveries),
+            'recipients' => Spec::wires($this->recipients),
         ]);
     }
 }
@@ -1441,19 +1441,16 @@ final class PairingTicket
 /** The outcome of a send for one user. */
 final class Recipient
 {
-    /** The status of a user outside the channel's audience: no message and no push. */
-    public const NO_ACCESS = 'no_access';
-
     public function __construct(
         public readonly string $externalUserId,
         /** The message status (queued, undeliverable) or `no_access`, with no message id. */
         public readonly string $status,
         public readonly ?string $messageId = null,
-        public readonly int $devices = 0,
+        public readonly ?int $devices = null,
         /**
-         * @var list<Delivery>
+         * @var list<Delivery>|null
          */
-        public readonly array $deliveries = [],
+        public readonly ?array $deliveries = null,
     ) {
     }
 
@@ -1470,8 +1467,8 @@ final class Recipient
             externalUserId: Spec::str($w, 'external_user_id'),
             status: Spec::str($w, 'status'),
             messageId: Spec::optStr($w, 'message_id'),
-            devices: Spec::int($w, 'devices'),
-            deliveries: Spec::objects($w['deliveries'] ?? null, Delivery::fromWire(...)),
+            devices: Spec::optInt($w, 'devices'),
+            deliveries: is_array($w['deliveries'] ?? null) ? Spec::objects($w['deliveries'] ?? null, Delivery::fromWire(...)) : null,
         );
     }
 
@@ -1489,7 +1486,7 @@ final class Recipient
             'status' => $this->status,
             'message_id' => $this->messageId,
             'devices' => $this->devices,
-            'deliveries' => Spec::wires($this->deliveries, true),
+            'deliveries' => Spec::wires($this->deliveries),
         ]);
     }
 }

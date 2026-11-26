@@ -194,7 +194,7 @@ final class IntegrationTest extends TestCase
         // errors
         $this->assertApiError(fn () => (new Hansho($hubUrl, 'ck_not_a_key'))->createPairingTicket('x'), 401, 'unauthorized');
         $this->assertApiError(fn () => $c->getChannel('no-such-channel'), 404, 'unknown_channel');
-        $this->assertApiError(fn () => $c->sendMessage(new Message($user, $ch, '', 'b')), 400, 'invalid_request', 'title');
+        $this->assertApiError(fn () => $c->sendMessage(new Message($ch, '', 'b', externalUserId: $user)), 400, 'invalid_request', 'title');
 
         // catalog
         $sound = $c->putSound($snd, 'audio/wav', self::tinyWav());
@@ -222,7 +222,7 @@ final class IntegrationTest extends TestCase
 
         // messages at every level
         foreach ([Level::Passive, Level::Active, Level::TimeSensitive, Level::Critical] as $level) {
-            $res = $c->sendMessage(new Message($user, $ch, 'Disk full', 'db-1 is at 97%', $level, data: ['disk' => 97], sound: $snd, collapseId: "disk-{$level->value}"));
+            $res = $c->sendMessage(new Message($ch, 'Disk full', 'db-1 is at 97%', level: $level, data: ['disk' => 97], sound: $snd, collapseId: "disk-{$level->value}", externalUserId: $user));
             $this->assertSame($level->value, $res->level);
             $this->assertSame(1, $res->devices);
             $this->assertStringStartsWith('msg_', $res->messageId);
@@ -232,11 +232,11 @@ final class IntegrationTest extends TestCase
             $this->assertSame('sent', $ms->deliveries[0]->status);
             $this->waitEvent('message.delivered', fn ($d) => $d['messageId'] === $res->messageId && $d['level'] === $level->value && $d['devices'] === 1);
         }
-        $def = $c->sendMessage(new Message($user, $ch, 'Default', 'b'));
+        $def = $c->sendMessage(new Message($ch, 'Default', 'b', externalUserId: $user));
         $this->assertSame('active', $def->level);
 
         // page + acknowledgement from the (fake) device
-        $page = $c->sendMessage(new Message($user, $ch, 'Primary DB down', 'Failover failed', Level::Page, page: new PageOptions(60, 3)));
+        $page = $c->sendMessage(new Message($ch, 'Primary DB down', 'Failover failed', level: Level::Page, page: new PageOptions(60, 3), externalUserId: $user));
         $this->assertSame('page', $page->level);
         $this->waitStatus($c, $page->messageId, 'paging');
         $this->fakeDevice('ack', '-state', $statePath, '-message', $page->messageId);
@@ -268,7 +268,7 @@ final class IntegrationTest extends TestCase
         // unpair, then nobody is left to deliver to
         $c->unpair($user);
         $this->waitEvent('pairing.revoked', fn ($d) => $d['externalUserId'] === $user && $d['by'] === 'sender');
-        $none = $c->sendMessage(new Message($user, $ch, 'Anyone?', 'b'));
+        $none = $c->sendMessage(new Message($ch, 'Anyone?', 'b', externalUserId: $user));
         $this->assertSame(0, $none->devices);
         $this->waitStatus($c, $none->messageId, 'undeliverable');
         $this->waitEvent('message.undeliverable', fn ($d) => $d['messageId'] === $none->messageId);
