@@ -42,6 +42,17 @@ err = c.Unpair(ctx, "user-42") // revokes every pairing of the user
 err = c.Kick(ctx, "user-42")   // the same call; the app tells the person that you ended it
 ```
 
+## Users
+
+A user can have a display name, which other people see instead of their external user id (any language, trimmed, at
+most 40 characters, no control characters). Set it with the ticket, or any time later; "" clears it.
+
+```go
+ticket, err := c.CreatePairingTicket(ctx, "user-42", hansho.WithDisplayName("Ada Lovelace"))
+err = c.SetUserDisplayName(ctx, "user-42", "Ada L.") // PUT /api/v1/users/user-42
+err = c.SetUserDisplayName(ctx, "user-42", "")       // back to the id
+```
+
 ## Audiences and groups
 
 A channel or feed is open to everyone unless it has an `Audience`: `AudienceOnly` the listed users and groups, or
@@ -91,6 +102,15 @@ c.SendMessage(ctx, hansho.Message{
 })
 
 st, err := c.GetMessage(ctx, res.MessageID) // queued, delivered, undeliverable, paging, acked, expired
+// Once acked: st.AckedAt, st.AckedBy (external user id) and st.AckedByName (empty unless they have one).
+
+// A page to several people: by default the first acknowledgement stops it for everyone ("any").
+// With Ack: "each" every recipient has to acknowledge for themselves.
+c.SendMessage(ctx, hansho.Message{
+    ExternalUserIDs: []string{"alice", "bob"}, Channel: "ops", Level: hansho.LevelPage,
+    Title: "Primary DB down", Body: "Failover did not complete",
+    Page: &hansho.PageOptions{Ack: "each"},
+})
 
 // A templated message: data is rendered by the app with the template.
 c.PutTemplate(ctx, "status", 1, json.RawMessage(`{"type":"vstack","children":[{"type":"text","style":"headline","text":"{{title}}"}]}`))

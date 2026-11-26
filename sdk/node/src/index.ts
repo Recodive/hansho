@@ -22,6 +22,7 @@ export type {
   MessageStatus,
   PageOptions,
   PairingTicket,
+  PairingTicketOptions,
   Recipient,
   RequestOptions,
   SoundResult,

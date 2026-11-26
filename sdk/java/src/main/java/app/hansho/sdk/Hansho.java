@@ -146,10 +146,31 @@ public final class Hansho {
      * for the user to scan in the Hansho app. The hub then sends a {@code pairing.created} webhook.
      */
     public PairingTicket createPairingTicket(String externalUserId) {
+        return createPairingTicket(externalUserId, null);
+    }
+
+    /**
+     * Like {@link #createPairingTicket(String)}, and gives the user a display name with the ticket: what other people
+     * see instead of their id (any language, trimmed, at most 40 characters, no control characters). {@code null}
+     * sends none; {@code ""} is sent as given.
+     */
+    public PairingTicket createPairingTicket(String externalUserId, String displayName) {
         requireId(externalUserId);
         ObjectNode body = Json.MAPPER.createObjectNode().put("external_user_id", externalUserId);
+        Json.put(body, "display_name", displayName);
         JsonNode w = json("POST", "/api/v1/pairing-tickets", body);
         return new PairingTicket(Json.str(w.get("ticket")), Json.str(w.get("qr")), instant(w.get("expires_at")));
+    }
+
+    // --- users ---------------------------------------------------------------
+
+    /**
+     * Sets what other people see for the user instead of their external user id: any language, trimmed, at most 40
+     * characters, no control characters. {@code ""} (or {@code null}) clears it. The user need not be paired yet.
+     */
+    public void setUserDisplayName(String externalUserId, String displayName) {
+        ObjectNode body = Json.MAPPER.createObjectNode().put("display_name", displayName == null ? "" : displayName);
+        json("PUT", "/api/v1/users/" + seg(externalUserId), body);
     }
 
     /** Revokes every pairing of the user. */
@@ -290,6 +311,9 @@ public final class Hansho {
             if (m.page().maxRetries() != null) {
                 p.put("max_retries", m.page().maxRetries());
             }
+            if (m.page().ack() != null) {
+                p.put("ack", m.page().ack().wire());
+            }
         }
         String key = m.idempotencyKey();
         boolean keyed = key != null && !key.isEmpty();
@@ -311,7 +335,9 @@ public final class Hansho {
                 Level.fromWire(Json.optStr(w.get("level"))),
                 (int) Json.num(w.get("attempts")),
                 deliveriesFromWire(w.get("deliveries")),
-                instant(w.get("acked_at")));
+                instant(w.get("acked_at")),
+                Json.optStr(w.get("acked_by")),
+                Json.optStr(w.get("acked_by_name")));
     }
 
     // --- live activities and feeds -------------------------------------------

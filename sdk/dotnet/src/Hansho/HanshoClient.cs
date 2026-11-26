@@ -94,11 +94,32 @@ public sealed class HanshoClient : IDisposable
     /// Creates a single-use pairing ticket (valid 10 minutes). Render <see cref="PairingTicket.Qr"/> as a QR code
     /// for the user to scan in the Hansho app.
     /// </summary>
-    public async Task<PairingTicket> CreatePairingTicketAsync(string externalUserId, CancellationToken cancellationToken = default)
+    public Task<PairingTicket> CreatePairingTicketAsync(string externalUserId, CancellationToken cancellationToken = default) =>
+        CreatePairingTicketAsync(externalUserId, null, cancellationToken);
+
+    /// <summary>
+    /// Like <see cref="CreatePairingTicketAsync(string, CancellationToken)"/>, and gives the user a display name with
+    /// the ticket: what other people see instead of their id (any language, trimmed, at most 40 characters, no control
+    /// characters). Null sends none; "" is sent as given.
+    /// </summary>
+    public async Task<PairingTicket> CreatePairingTicketAsync(string externalUserId, string? displayName, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(externalUserId)) throw new ArgumentException("hansho: id must not be empty", nameof(externalUserId));
-        var w = await JsonCallAsync("POST", "/api/v1/pairing-tickets", new JsonObject { ["external_user_id"] = externalUserId }, cancellationToken).ConfigureAwait(false);
+        var body = new JsonObject { ["external_user_id"] = externalUserId };
+        if (displayName is not null) body["display_name"] = displayName;
+        var w = await JsonCallAsync("POST", "/api/v1/pairing-tickets", body, cancellationToken).ConfigureAwait(false);
         return new PairingTicket(Str(w, "ticket"), Str(w, "qr"), Time(w, "expires_at") ?? default);
+    }
+
+    // --- users ---------------------------------------------------------------
+
+    /// <summary>
+    /// Sets what other people see for the user instead of their external user id: any language, trimmed, at most 40
+    /// characters, no control characters. "" (or null) clears it. The user need not be paired yet.
+    /// </summary>
+    public async Task SetUserDisplayNameAsync(string externalUserId, string? displayName, CancellationToken cancellationToken = default)
+    {
+        await JsonCallAsync("PUT", $"/api/v1/users/{Seg(externalUserId)}", new JsonObject { ["display_name"] = displayName ?? "" }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Revokes every pairing of the user.</summary>
@@ -230,6 +251,7 @@ public sealed class HanshoClient : IDisposable
             var p = new JsonObject();
             if (page.IntervalSeconds is { } i) p["interval_s"] = i;
             if (page.MaxRetries is { } m) p["max_retries"] = m;
+            if (page.Ack is { } ack) p["ack"] = ack.Value;
             body["page"] = p;
         }
 
@@ -243,7 +265,11 @@ public sealed class HanshoClient : IDisposable
     public async Task<MessageStatus> GetMessageAsync(string id, CancellationToken cancellationToken = default)
     {
         var w = await JsonCallAsync("GET", $"/api/v1/messages/{Seg(id)}", null, cancellationToken).ConfigureAwait(false);
-        return new MessageStatus(Str(w, "message_id"), Str(w, "status"), new Level(Str(w, "level")), Int(w, "attempts"), DeliveriesFromWire(w), Time(w, "acked_at"));
+        return new MessageStatus(Str(w, "message_id"), Str(w, "status"), new Level(Str(w, "level")), Int(w, "attempts"), DeliveriesFromWire(w), Time(w, "acked_at"))
+        {
+            AckedBy = OptStr(w, "acked_by"),
+            AckedByName = OptStr(w, "acked_by_name"),
+        };
     }
 
     // --- live activities and feeds -------------------------------------------

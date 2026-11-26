@@ -51,6 +51,16 @@ hansho.unpair("user-42")  # revokes every pairing of the user
 hansho.kick("user-42")    # the same call; the app tells the person that you ended it
 ```
 
+## Users
+
+```python
+# What other people see for the user instead of their id (any language, max 40 characters).
+hansho.set_user_display_name("user-42", "Ada Lovelace")
+hansho.set_user_display_name("user-42", "")  # clears it
+# Or give it with the pairing ticket:
+hansho.create_pairing_ticket("user-42", display_name="Ada Lovelace")
+```
+
 ## Audiences and groups
 
 A channel or feed is open to everyone unless it has an `Audience`: `"only"` the listed users and groups, or
@@ -111,6 +121,12 @@ page = hansho.send_message(Message(
     page=PageOptions(interval_seconds=60, max_retries=10),
 ))
 status = hansho.get_message(page.message_id)  # queued, delivered, undeliverable, paging, acked, expired
+# status.acked_by is who acknowledged (external user id), status.acked_by_name their display name if they have one.
+
+# A page to several people stops for everyone at the first acknowledgement (ack="any", the default).
+# ack="each" keeps paging each person until they acknowledge for themselves.
+Message(external_user_ids=["alice", "bob"], channel="ops", level="page", title="DB down", body="...",
+        page=PageOptions(ack="each"))
 
 # A templated message; data is sent exactly as given (its keys are never renamed).
 hansho.put_template("status", 1, {"type": "vstack", "children": [{"type": "text", "style": "headline", "text": "{{title}}"}]})
@@ -161,7 +177,7 @@ class Hook(BaseHTTPRequestHandler):
             self.send_response(400)  # non-2xx: the hub retries
         else:
             if event.type == "message.acked":
-                print("acknowledged:", event.data.message_id)
+                print("acknowledged:", event.data.message_id, event.data.acked_by, event.data.acked_by_name)
             elif event.type == "action":
                 print("button", event.data.action_id, "on", event.data.message_id)
             elif event.type == "unknown":

@@ -3,6 +3,7 @@ package app.hansho.sdk;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -243,6 +244,26 @@ class WebhookTest {
         assertEquals("m", a.messageId());
         assertEquals("u", a.externalUserId());
         assertEquals("d", a.deviceId());
+    }
+
+    @Test
+    void parsesWhoAcknowledged() throws Exception {
+        long t = Instant.now().getEpochSecond();
+        String with = "{\"id\":\"9\",\"event\":\"message.acked\",\"created_at\":5,\"data\":{\"message_id\":\"m\",\"device_id\":\"d\",\"external_user_id\":\"u\",\"acked_by\":\"alice\",\"acked_by_name\":\"Zoë 日本語\"}}";
+        WebhookEvent.MessageAcked a = (WebhookEvent.MessageAcked) Webhook.verify("s", sign("s", t, with), with);
+        assertEquals("u", a.externalUserId());
+        assertEquals("alice", a.ackedBy());
+        assertEquals("Zoë 日本語", a.ackedByName());
+
+        String noName = "{\"id\":\"9\",\"event\":\"message.acked\",\"created_at\":5,\"data\":{\"message_id\":\"m\",\"device_id\":\"d\",\"external_user_id\":\"u\",\"acked_by\":\"alice\"}}";
+        a = (WebhookEvent.MessageAcked) Webhook.verify("s", sign("s", t, noName), noName);
+        assertEquals("alice", a.ackedBy());
+        assertNull(a.ackedByName());
+
+        String without = "{\"id\":\"9\",\"event\":\"message.acked\",\"created_at\":5,\"data\":{\"message_id\":\"m\",\"device_id\":\"d\",\"external_user_id\":\"u\"}}";
+        a = (WebhookEvent.MessageAcked) Webhook.verify("s", sign("s", t, without), without);
+        assertNull(a.ackedBy());
+        assertNull(a.ackedByName());
     }
 
     @Test

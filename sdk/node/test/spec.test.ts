@@ -29,6 +29,16 @@ const calls: Record<string, { call: (c: Hansho) => Promise<unknown>; want: unkno
       expiresAt: new Date("2026-11-08T12:10:00Z"),
     },
   },
+  createPairingTicketWithName: {
+    call: (c) => c.createPairingTicket("user-42", { displayName: "Zoë 日本語" }),
+    want: {
+      ticket: "tk_def",
+      qr: "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_def&fp=ff00",
+      expiresAt: new Date("2026-11-08T12:10:00Z"),
+    },
+  },
+  setUserDisplayName: { call: (c) => c.setUserDisplayName("user-42", "Zoë 日本語"), want: undefined },
+  clearUserDisplayName: { call: (c) => c.setUserDisplayName("user 42", ""), want: undefined },
   unpair: { call: (c) => c.unpair("user-42"), want: undefined },
   putChannel: { call: (c) => c.putChannel("ops", { ...specChannel, actions: [...specChannel.actions] }), want: undefined },
   getChannel: {
@@ -83,6 +93,40 @@ const calls: Record<string, { call: (c: Hansho) => Promise<unknown>; want: unkno
       }),
     want: { messageId: "msg_2", level: "page", devices: 1, status: "queued", deliveries: [{ deviceId: "dev_1", status: "queued" }] },
   },
+  sendPageEach: {
+    call: (c) =>
+      c.sendMessage({
+        externalUserIds: ["alice", "bob"],
+        channel: "ops",
+        level: "page",
+        title: "Primary DB down",
+        body: "Failover did not complete",
+        page: { intervalSeconds: 60, maxRetries: 3, ack: "each" },
+      }),
+    want: {
+      messageId: "",
+      level: "page",
+      devices: 0,
+      status: "",
+      deliveries: [],
+      recipients: [
+        { externalUserId: "alice", messageId: "msg_3", status: "queued", devices: 1, deliveries: [{ deviceId: "dev_1", status: "queued" }] },
+        { externalUserId: "bob", messageId: "msg_4", status: "queued", devices: 1, deliveries: [{ deviceId: "dev_2", status: "queued" }] },
+      ],
+    },
+  },
+  getMessageAckedNoName: {
+    call: (c) => c.getMessage("msg_3"),
+    want: {
+      messageId: "msg_3",
+      status: "acked",
+      level: "page",
+      attempts: 1,
+      deliveries: [{ deviceId: "dev_1", status: "sent" }],
+      ackedAt: new Date("2026-11-08T12:05:00Z"),
+      ackedBy: "alice",
+    },
+  },
   getMessage: {
     call: (c) => c.getMessage("msg_2"),
     want: {
@@ -95,6 +139,8 @@ const calls: Record<string, { call: (c: Hansho) => Promise<unknown>; want: unkno
         { deviceId: "dev_2", status: "failed", error: "unregistered" },
       ],
       ackedAt: new Date("2026-11-08T12:05:00Z"),
+      ackedBy: "user-42",
+      ackedByName: "Zoë 日本語",
     },
   },
   startActivity: {

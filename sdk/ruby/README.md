@@ -47,6 +47,18 @@ ticket = hansho.create_pairing_ticket("user-42")
 
 hansho.unpair("user-42") # revokes every pairing of the user
 hansho.kick("user-42")   # the same call; the app tells the person that you ended it
+
+# Optionally give the user a display name with the ticket:
+hansho.create_pairing_ticket("user-42", display_name: "Ada Lovelace")
+```
+
+## Users
+
+```ruby
+# What other people see for a user instead of their external id (acknowledged-by, ...): any language,
+# trimmed, at most 40 characters, no control characters. The user need not be paired yet.
+hansho.set_user_display_name("user-42", "Ada Lovelace")
+hansho.set_user_display_name("user-42", "") # clears it
 ```
 
 ## Audiences and groups
@@ -104,6 +116,13 @@ page = hansho.send_message(
   page: { interval_seconds: 60, max_retries: 10 }
 )
 status = hansho.get_message(page.message_id) # status.status: queued, delivered, undeliverable, paging, acked, expired
+status.acked_by      # who acknowledged: their external user id (nil until acked)
+status.acked_by_name # their display name, only when they have one (the message.acked webhook carries both too)
+
+# A page to several people stops for everyone at the first acknowledgement ("any", the default).
+# With ack: "each" every person keeps being paged until they acknowledge for themselves.
+hansho.send_message(external_user_ids: %w[alice bob], channel: "ops", level: :page, title: "DB down", body: "...",
+                    page: { interval_seconds: 60, ack: "each" })
 
 # A templated message; data is sent exactly as given (its keys are never renamed).
 hansho.put_template("status", 1, { type: "vstack", children: [{ type: "text", style: "headline", text: "{{title}}" }] })

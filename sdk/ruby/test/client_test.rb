@@ -192,6 +192,55 @@ class ClientTest < Minitest::Test
     end
   end
 
+  def test_display_name_put_path_escaping_and_empty_id
+    with_hub(->(_r) { reply(204, "") }) do |h|
+      assert_nil h.client.set_user_display_name("a/b c", "Ada")
+      h.client.set_user_display_name("u", "")
+      r = h.requests
+      assert_equal "PUT", r[0].method
+      assert_equal "/api/v1/users/a%2Fb%20c", r[0].target
+      assert_equal({ "display_name" => "Ada" }, body_of(r[0]))
+      assert_equal({ "display_name" => "" }, body_of(r[1]))
+      assert_raises(ArgumentError) { h.client.set_user_display_name("", "x") }
+      assert_equal 2, h.requests.length
+    end
+  end
+
+  def test_pairing_ticket_body_with_and_without_display_name
+    with_hub(->(_r) { reply(201, '{"ticket":"t","qr":"q","expires_at":"2026-11-08T12:10:00Z"}') }) do |h|
+      h.client.create_pairing_ticket("u")
+      h.client.create_pairing_ticket("u", display_name: "")
+      h.client.create_pairing_ticket("u", display_name: "Ada")
+      assert_equal({ "external_user_id" => "u" }, body_of(h.requests[0]))
+      assert_equal({ "external_user_id" => "u", "display_name" => "" }, body_of(h.requests[1]))
+      assert_equal "Ada", body_of(h.requests[2])["display_name"]
+    end
+  end
+
+  def test_page_ack_option_is_sent_only_when_set
+    with_hub do |h|
+      h.client.send_message(**MSG, level: :page, page: { interval_seconds: 60 })
+      h.client.send_message(**MSG, level: :page, page: { ack: :each })
+      h.client.send_message(**MSG, level: :page, page: { ack: "any" })
+      assert_equal({ "interval_s" => 60 }, body_of(h.requests[0])["page"])
+      assert_equal({ "ack" => "each" }, body_of(h.requests[1])["page"])
+      assert_equal({ "ack" => "any" }, body_of(h.requests[2])["page"])
+    end
+  end
+
+  def test_message_status_acked_by_present_and_absent
+    with_hub(->(_r) { reply(200, '{"message_id":"m","status":"acked","acked_by":"bob","acked_by_name":"Bob ボブ"}') }) do |h|
+      ms = h.client.get_message("m")
+      assert_equal "bob", ms.acked_by
+      assert_equal "Bob ボブ", ms.acked_by_name
+    end
+    with_hub(->(_r) { reply(200, '{"message_id":"m","status":"acked"}') }) do |h|
+      ms = h.client.get_message("m")
+      assert_nil ms.acked_by
+      assert_nil ms.acked_by_name
+    end
+  end
+
   def test_missing_optional_response_fields_are_nil_or_empty
     with_hub(->(_r) { reply(200, '{"message_id":"m","status":"queued"}') }) do |h|
       ms = h.client.get_message("m")

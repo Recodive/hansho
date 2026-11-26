@@ -73,6 +73,9 @@ class PageOptions:
     interval_seconds: Optional[int] = None
     #: Resends before the page expires (hub default 5).
     max_retries: Optional[int] = None
+    #: Who must acknowledge a page sent to several people: "any" (hub default) stops it for everyone at the
+    #: first acknowledgement, "each" keeps paging each person until they acknowledge for themselves.
+    ack: Optional[Literal["any", "each"]] = None
 
 
 @dataclass
@@ -161,6 +164,10 @@ class MessageStatus:
     attempts: int
     deliveries: List[Delivery]
     acked_at: Optional[datetime] = None
+    #: Who acknowledged a page: their external user id.
+    acked_by: Optional[str] = None
+    #: The display name of whoever acknowledged; only when they have one.
+    acked_by_name: Optional[str] = None
 
 
 @dataclass

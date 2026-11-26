@@ -144,6 +144,20 @@ class ReplayProtection(unittest.TestCase):
         self.assertEqual(code_of(lambda: verify_webhook(secret="s", header=self.header, body=self.body)), "stale")
 
 
+class AckedBy(unittest.TestCase):
+    def ack(self, data: str) -> Any:
+        body = '{"id":"9","event":"message.acked","created_at":5,"data":' + data + "}"
+        return verify_webhook(secret="s", header=sign("s", 1700000000, body), body=body, now=1700000000).data
+
+    def test_present(self) -> None:
+        d = self.ack('{"message_id":"m","device_id":"d","external_user_id":"u","acked_by":"bob","acked_by_name":"Bob ボブ"}')
+        self.assertEqual((d.acked_by, d.acked_by_name), ("bob", "Bob ボブ"))
+
+    def test_absent(self) -> None:
+        d = self.ack('{"message_id":"m","device_id":"d","external_user_id":"u"}')
+        self.assertEqual((d.message_id, d.acked_by, d.acked_by_name), ("m", None, None))
+
+
 class RawBody(unittest.TestCase):
     valid = vector("valid message.acked")
     sec = "whsec_sdk_vectors"
@@ -277,7 +291,7 @@ class ForwardCompatibility(unittest.TestCase):
         body = '{"id":"8","event":"message.acked","created_at":5,"data":{"message_id":"m","device_id":"d","external_user_id":"u","from_the_future":true}}'
         ev = verify_webhook(secret="s", header=sign("s", self.t, body), body=body)
         self.assertEqual(ev.type, "message.acked")
-        self.assertEqual(dataclasses.asdict(ev.data), {"message_id": "m", "external_user_id": "u", "device_id": "d"})
+        self.assertEqual(drop_none(dataclasses.asdict(ev.data)), {"message_id": "m", "external_user_id": "u", "device_id": "d"})
 
     def test_action_text_is_optional(self) -> None:
         body = '{"id":"9","event":"action","created_at":5,"data":{"message_id":"m","action_id":"a","device_id":"d","external_user_id":"u"}}'

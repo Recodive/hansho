@@ -171,6 +171,10 @@ type MessageStatus struct {
 	Attempts   int        `json:"attempts"`
 	Deliveries []Delivery `json:"deliveries"`
 	AckedAt    time.Time  `json:"acked_at"`
+	// AckedBy is who acknowledged a page (their external user id) and AckedByName their display name, empty unless
+	// they have one.
+	AckedBy     string `json:"acked_by,omitempty"`
+	AckedByName string `json:"acked_by_name,omitempty"`
 }
 
 // ActivityAlert is the optional banner shown with a Live Activity change.

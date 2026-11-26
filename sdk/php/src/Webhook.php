@@ -138,6 +138,15 @@ final class Webhook
             case 'message.undeliverable':
                 return ['messageId' => $s($d['message_id'] ?? null), 'externalUserId' => $s($d['external_user_id'] ?? null), 'channel' => $s($d['channel'] ?? null), 'reason' => $s($d['reason'] ?? null)];
             case 'message.acked':
+                $out = ['messageId' => $s($d['message_id'] ?? null), 'externalUserId' => $s($d['external_user_id'] ?? null), 'deviceId' => $s($d['device_id'] ?? null)];
+                if (isset($d['acked_by']) && is_string($d['acked_by'])) {
+                    $out['ackedBy'] = $d['acked_by'];
+                }
+                if (isset($d['acked_by_name']) && is_string($d['acked_by_name'])) {
+                    $out['ackedByName'] = $d['acked_by_name'];
+                }
+
+                return $out;
             case 'message.dismissed':
                 return ['messageId' => $s($d['message_id'] ?? null), 'externalUserId' => $s($d['external_user_id'] ?? null), 'deviceId' => $s($d['device_id'] ?? null)];
             case 'message.expired':

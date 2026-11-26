@@ -71,6 +71,10 @@ class MessageAcked:
     message_id: str
     external_user_id: str
     device_id: str
+    #: Who acknowledged: their external user id (differs from external_user_id when a page went to several people).
+    acked_by: Optional[str] = None
+    #: The acknowledger's display name; only when they have one.
+    acked_by_name: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -190,7 +194,13 @@ def _payload(name: str, d: Dict[str, Any]) -> Optional[Payload]:
     if name == "message.undeliverable":
         return MessageUndeliverable(_s(d.get("message_id")), _s(d.get("external_user_id")), _s(d.get("channel")), _s(d.get("reason")))
     if name == "message.acked":
-        return MessageAcked(_s(d.get("message_id")), _s(d.get("external_user_id")), _s(d.get("device_id")))
+        return MessageAcked(
+            _s(d.get("message_id")),
+            _s(d.get("external_user_id")),
+            _s(d.get("device_id")),
+            d["acked_by"] if isinstance(d.get("acked_by"), str) else None,
+            d["acked_by_name"] if isinstance(d.get("acked_by_name"), str) else None,
+        )
     if name == "message.dismissed":
         return MessageDismissed(_s(d.get("message_id")), _s(d.get("external_user_id")), _s(d.get("device_id")))
     if name == "message.expired":

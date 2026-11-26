@@ -66,14 +66,24 @@ final class Hansho
 
     /**
      * Creates a single-use pairing ticket (valid 10 minutes). Render `qr` as a QR code for the user to scan in the
-     * Hansho app.
+     * Hansho app. `$displayName` (when not null) is what other people see for the user instead of their id; '' is
+     * sent as given.
      */
-    public function createPairingTicket(string $externalUserId): PairingTicket
+    public function createPairingTicket(string $externalUserId, ?string $displayName = null): PairingTicket
     {
         self::seg($externalUserId);
-        $w = $this->json('POST', '/api/v1/pairing-tickets', ['external_user_id' => $externalUserId]);
+        $w = $this->json('POST', '/api/v1/pairing-tickets', self::defined(['external_user_id' => $externalUserId, 'display_name' => $displayName]));
 
         return new PairingTicket(self::str($w, 'ticket'), self::str($w, 'qr'), new \DateTimeImmutable(self::str($w, 'expires_at')));
+    }
+
+    /**
+     * Sets what other people see for the user instead of their external user id: any language, trimmed, at most 40
+     * characters, no control characters. '' clears it. The user does not need to be paired yet.
+     */
+    public function setUserDisplayName(string $externalUserId, string $displayName): void
+    {
+        $this->json('PUT', '/api/v1/users/' . self::seg($externalUserId), ['display_name' => $displayName]);
     }
 
     /** Revokes every pairing of the user. */
@@ -201,6 +211,7 @@ final class Hansho
             'page' => $m->page === null ? null : self::defined([
                 'interval_s' => $m->page->intervalSeconds,
                 'max_retries' => $m->page->maxRetries,
+                'ack' => $m->page->ack,
             ]),
         ]);
         $retry = $m->idempotencyKey !== null && $m->idempotencyKey !== '';
@@ -234,6 +245,8 @@ final class Hansho
             self::int($w, 'attempts'),
             self::deliveries($w['deliveries'] ?? null),
             isset($w['acked_at']) && is_string($w['acked_at']) ? new \DateTimeImmutable($w['acked_at']) : null,
+            isset($w['acked_by']) && is_string($w['acked_by']) ? $w['acked_by'] : null,
+            isset($w['acked_by_name']) && is_string($w['acked_by_name']) ? $w['acked_by_name'] : null,
         );
     }
 

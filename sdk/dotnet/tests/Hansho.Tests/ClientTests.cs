@@ -401,7 +401,69 @@ public class ClientTests
             await Assert.ThrowsAsync<ArgumentException>(() => c.PutFeedAsync(bad, new Feed { TemplateId = "t", Data = 1 }));
         }
         await Assert.ThrowsAsync<ArgumentException>(() => c.CreatePairingTicketAsync(""));
+        await Assert.ThrowsAsync<ArgumentException>(() => c.CreatePairingTicketAsync("", "x"));
+        foreach (var bad in new[] { "", ".", ".." })
+            await Assert.ThrowsAsync<ArgumentException>(() => c.SetUserDisplayNameAsync(bad, "x"));
+        await Assert.ThrowsAsync<ArgumentException>(() => c.SetUserDisplayNameAsync(null!, "x"));
         Assert.Empty(hub.Requests);
+    }
+
+    [Fact]
+    public async Task SetsAndClearsADisplayName()
+    {
+        using var hub = FakeHub.Start((_, reply) => reply.Status = 204);
+        await hub.Client.SetUserDisplayNameAsync("a b/ü", "Ada \"L\" 日本");
+        var r = hub.Requests[0];
+        Assert.Equal("PUT", r.Method);
+        Assert.Equal("/api/v1/users/a%20b%2F%C3%BC", r.RawUrl);
+        Assert.Equal("Ada \"L\" 日本", Json.Parse(r.BodyText).GetProperty("display_name").GetString());
+        await hub.Client.SetUserDisplayNameAsync("u", "");
+        Assert.Equal("{\"display_name\":\"\"}", hub.Requests[1].BodyText);
+    }
+
+    [Fact]
+    public async Task PairingTicketBodyHasADisplayNameOnlyWhenGiven()
+    {
+        using var hub = FakeHub.Start((_, reply) => { reply.Status = 201; reply.Body = "{\"ticket\":\"t\",\"qr\":\"q\",\"expires_at\":\"2026-11-08T12:10:00Z\"}"; });
+        await hub.Client.CreatePairingTicketAsync("u");
+        await hub.Client.CreatePairingTicketAsync("u", null);
+        await hub.Client.CreatePairingTicketAsync("u", "Ada Lovelace");
+        await hub.Client.CreatePairingTicketAsync("u", "");
+        Assert.Equal(new[] { "external_user_id" }, PropertyNames(hub.Requests[0]));
+        Assert.Equal(new[] { "external_user_id" }, PropertyNames(hub.Requests[1]));
+        Assert.Equal("Ada Lovelace", Json.Parse(hub.Requests[2].BodyText).GetProperty("display_name").GetString());
+        Assert.Equal("", Json.Parse(hub.Requests[3].BodyText).GetProperty("display_name").GetString());
+    }
+
+    [Fact]
+    public async Task SendsPageAckOnlyWhenSet()
+    {
+        using var hub = FakeHub.Start();
+        await hub.Client.SendMessageAsync(Msg with { Level = Level.Page, Page = new PageOptions { IntervalSeconds = 60 } });
+        await hub.Client.SendMessageAsync(Msg with { Level = Level.Page, Page = new PageOptions { IntervalSeconds = 60, Ack = PageAck.Each } });
+        await hub.Client.SendMessageAsync(Msg with { Level = Level.Page, Page = new PageOptions { Ack = PageAck.Any } });
+        Assert.Equal("{\"interval_s\":60}", Json.Parse(hub.Requests[0].BodyText).GetProperty("page").GetRawText());
+        Assert.Equal("{\"interval_s\":60,\"ack\":\"each\"}", Json.Parse(hub.Requests[1].BodyText).GetProperty("page").GetRawText());
+        Assert.Equal("{\"ack\":\"any\"}", Json.Parse(hub.Requests[2].BodyText).GetProperty("page").GetRawText());
+    }
+
+    [Fact]
+    public async Task MessageStatusCarriesWhoAcknowledged()
+    {
+        var baseJson = "\"message_id\":\"m\",\"status\":\"acked\",\"level\":\"page\",\"attempts\":1,\"deliveries\":[],\"acked_at\":\"2026-11-08T12:05:00Z\"";
+        var body = "{" + baseJson + ",\"acked_by\":\"alice\",\"acked_by_name\":\"Alice A.\"}";
+        using var hub = FakeHub.Start((_, reply) => reply.Body = body);
+        var s = await hub.Client.GetMessageAsync("m");
+        Assert.Equal(("alice", "Alice A."), (s.AckedBy, s.AckedByName));
+        body = "{" + baseJson + ",\"acked_by\":\"alice\"}";
+        s = await hub.Client.GetMessageAsync("m");
+        Assert.Equal("alice", s.AckedBy);
+        Assert.Null(s.AckedByName);
+        body = "{\"message_id\":\"m\",\"status\":\"queued\",\"level\":\"page\",\"attempts\":0,\"deliveries\":[]}";
+        s = await hub.Client.GetMessageAsync("m");
+        Assert.Null(s.AckedBy);
+        Assert.Null(s.AckedByName);
+        Assert.Null(s.AckedAt);
     }
 
     [Fact]

@@ -36,6 +36,20 @@ fn calls() -> BTreeMap<&'static str, Call> {
             assert_eq!(got, want);
         }),
     );
+    m.insert(
+        "createPairingTicketWithName",
+        Box::new(|c| {
+            let got = c.create_pairing_ticket_with_name("user-42", "Zoë 日本語").unwrap();
+            let want = PairingTicket {
+                ticket: "tk_def".into(),
+                qr: "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_def&fp=ff00".into(),
+                expires_at: at(1_794_139_800),
+            };
+            assert_eq!(got, want);
+        }),
+    );
+    m.insert("setUserDisplayName", Box::new(|c| c.set_user_display_name("user-42", "Zoë 日本語").unwrap()));
+    m.insert("clearUserDisplayName", Box::new(|c| c.set_user_display_name("user 42", "").unwrap()));
     m.insert("unpair", Box::new(|c| c.unpair("user-42").unwrap()));
     m.insert(
         "putChannel",
@@ -121,7 +135,7 @@ fn calls() -> BTreeMap<&'static str, Call> {
         Box::new(|c| {
             let msg = Message {
                 level: Some(Level::Page),
-                page: Some(PageOptions { interval_seconds: Some(60), max_retries: Some(3) }),
+                page: Some(PageOptions { interval_seconds: Some(60), max_retries: Some(3), ..Default::default() }),
                 ..Message::new("user-42", "ops", "Primary DB down", "Failover did not complete")
             };
             let want = MessageResult {
@@ -136,6 +150,53 @@ fn calls() -> BTreeMap<&'static str, Call> {
         }),
     );
     m.insert(
+        "sendPageEach",
+        Box::new(|c| {
+            let msg = Message {
+                external_user_id: String::new(),
+                external_user_ids: vec!["alice".into(), "bob".into()],
+                level: Some(Level::Page),
+                page: Some(PageOptions { interval_seconds: Some(60), max_retries: Some(3), ack: Some(PageAck::Each) }),
+                ..Message::new("", "ops", "Primary DB down", "Failover did not complete")
+            };
+            let got = c.send_message(&msg).unwrap();
+            assert_eq!(got.level, Level::Page);
+            let want = vec![
+                Recipient {
+                    external_user_id: "alice".into(),
+                    message_id: Some("msg_3".into()),
+                    status: "queued".into(),
+                    devices: 1,
+                    deliveries: vec![delivery("dev_1", "queued", None)],
+                },
+                Recipient {
+                    external_user_id: "bob".into(),
+                    message_id: Some("msg_4".into()),
+                    status: "queued".into(),
+                    devices: 1,
+                    deliveries: vec![delivery("dev_2", "queued", None)],
+                },
+            ];
+            assert_eq!(got.recipients, want);
+        }),
+    );
+    m.insert(
+        "getMessageAckedNoName",
+        Box::new(|c| {
+            let want = MessageStatus {
+                message_id: "msg_3".into(),
+                status: "acked".into(),
+                level: Level::Page,
+                attempts: 1,
+                deliveries: vec![delivery("dev_1", "sent", None)],
+                acked_at: Some(at(1_794_139_500)),
+                acked_by: Some("alice".into()),
+                acked_by_name: None,
+            };
+            assert_eq!(c.get_message("msg_3").unwrap(), want);
+        }),
+    );
+    m.insert(
         "getMessage",
         Box::new(|c| {
             let want = MessageStatus {
@@ -145,6 +206,8 @@ fn calls() -> BTreeMap<&'static str, Call> {
                 attempts: 2,
                 deliveries: vec![delivery("dev_1", "sent", None), delivery("dev_2", "failed", Some("unregistered"))],
                 acked_at: Some(at(1_794_139_500)), // 2026-11-08T12:05:00Z
+                acked_by: Some("user-42".into()),
+                acked_by_name: Some("Zoë 日本語".into()),
             };
             assert_eq!(c.get_message("msg_2").unwrap(), want);
         }),

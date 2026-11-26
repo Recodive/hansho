@@ -21,7 +21,9 @@ module Hansho
     MessageDelivered = Struct.new(:message_id, :external_user_id, :channel, :level, :devices, keyword_init: true)
     # +reason+ is "no_devices" or "all_deliveries_failed".
     MessageUndeliverable = Struct.new(:message_id, :external_user_id, :channel, :reason, keyword_init: true)
-    MessageAcked = Struct.new(:message_id, :external_user_id, :device_id, keyword_init: true)
+    # +acked_by+ is who acknowledged (an external user id; differs from +external_user_id+ when a page went to several
+    # people) and +acked_by_name+ their display name; each is nil when absent.
+    MessageAcked = Struct.new(:message_id, :external_user_id, :device_id, :acked_by, :acked_by_name, keyword_init: true)
     # The person swiped away a message that asked to be acknowledged, without acknowledging it.
     MessageDismissed = Struct.new(:message_id, :external_user_id, :device_id, keyword_init: true)
     MessageExpired = Struct.new(:message_id, :external_user_id, :channel, :attempts, keyword_init: true)
@@ -43,7 +45,7 @@ module Hansho
       "pairing.revoked" => [PairingRevoked, { pairing_id: :s, external_user_id: :s, by: :s }],
       "message.delivered" => [MessageDelivered, { message_id: :s, external_user_id: :s, channel: :s, level: :s, devices: :n }],
       "message.undeliverable" => [MessageUndeliverable, { message_id: :s, external_user_id: :s, channel: :s, reason: :s }],
-      "message.acked" => [MessageAcked, { message_id: :s, external_user_id: :s, device_id: :s }],
+      "message.acked" => [MessageAcked, { message_id: :s, external_user_id: :s, device_id: :s, acked_by: :opt, acked_by_name: :opt }],
       "message.dismissed" => [MessageDismissed, { message_id: :s, external_user_id: :s, device_id: :s }],
       "message.expired" => [MessageExpired, { message_id: :s, external_user_id: :s, channel: :s, attempts: :n }],
       "action" => [ActionTaken, { message_id: :s, action_id: :s, device_id: :s, external_user_id: :s, text: :opt }],

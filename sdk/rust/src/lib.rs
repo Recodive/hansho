@@ -44,8 +44,8 @@ pub use error::{ApiError, Error, NetworkError, Result, CODE_NO_ACCESS, CODE_UNKN
 pub use serde_json::{json, Value};
 pub use types::{
     Action, Activity, ActivityAlert, ActivityStarted, ActivityUpdate, ActivityUpdated, Audience, AudienceMode, Channel, Delivery, Feed,
-    FeedResult, FeedSettings, Group, Level, Message, MessageResult, MessageStatus, PageOptions, PairingTicket, Recipient, SoundResult,
-    RECIPIENT_NO_ACCESS,
+    FeedResult, FeedSettings, Group, Level, Message, MessageResult, MessageStatus, PageAck, PageOptions, PairingTicket, Recipient,
+    SoundResult, RECIPIENT_NO_ACCESS,
 };
 pub use webhook::{
     verify_webhook, ActionTaken, ActivityEnded, Event, EventData, MessageAcked, MessageDelivered, MessageDismissed, MessageExpired,

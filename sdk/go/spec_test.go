@@ -98,6 +98,19 @@ var calls = map[string]struct {
 		PairingTicket{Ticket: "tk_abc", QR: "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_abc&fp=ff00",
 			ExpiresAt: mustTime("2026-11-08T12:10:00Z")},
 	},
+	"createPairingTicketWithName": {
+		func(c *Client) (any, error) {
+			return c.CreatePairingTicket(ctx(), "user-42", WithDisplayName("Zoë 日本語"))
+		},
+		PairingTicket{Ticket: "tk_def", QR: "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_def&fp=ff00",
+			ExpiresAt: mustTime("2026-11-08T12:10:00Z")},
+	},
+	"setUserDisplayName": {
+		func(c *Client) (any, error) { return nil, c.SetUserDisplayName(ctx(), "user-42", "Zoë 日本語") }, nil,
+	},
+	"clearUserDisplayName": {
+		func(c *Client) (any, error) { return nil, c.SetUserDisplayName(ctx(), "user 42", "") }, nil,
+	},
 	"unpair": {
 		func(c *Client) (any, error) { return nil, c.Unpair(ctx(), "user-42") }, nil,
 	},
@@ -145,11 +158,32 @@ var calls = map[string]struct {
 		MessageResult{MessageID: "msg_2", Level: LevelPage, Devices: 1, Status: "queued",
 			Deliveries: []Delivery{{DeviceID: "dev_1", Status: "queued"}}},
 	},
+	"sendPageEach": {
+		func(c *Client) (any, error) {
+			return c.SendMessage(ctx(), Message{
+				ExternalUserIDs: []string{"alice", "bob"}, Channel: "ops", Level: LevelPage,
+				Title: "Primary DB down", Body: "Failover did not complete",
+				Page: &PageOptions{IntervalSeconds: 60, MaxRetries: 3, Ack: "each"},
+			})
+		},
+		MessageResult{Level: LevelPage, Recipients: []Recipient{
+			{ExternalUserID: "alice", MessageID: "msg_3", Status: "queued", Devices: 1,
+				Deliveries: []Delivery{{DeviceID: "dev_1", Status: "queued"}}},
+			{ExternalUserID: "bob", MessageID: "msg_4", Status: "queued", Devices: 1,
+				Deliveries: []Delivery{{DeviceID: "dev_2", Status: "queued"}}},
+		}},
+	},
+	"getMessageAckedNoName": {
+		func(c *Client) (any, error) { return c.GetMessage(ctx(), "msg_3") },
+		MessageStatus{MessageID: "msg_3", Status: "acked", Level: LevelPage, Attempts: 1,
+			Deliveries: []Delivery{{DeviceID: "dev_1", Status: "sent"}},
+			AckedAt:    mustTime("2026-11-08T12:05:00Z"), AckedBy: "alice"},
+	},
 	"getMessage": {
 		func(c *Client) (any, error) { return c.GetMessage(ctx(), "msg_2") },
 		MessageStatus{MessageID: "msg_2", Status: "acked", Level: LevelPage, Attempts: 2,
 			Deliveries: []Delivery{{DeviceID: "dev_1", Status: "sent"}, {DeviceID: "dev_2", Status: "failed", Error: "unregistered"}},
-			AckedAt:    mustTime("2026-11-08T12:05:00Z")},
+			AckedAt:    mustTime("2026-11-08T12:05:00Z"), AckedBy: "user-42", AckedByName: "Zoë 日本語"},
 	},
 	"startActivity": {
 		func(c *Client) (any, error) {

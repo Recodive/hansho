@@ -92,6 +92,56 @@ mod basics {
     }
 
     #[test]
+    fn display_name_put_path_escaping_and_empty_id() {
+        let h = start(|_| Reply::default().status(204).body(""));
+        let c = h.client();
+        c.set_user_display_name("a/b c", "Ada").unwrap();
+        c.set_user_display_name("u", "").unwrap();
+        let rs = h.requests();
+        assert_eq!((rs[0].method.as_str(), rs[0].url.as_str()), ("PUT", "/api/v1/users/a%2Fb%20c"));
+        assert_eq!(body_json(&h, 0), json!({"display_name": "Ada"}));
+        assert_eq!(body_json(&h, 1), json!({"display_name": ""}));
+        assert!(matches!(c.set_user_display_name("", "x"), Err(Error::InvalidArgument(_))));
+        assert!(matches!(c.create_pairing_ticket_with_name("", "x"), Err(Error::InvalidArgument(_))));
+        assert_eq!(h.count(), 2);
+    }
+
+    #[test]
+    fn pairing_ticket_body_with_and_without_display_name() {
+        let h = start(|_| Reply::default().status(201).body(r#"{"ticket":"t","qr":"q","expires_at":"2026-11-08T12:10:00Z"}"#));
+        let c = h.client();
+        c.create_pairing_ticket("u").unwrap();
+        c.create_pairing_ticket_with_name("u", "").unwrap();
+        c.create_pairing_ticket_with_name("u", "Ada").unwrap();
+        assert_eq!(body_json(&h, 0), json!({"external_user_id": "u"}));
+        assert_eq!(body_json(&h, 1), json!({"external_user_id": "u", "display_name": ""}));
+        assert_eq!(body_json(&h, 2), json!({"external_user_id": "u", "display_name": "Ada"}));
+    }
+
+    #[test]
+    fn page_ack_is_sent_only_when_set() {
+        let h = start_default();
+        let c = h.client();
+        for ack in [None, Some(PageAck::Each), Some(PageAck::Any)] {
+            let page = PageOptions { ack, ..Default::default() };
+            c.send_message(&Message { level: Some(Level::Page), page: Some(page), ..msg() }).unwrap();
+        }
+        assert_eq!(body_json(&h, 0)["page"], json!({}));
+        assert_eq!(body_json(&h, 1)["page"], json!({"ack": "each"}));
+        assert_eq!(body_json(&h, 2)["page"], json!({"ack": "any"}));
+    }
+
+    #[test]
+    fn message_status_acked_by_present_and_absent() {
+        let h = start(|_| Reply::default().body(r#"{"message_id":"m","status":"acked","acked_by":"bob","acked_by_name":"Bob ボブ"}"#));
+        let st = h.client().get_message("m").unwrap();
+        assert_eq!((st.acked_by.as_deref(), st.acked_by_name.as_deref()), (Some("bob"), Some("Bob ボブ")));
+        let h = start(|_| Reply::default().body(r#"{"message_id":"m","status":"acked"}"#));
+        let st = h.client().get_message("m").unwrap();
+        assert_eq!((st.acked_by, st.acked_by_name), (None, None));
+    }
+
+    #[test]
     fn sends_max_retries_zero_as_given() {
         let h = start_default();
         let m = Message { level: Some(Level::Page), page: Some(PageOptions { max_retries: Some(0), ..Default::default() }), ..msg() };

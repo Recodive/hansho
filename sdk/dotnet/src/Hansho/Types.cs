@@ -28,6 +28,20 @@ public sealed record MessageAction
     public string? Kind { get; init; }
 }
 
+/// <summary>
+/// Who must acknowledge a page sent to several people. A struct like <see cref="Level"/>, so a mode a newer hub knows
+/// can still be passed with <c>new PageAck("...")</c>.
+/// </summary>
+public readonly record struct PageAck(string Value)
+{
+    /// <summary>The first acknowledgement stops the page for everyone (hub default).</summary>
+    public static readonly PageAck Any = new("any");
+    /// <summary>Each person is paged until they acknowledge for themselves.</summary>
+    public static readonly PageAck Each = new("each");
+
+    public override string ToString() => Value ?? "";
+}
+
 /// <summary>A single-use pairing ticket, valid for 10 minutes.</summary>
 public sealed record PairingTicket(string Ticket, string Qr, DateTimeOffset ExpiresAt);
 
@@ -85,6 +99,11 @@ public sealed record PageOptions
     public int? IntervalSeconds { get; init; }
     /// <summary>Resends before the page expires (hub default 5). 0 is sent as 0.</summary>
     public int? MaxRetries { get; init; }
+    /// <summary>
+    /// Who must acknowledge a page sent to several people: <see cref="PageAck.Any"/> (hub default) or
+    /// <see cref="PageAck.Each"/>. Null leaves it to the hub and is not sent.
+    /// </summary>
+    public PageAck? Ack { get; init; }
 }
 
 public sealed record Message
@@ -143,8 +162,15 @@ public sealed record Recipient(string ExternalUserId, string? MessageId, string 
 /// </summary>
 public sealed record MessageResult(string MessageId, Level Level, int Devices, string Status, IReadOnlyList<Delivery> Deliveries, IReadOnlyList<Recipient>? Recipients = null);
 
-/// <summary><c>Status</c> is one of queued, delivered, undeliverable, paging, acked, expired.</summary>
-public sealed record MessageStatus(string MessageId, string Status, Level Level, int Attempts, IReadOnlyList<Delivery> Deliveries, DateTimeOffset? AckedAt);
+/// <summary>
+/// <c>Status</c> is one of queued, delivered, undeliverable, paging, acked, expired. Once acknowledged, <c>AckedBy</c>
+/// is who did it (their external user id) and <c>AckedByName</c> their display name, null unless they have one.
+/// </summary>
+public sealed record MessageStatus(string MessageId, string Status, Level Level, int Attempts, IReadOnlyList<Delivery> Deliveries, DateTimeOffset? AckedAt)
+{
+    public string? AckedBy { get; init; }
+    public string? AckedByName { get; init; }
+}
 
 public sealed record ActivityAlert
 {
