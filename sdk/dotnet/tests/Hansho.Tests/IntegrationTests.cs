@@ -214,7 +214,7 @@ public class IntegrationTests
                 Assert.Equal(level, res.Level);
                 Assert.Equal(1, res.Devices);
                 Assert.StartsWith("msg_", res.MessageId);
-                var ms = await WaitStatus(c, res.MessageId, "delivered");
+                var ms = await WaitStatus(c, res.MessageId!, "delivered");
                 Assert.Equal(level, ms.Level);
                 var d = Assert.Single(ms.Deliveries);
                 Assert.Equal("sent", d.Status);
@@ -238,9 +238,9 @@ public class IntegrationTests
                 Page = new PageOptions { IntervalSeconds = 60, MaxRetries = 3 },
             });
             Assert.Equal(Level.Page, page.Level);
-            await WaitStatus(c, page.MessageId, "paging");
-            FakeDevice("ack", "-state", statePath, "-message", page.MessageId);
-            var acked = await WaitStatus(c, page.MessageId, "acked");
+            await WaitStatus(c, page.MessageId!, "paging");
+            FakeDevice("ack", "-state", statePath, "-message", page.MessageId!);
+            var acked = await WaitStatus(c, page.MessageId!, "acked");
             Assert.NotNull(acked.AckedAt);
             Assert.True(acked.AckedAt > DateTimeOffset.UtcNow.AddMinutes(-5));
             var ev = await rx.Wait<MessageAcked>(e => e.MessageId == page.MessageId);
@@ -278,7 +278,7 @@ public class IntegrationTests
             await rx.Wait<PairingRevoked>(e => e.ExternalUserId == user && e.By == "sender");
             var none = await c.SendMessageAsync(new Message { ExternalUserId = user, Channel = ch, Title = "Anyone?", Body = "b" });
             Assert.Equal(0, none.Devices);
-            await WaitStatus(c, none.MessageId, "undeliverable");
+            await WaitStatus(c, none.MessageId!, "undeliverable");
             await rx.Wait<MessageUndeliverable>(e => e.MessageId == none.MessageId);
             await c.DeleteChannelAsync(ch);
             await ApiError(c.GetChannelAsync(ch), 404, "unknown_channel");

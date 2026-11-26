@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 use sha2::Sha256;
 
 use crate::retry::from_unix;
-use crate::types::Level;
+use crate::types_gen::EventData;
 
 /// `X-Hansho-Webhook-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, t + "." + body)>`
 pub const WEBHOOK_SIGNATURE_HEADER: &str = "X-Hansho-Webhook-Signature";
@@ -64,150 +64,6 @@ fn fail(code: WebhookErrorCode, message: &'static str) -> WebhookError {
     WebhookError { code, message }
 }
 
-/// `pairing.created`
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PairingCreated {
-    /// The pairing.
-    pub pairing_id: String,
-    /// The paired user.
-    pub external_user_id: String,
-    /// The device's name.
-    pub device_name: String,
-}
-
-/// `pairing.revoked`
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PairingRevoked {
-    /// The pairing.
-    pub pairing_id: String,
-    /// The user.
-    pub external_user_id: String,
-    /// Who revoked: `"sender"`, `"device"` or `"relay"`.
-    pub by: String,
-}
-
-/// `message.delivered`
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MessageDelivered {
-    /// The message.
-    pub message_id: String,
-    /// The user.
-    pub external_user_id: String,
-    /// The channel.
-    pub channel: String,
-    /// The level.
-    pub level: Level,
-    /// Devices it reached.
-    pub devices: i64,
-}
-
-/// `message.undeliverable`
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MessageUndeliverable {
-    /// The message.
-    pub message_id: String,
-    /// The user.
-    pub external_user_id: String,
-    /// The channel.
-    pub channel: String,
-    /// `"no_devices"` or `"all_deliveries_failed"`.
-    pub reason: String,
-}
-
-/// `message.acked`
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MessageAcked {
-    /// The message.
-    pub message_id: String,
-    /// The user.
-    pub external_user_id: String,
-    /// The device that acknowledged.
-    pub device_id: String,
-}
-
-/// `message.dismissed`: the person swiped away a message that asked to be acknowledged, without acknowledging it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MessageDismissed {
-    /// The message.
-    pub message_id: String,
-    /// The user.
-    pub external_user_id: String,
-    /// The device.
-    pub device_id: String,
-}
-
-/// `message.expired`
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MessageExpired {
-    /// The message.
-    pub message_id: String,
-    /// The user.
-    pub external_user_id: String,
-    /// The channel.
-    pub channel: String,
-    /// Attempts made.
-    pub attempts: i64,
-}
-
-/// `action`: a button press.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ActionTaken {
-    /// The message.
-    pub message_id: String,
-    /// The pressed action.
-    pub action_id: String,
-    /// The device.
-    pub device_id: String,
-    /// The user.
-    pub external_user_id: String,
-    /// Reply text of a text action.
-    pub text: Option<String>,
-}
-
-/// `activity.ended`
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ActivityEnded {
-    /// The activity.
-    pub activity_id: String,
-    /// The user.
-    pub external_user_id: String,
-    /// The channel.
-    pub channel: String,
-    /// Why it ended.
-    pub reason: String,
-}
-
-/// The payload of a verified webhook. An event this SDK does not know is [`EventData::Unknown`].
-#[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
-pub enum EventData {
-    /// `pairing.created`
-    PairingCreated(PairingCreated),
-    /// `pairing.revoked`
-    PairingRevoked(PairingRevoked),
-    /// `message.delivered`
-    MessageDelivered(MessageDelivered),
-    /// `message.undeliverable`
-    MessageUndeliverable(MessageUndeliverable),
-    /// `message.acked`
-    MessageAcked(MessageAcked),
-    /// `message.dismissed`
-    MessageDismissed(MessageDismissed),
-    /// `message.expired`
-    MessageExpired(MessageExpired),
-    /// `action`
-    Action(ActionTaken),
-    /// `activity.ended`
-    ActivityEnded(ActivityEnded),
-    /// An event name this SDK does not know.
-    Unknown {
-        /// The event name as sent.
-        name: String,
-        /// The payload as parsed JSON, untouched (`Null` when absent).
-        data: Value,
-    },
-}
-
 /// A verified webhook.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Event {
@@ -224,18 +80,7 @@ pub struct Event {
 impl Event {
     /// The event name as sent, e.g. `"message.acked"`; for an unknown event the name the hub used.
     pub fn name(&self) -> &str {
-        match &self.data {
-            EventData::PairingCreated(_) => "pairing.created",
-            EventData::PairingRevoked(_) => "pairing.revoked",
-            EventData::MessageDelivered(_) => "message.delivered",
-            EventData::MessageUndeliverable(_) => "message.undeliverable",
-            EventData::MessageAcked(_) => "message.acked",
-            EventData::MessageDismissed(_) => "message.dismissed",
-            EventData::MessageExpired(_) => "message.expired",
-            EventData::Action(_) => "action",
-            EventData::ActivityEnded(_) => "activity.ended",
-            EventData::Unknown { name, .. } => name,
-        }
+        self.data.name()
     }
 }
 
@@ -384,79 +229,10 @@ fn parse_event(raw: &[u8]) -> Result<Event, WebhookError> {
         Some(Value::Object(d)) => d.clone(),
         _ => Map::new(),
     };
-    let d = Fields(&data);
-    let payload = match name.as_str() {
-        "pairing.created" => EventData::PairingCreated(PairingCreated {
-            pairing_id: d.s("pairing_id"),
-            external_user_id: d.s("external_user_id"),
-            device_name: d.s("device_name"),
-        }),
-        "pairing.revoked" => EventData::PairingRevoked(PairingRevoked {
-            pairing_id: d.s("pairing_id"),
-            external_user_id: d.s("external_user_id"),
-            by: d.s("by"),
-        }),
-        "message.delivered" => EventData::MessageDelivered(MessageDelivered {
-            message_id: d.s("message_id"),
-            external_user_id: d.s("external_user_id"),
-            channel: d.s("channel"),
-            level: Level::from(d.s("level").as_str()),
-            devices: d.n("devices"),
-        }),
-        "message.undeliverable" => EventData::MessageUndeliverable(MessageUndeliverable {
-            message_id: d.s("message_id"),
-            external_user_id: d.s("external_user_id"),
-            channel: d.s("channel"),
-            reason: d.s("reason"),
-        }),
-        "message.acked" => EventData::MessageAcked(MessageAcked {
-            message_id: d.s("message_id"),
-            external_user_id: d.s("external_user_id"),
-            device_id: d.s("device_id"),
-        }),
-        "message.dismissed" => EventData::MessageDismissed(MessageDismissed {
-            message_id: d.s("message_id"),
-            external_user_id: d.s("external_user_id"),
-            device_id: d.s("device_id"),
-        }),
-        "message.expired" => EventData::MessageExpired(MessageExpired {
-            message_id: d.s("message_id"),
-            external_user_id: d.s("external_user_id"),
-            channel: d.s("channel"),
-            attempts: d.n("attempts"),
-        }),
-        "action" => EventData::Action(ActionTaken {
-            message_id: d.s("message_id"),
-            action_id: d.s("action_id"),
-            device_id: d.s("device_id"),
-            external_user_id: d.s("external_user_id"),
-            text: match data.get("text") {
-                Some(Value::String(t)) => Some(t.clone()),
-                _ => None,
-            },
-        }),
-        "activity.ended" => EventData::ActivityEnded(ActivityEnded {
-            activity_id: d.s("activity_id"),
-            external_user_id: d.s("external_user_id"),
-            channel: d.s("channel"),
-            reason: d.s("reason"),
-        }),
-        _ => EventData::Unknown { name, data: env.get("data").cloned().unwrap_or(Value::Null) },
-    };
+    // A payload that does not fit its type (a field of the wrong kind) is delivered like an unknown event, raw.
+    let payload = EventData::decode(&name, Value::Object(data))
+        .unwrap_or_else(|| EventData::Unknown { name, data: env.get("data").cloned().unwrap_or(Value::Null) });
     Ok(Event { id: text(env.get("id")), created_at, data: payload, raw: raw.to_vec() })
-}
-
-/// Lenient field access: a missing field is empty/zero, a number or bool is stringified.
-struct Fields<'a>(&'a Map<String, Value>);
-
-impl Fields<'_> {
-    fn s(&self, key: &str) -> String {
-        text(self.0.get(key))
-    }
-
-    fn n(&self, key: &str) -> i64 {
-        num(self.0.get(key)) as i64
-    }
 }
 
 fn text(v: Option<&Value>) -> String {

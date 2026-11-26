@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#14141A">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/_hub/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/_hub/apple-touch-icon.png">
+<title>{{.Title}} · {{.Hub}} admin</title>
+<link rel="stylesheet" href="/admin/admin.css">
+<script src="/admin/admin.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header>
+<div class="bar">
+<a class="brand" href="/admin/"><svg class="mark" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false"><mask id="m"><rect width="1024" height="1024" fill="white"/><circle cx="335" cy="476.2" r="38.8" fill="black"/><circle cx="453" cy="476.2" r="38.8" fill="black"/><circle cx="571" cy="476.2" r="38.8" fill="black"/><circle cx="689" cy="476.2" r="38.8" fill="black"/><path d="M481.3 106.7 a30.7 30.7 0 0 1 61.4 0 v21.5 h-61.4 Z" fill="black"/></mask><g fill="currentColor" mask="url(#m)"><path d="M435.3 106.7 a76.7 76.7 0 0 1 153.4 0 V185.3 H435.3 Z"/><path d="M228.8 348.1 C228.8 193.9 370.4 155.3 512 155.3 C653.6 155.3 795.2 193.9 795.2 348.1 C801.1 560.2 839.5 762.6 866 832 H158 C184.6 762.6 222.9 560.2 228.8 348.1 Z"/><path d="M158 859 H866 Q880.8 936.2 871.9 994 H152.1 Q143.2 936.2 158 859 Z"/></g></svg><span>{{.Hub}}</span></a>
+{{if .SignedIn}}<form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="btn ghost">Sign out</button></form>{{end}}
+</div>
+{{if .SignedIn}}<nav aria-label="Admin"><ul>{{range .Nav}}<li><a href="{{.Href}}"{{if eq .Key $.Active}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}</ul></nav>{{end}}
+</header>
+<main id="main">
+{{template "content" .}}
+</main>
+<footer><div><span>Admin pages of this Hansho hub. Only people who know the password can open them.</span><a href="/">Hub status page</a></div></footer>
+</body>
+</html>

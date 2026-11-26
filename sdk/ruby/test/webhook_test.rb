@@ -89,6 +89,16 @@ class WebhookTest < Minitest::Test
     end
   end
 
+  def test_message_acked_carries_who_acked_when_present_and_nil_when_absent
+    full = '{"id":"9","event":"message.acked","created_at":5,"data":{"message_id":"m","device_id":"d","external_user_id":"u","acked_by":"bob","acked_by_name":"Bob ボブ"}}'
+    d = Hansho::Webhook.verify(secret: "s", header: sign("s", T, full), body: full, now: T).data
+    assert_equal ["bob", "Bob ボブ"], [d.acked_by, d.acked_by_name]
+    bare = '{"id":"9","event":"message.acked","created_at":5,"data":{"message_id":"m","device_id":"d","external_user_id":"u"}}'
+    d = Hansho::Webhook.verify(secret: "s", header: sign("s", T, bare), body: bare, now: T).data
+    assert_nil d.acked_by
+    assert_nil d.acked_by_name
+  end
+
   def test_rejects_a_body_that_was_parsed_and_reserialised
     v = VECTORS["vectors"].find { |x| x["name"] == "valid message.acked" }
     parsed = JSON.parse(v["body"])
@@ -139,10 +149,10 @@ class WebhookTest < Minitest::Test
     end
   end
 
-  def test_known_event_with_missing_payload_fields_defaults
+  def test_known_event_with_missing_payload_fields_defaults # required ones to "", optional ones to nil
     body = '{"id":"9","event":"message.delivered","created_at":1}'
     ev = Hansho::Webhook.verify(secret: "s", header: sign("s", T, body), body: body, now: T)
-    assert_equal Hansho::Webhook::MessageDelivered.new(message_id: "", external_user_id: "", channel: "", level: "", devices: 0), ev.data
+    assert_equal Hansho::Webhook::MessageDelivered.new(message_id: "", external_user_id: "", channel: nil, level: nil, devices: nil), ev.data
   end
 
   def test_action_text_is_only_set_for_text_actions

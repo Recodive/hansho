@@ -1,0 +1,54 @@
+{{define "content"}}
+<h1>{{if .Data.New}}New template{{else}}Edit template{{end}}</h1>
+<p class="lead">A template is written as JSON, a text format for structured data. Start from an example, or ask an AI to write it for you using the prompt further down. The hub checks it before it saves it.</p>
+{{template "iac" .}}
+{{with index .Data.Errors "form"}}<p class="error" role="alert">{{.}}</p>{{end}}
+<form method="post" action="{{.Data.Action}}" class="stack wide">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button class="sr" tabindex="-1">Save template</button>
+{{if .Data.New}}
+<div class="field">
+<label for="id">Id</label>
+<p class="hint" id="id-hint">A short word your software and channels use to name this template, such as deploys. Letters, numbers, dashes and underscores. You cannot change it later.</p>
+{{with index .Data.Errors "id"}}<p class="field-error" id="id-err">{{.}}</p>{{end}}
+<input id="id" name="id" type="text" value="{{.Data.ID}}" maxlength="64" required autocomplete="off" spellcheck="false" aria-describedby="id-hint id-err"{{if index .Data.Errors "id"}} aria-invalid="true"{{end}}>
+</div>
+{{else}}
+<div class="field"><span class="label">Id</span><p class="hint">This template's id is <code>{{.Data.ID}}</code>. It cannot be changed. It is at version {{.Data.Version}}; saving a change makes the next version by itself.</p></div>
+{{end}}
+<div class="field">
+<label for="starter">Start from an example</label>
+<p class="hint" id="starter-hint">Choosing one replaces what is in the box below.</p>
+<select id="starter" name="starter" aria-describedby="starter-hint">
+{{range .Data.Starters}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}{{with .Help}}: {{.}}{{end}}</option>{{end}}
+</select>
+<div><button class="btn ghost" name="load" value="1" formnovalidate>Use this example</button></div>
+</div>
+<div class="field">
+<label for="body">The template</label>
+<p class="hint" id="body-hint">The JSON of the template. It is not saved until you press Save.</p>
+{{with index .Data.Errors "body"}}<p class="field-error" id="body-err" role="alert">The template is not valid. First problem: <code>{{.}}</code></p>{{end}}
+{{if .Data.Valid}}<p class="ok" role="status">This template is valid. It is not saved yet.</p>{{end}}
+<textarea id="body" name="body" class="code" rows="22" spellcheck="false" autocomplete="off" aria-describedby="body-hint body-err"{{if index .Data.Errors "body"}} aria-invalid="true"{{end}}>{{.Data.Body}}</textarea>
+</div>
+<div class="row"><button class="btn">Save template</button><button class="btn ghost" name="check" value="1" formnovalidate>Check without saving</button><a class="btn ghost" href="/admin/templates">Cancel</a></div>
+</form>
+<section aria-labelledby="ai-h">
+<h2 id="ai-h">Ask an AI to write it</h2>
+<p class="hint">Copy this text into an AI assistant such as Claude or ChatGPT. It explains the rules of templates and includes the template in the box above and the last problem the hub found. Finish the last line to say what you want, paste the answer into the box above, and press Check without saving. The prompt below follows the box each time you check or save.</p>
+<div class="field">
+<label for="ai-prompt">Prompt to copy</label>
+<textarea id="ai-prompt" rows="12" readonly data-select spellcheck="false" autocomplete="off">{{.Data.Prompt}}</textarea>
+<div><button type="button" class="btn ghost" data-copy="ai-prompt" hidden>Copy prompt</button></div>
+</div>
+</section>
+<section aria-labelledby="preview-h">
+<h2 id="preview-h">Preview it in the template builder</h2>
+<p>Paste your template there to see how it looks on a phone. Nothing is sent from this hub: this is only a link to the Hansho website.</p>
+<p><a class="btn ghost" href="{{.Data.BuilderURL}}" target="_blank" rel="noopener noreferrer">Open the template builder<span class="sr"> (opens in a new tab)</span></a></p>
+</section>
+{{with .Data.Call}}
+{{template "apicall" .}}
+<p class="hint">The hub only accepts a version higher than the one it has stored (now {{$.Data.Version}}), so this call uses the next one.</p>
+{{end}}
+{{end}}

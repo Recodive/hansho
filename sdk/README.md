@@ -20,9 +20,8 @@ dependencies beyond their standard library (PHP: ext-curl and ext-json). Java
 uses Jackson for JSON; Rust uses ureq (rustls), serde, serde_json, hmac and sha2.
 Licence: MIT. The hub itself is AGPL-3.0.
 
-> Go is published (`go get github.com/recodive/hansho/sdk/go`). The others are
-> not on npm, PyPI, RubyGems, Packagist, Maven Central, NuGet or crates.io yet;
-> until they are, build them from their directory here.
+> Published: Go (`go get github.com/recodive/hansho/sdk/go`), npm, RubyGems, NuGet, crates.io, Maven Central and
+> Packagist. Python is not on PyPI yet; build it from its directory here until it is.
 
 ## The flow
 
@@ -36,7 +35,7 @@ Licence: MIT. The hub itself is AGPL-3.0.
    Live Activity or a widget feed. Channels and feeds can be limited to an
    *audience* of users and groups; a send can target one user, several or the
    channel's audience (every SDK covers audiences, groups and kick, see their
-   READMEs; the Java, PHP and Rust ones are not yet compiled or tested).
+   READMEs).
 5. **Listen** for webhooks (`message.delivered`, `message.acked`, `action`, ...)
    and verify every one against the raw request body.
 
@@ -74,9 +73,12 @@ sdk/
   java/      Java/Kotlin client   (mvn verify)
   dotnet/    .NET client          (dotnet test)
   rust/      Rust client          (cargo test)
-  spec/      api.json             wire contract every test suite loads
+  spec/      openapi.json         the contract: every route, type, enum and webhook event,
+                                   plus the x-conformance cases every test suite replays
              webhook-vectors.json signed by the hub's own dispatcher
-  scripts/   run-integration.sh   every SDK against the real hub binary
+  scripts/   gen/                 writes each SDK's generated types from openapi.json
+             release.sh           tags all eight SDKs at one version
+             run-integration.sh   every SDK against the real hub binary
              fakedevice/          a minimal stand-in for the app (pair, ack)
              stubrelay/           a minimal stand-in for Hansho's relay
   examples/  one per SDK          "pair a user and send a page"
@@ -104,3 +106,25 @@ hub actually signs:
 The integration script is entirely local (127.0.0.1): a stub relay stands in for
 the relay, a fake device pairs and acknowledges pages, and a local receiver
 checks the signed webhooks with each SDK's own verifier.
+
+## Adding or changing an operation
+
+`sdk/spec/openapi.json` is the one contract. The hub's tests fail when its sender routes and the spec disagree, and
+each SDK's tests fail when it has no method for an operation, so the SDKs cannot drift apart.
+
+1. Edit `spec/openapi.json`: the route under `paths` (with an `operationId`), any new type under
+   `components.schemas`, and at least one case under `x-conformance.operations` with the exact request and answer.
+2. Run `go run .` in `scripts/gen`. It checks the spec (unknown schema keywords, cases that do not match their
+   operation, operations without a case) and rewrites each SDK's generated file: types, enums, the wire mapping, the
+   event table, the operation list and the version.
+3. Write the method in every SDK, by hand, in that language's style. Run each SDK's tests: the coverage test names the
+   ones still missing, and the conformance test replays the new case.
+
+CI runs the generator and fails when its output differs from what is committed.
+
+Only the models are generated. Clients, retries, errors and webhook verification are written by hand, once per
+language.
+
+## Versions
+
+All SDKs share one version, `info.version` in the spec. See [RELEASING.md](RELEASING.md).
