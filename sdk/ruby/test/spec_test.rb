@@ -197,7 +197,7 @@ class SpecTest < Minitest::Test
 
   def test_covers_every_sdk_call
     names = SPEC["operations"].map { |o| o["name"] }
-    assert_empty CALLS.keys - names, "SDK calls without an operation in sdk/spec/api.json"
+    assert_empty CALLS.keys - names, "SDK calls without an x-conformance case in sdk/spec/openapi.json"
     assert_empty names - CALLS.keys, "spec operations without an SDK call"
   end
 
