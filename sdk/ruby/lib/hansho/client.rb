@@ -63,8 +63,7 @@ module Hansho
       raise ArgumentError, "hansho: id must not be empty" if external_user_id.to_s.empty?
 
       wire = { external_user_id: external_user_id, display_name: display_name }.compact
-      w = json(:post, "/api/v1/pairing-tickets", wire)
-      PairingTicket.new(ticket: w["ticket"], qr: w["qr"], expires_at: time(w["expires_at"]))
+      PairingTicket.from_wire(json(:post, "/api/v1/pairing-tickets", wire))
     end
 
     # --- users -------------------------------------------------------------
@@ -93,29 +92,26 @@ module Hansho
 
     # --- catalog -----------------------------------------------------------
 
-    # Creates or replaces a channel. +actions+ is an Array of Hashes
-    # (`{ id: "ack", title: "Acknowledge", ack: true }`). +audience+ says who may use the channel:
+    # Creates or replaces a channel. +actions+ is an Array of Actions or of Hashes
+    # (`{ id: "ack", title: "Acknowledge", ack: true }`; +kind+ "url" opens +url+). +audience+ says who may use the channel:
     # `{ mode: :only, users: ["alice"], groups: ["oncall"] }` (+mode+ is :everyone, :only or :except; users are your
     # external user ids, groups must exist). Leaving it out keeps the audience stored on the hub (a new channel is
     # open to everyone); pass `{ mode: :everyone }` to open a channel up again.
     def put_channel(id, name:, default_level:, max_level:, sound: nil, template_id: nil, thread: nil, actions: nil, audience: nil)
-      wire = {
-        name: name, default_level: level_to_wire(default_level), max_level: level_to_wire(max_level),
-        sound: sound, template_id: template_id, thread: thread, actions: actions_to_wire(actions),
-        audience: audience_to_wire(audience)
-      }.compact
+      wire = Channel.new(name: name, default_level: default_level, max_level: max_level, sound: sound,
+                         template_id: template_id, thread: thread, actions: actions, audience: audience).to_wire
       json(:put, "/api/v1/channels/#{seg(id)}", wire)
       nil
     end
 
     # Returns a Channel.
     def get_channel(id)
-      w = json(:get, "/api/v1/channels/#{seg(id)}")
-      Channel.new(
-        name: w["name"], default_level: w["default_level"], max_level: w["max_level"], sound: w["sound"],
-        template_id: w["template_id"], thread: w["thread"], actions: actions_from_wire(w["actions"]),
-        audience: audience_from_wire(w["audience"])
-      )
+      Channel.from_wire(json(:get, "/api/v1/channels/#{seg(id)}"))
+    end
+
+    # Returns an Array of Channels.
+    def list_channels
+      list(json(:get, "/api/v1/channels"), Channel)
     end
 
     # --- groups ------------------------------------------------------------
@@ -125,12 +121,17 @@ module Hansho
     def put_group(id, members)
       raise ArgumentError, "hansho: members must be an Array" unless members.is_a?(Array)
 
-      group_from_wire(json(:put, "/api/v1/groups/#{seg(id)}", { members: members }), id)
+      group_from_wire(json(:put, "/api/v1/groups/#{seg(id)}", Group.new(members: members).to_wire), id)
     end
 
     # Returns a Group; a missing one is an APIError with code APIError::UNKNOWN_GROUP.
     def get_group(id)
       group_from_wire(json(:get, "/api/v1/groups/#{seg(id)}"), id)
+    end
+
+    # Returns an Array of Groups.
+    def list_groups
+      list(json(:get, "/api/v1/groups"), Group)
     end
 
     # An audience that still names the group matches nobody through it.
@@ -151,6 +152,21 @@ module Hansho
       nil
     end
 
+    # Returns a Template; a missing one is an APIError.
+    def get_template(id)
+      Template.from_wire(json(:get, "/api/v1/templates/#{seg(id)}"))
+    end
+
+    # Returns an Array of Templates.
+    def list_templates
+      list(json(:get, "/api/v1/templates"), Template)
+    end
+
+    def delete_template(id)
+      json(:delete, "/api/v1/templates/#{seg(id)}")
+      nil
+    end
+
     # Uploads a sound (+audio/x-caf+, +audio/wav+ or +audio/aiff+, at most 1 MB). Returns a SoundResult.
     def put_sound(id, content_type, bytes)
       path = "/api/v1/sounds/#{seg(id)}"
@@ -159,7 +175,22 @@ module Hansho
       raise ArgumentError, "hansho: content_type is required" unless content_type.is_a?(String) && !content_type.empty? && !control?(content_type)
 
       w = send_call(Call.new(verb: "PUT", path: path, body: bytes.b, content_type: content_type, retryable: true))
-      SoundResult.new(id: w["id"], filename: w["filename"], sha256: w["sha256"], size: w["size"])
+      SoundResult.from_wire(w)
+    end
+
+    # Returns a Sound (its id, content type, size in +bytes+ and sha256); a missing one is an APIError.
+    def get_sound(id)
+      Sound.from_wire(json(:get, "/api/v1/sounds/#{seg(id)}"))
+    end
+
+    # Returns an Array of Sounds.
+    def list_sounds
+      list(json(:get, "/api/v1/sounds"), Sound)
+    end
+
+    def delete_sound(id)
+      json(:delete, "/api/v1/sounds/#{seg(id)}")
+      nil
     end
 
     # --- messages ----------------------------------------------------------
@@ -186,47 +217,42 @@ module Hansho
         raise ArgumentError, "hansho: external_user_ids must be an Array"
       end
 
-      wire = {
+      message = Message.new(
         external_user_id: external_user_id, external_user_ids: external_user_ids, to_audience: to_audience ? true : nil,
-        channel: channel, level: level_to_wire(level), title: title, subtitle: subtitle,
-        body: body, image_url: image_url, template_id: template_id, data: data, sound: sound,
-        actions: actions_to_wire(actions), collapse_id: collapse_id, page: page_to_wire(page)
-      }.compact
-      call = Call.new(verb: "POST", path: "/api/v1/messages", body: JSON.generate(wire), content_type: "application/json", retryable: false)
+        channel: channel, level: level, title: title, subtitle: subtitle, body: body, image_url: image_url,
+        template_id: template_id, data: data, sound: sound, actions: actions, collapse_id: collapse_id, page: page
+      )
+      call = Call.new(verb: "POST", path: "/api/v1/messages", body: JSON.generate(message.to_wire), content_type: "application/json",
+                      retryable: false)
       unless idempotency_key.nil? || idempotency_key == ""
         raise ArgumentError, "hansho: idempotency_key must not contain control characters" if control?(idempotency_key.to_s)
 
         call.retryable = true
         call.headers = { "Idempotency-Key" => idempotency_key.to_s }
       end
-      w = send_call(call)
-      MessageResult.new(message_id: w["message_id"], level: w["level"], devices: w["devices"], status: w["status"],
-                        deliveries: deliveries_from_wire(w["deliveries"]), recipients: recipients_from_wire(w["recipients"]))
+      result = MessageResult.from_wire(send_call(call))
+      result.recipients.each { |r| r.devices ||= 0 }
+      result
     end
 
     # Returns a MessageStatus.
     def get_message(id)
-      w = json(:get, "/api/v1/messages/#{seg(id)}")
-      MessageStatus.new(message_id: w["message_id"], status: w["status"], level: w["level"], attempts: w["attempts"],
-                        deliveries: deliveries_from_wire(w["deliveries"]), acked_at: time(w["acked_at"]),
-                        acked_by: str_or_nil(w["acked_by"]), acked_by_name: str_or_nil(w["acked_by_name"]))
+      MessageStatus.from_wire(json(:get, "/api/v1/messages/#{seg(id)}"))
     end
 
     # --- live activities and feeds -----------------------------------------
 
     # Starts a Live Activity. +alert+ is `{ title:, body: }`. Returns an ActivityStarted.
     def start_activity(external_user_id:, channel:, template_id:, data:, alert: nil)
-      wire = { external_user_id: external_user_id, channel: channel, template_id: template_id, data: data,
-               alert: alert_to_wire(alert) }.compact
-      w = json(:post, "/api/v1/activities", wire)
-      ActivityStarted.new(activity_id: w["activity_id"], devices: w["devices"])
+      wire = Activity.new(external_user_id: external_user_id, channel: channel, template_id: template_id, data: data,
+                          alert: alert).to_wire
+      ActivityStarted.from_wire(json(:post, "/api/v1/activities", wire))
     end
 
     # Not retried automatically. +priority+ is 5 (default) or 10. Returns an ActivityUpdated.
     def update_activity(id, data:, priority: nil, alert: nil)
-      wire = { data: data, priority: priority, alert: alert_to_wire(alert) }.compact
-      w = json(:patch, "/api/v1/activities/#{seg(id)}", wire)
-      ActivityUpdated.new(activity_id: w["activity_id"], update: w["update"])
+      wire = ActivityUpdate.new(data: data, priority: priority, alert: alert).to_wire
+      ActivityUpdated.from_wire(json(:patch, "/api/v1/activities/#{seg(id)}", wire))
     end
 
     def end_activity(id)
@@ -238,19 +264,15 @@ module Hansho
     # users. +title+ is the name the app's feed picker shows. The feed uses the audience of +channel+ unless it sets its
     # own +audience+ (see #put_channel); leaving both out keeps the values stored on the hub. Returns a FeedResult.
     def put_feed(id, template_id:, data:, external_user_id: nil, title: nil, channel: nil, audience: nil)
-      wire = { external_user_id: external_user_id, template_id: template_id, title: title, channel: channel,
-               audience: audience_to_wire(audience), data: data }.compact
-      w = json(:put, "/api/v1/feeds/#{seg(id)}", wire)
-      FeedResult.new(feed_id: w["feed_id"], devices: w["devices"])
+      wire = Feed.new(external_user_id: external_user_id, template_id: template_id, title: title, channel: channel,
+                      audience: audience, data: data).to_wire
+      FeedResult.from_wire(json(:put, "/api/v1/feeds/#{seg(id)}", wire))
     end
 
     # A feed's settings without its data; omit +external_user_id+ for the feed shared by all users. Returns a FeedSettings.
     def get_feed(id, external_user_id: nil)
       query = external_user_id.nil? || external_user_id == "" ? "" : "?external_user_id=#{URI.encode_www_form_component(external_user_id.to_s)}"
-      w = json(:get, "/api/v1/feeds/#{seg(id)}#{query}")
-      FeedSettings.new(feed_id: w["feed_id"], external_user_id: w["external_user_id"], template_id: w["template_id"],
-                       title: w["title"], channel: w["channel"], audience: audience_from_wire(w["audience"]),
-                       updated_at: w["updated_at"])
+      FeedSettings.from_wire(json(:get, "/api/v1/feeds/#{seg(id)}#{query}"))
     end
 
     private
@@ -268,96 +290,16 @@ module Hansho
       string.match?(/[\x00-\x1f\x7f]/)
     end
 
-    def symbolize(hash, what)
-      raise ArgumentError, "hansho: #{what} must be a Hash" unless hash.is_a?(Hash)
-
-      hash.transform_keys(&:to_sym)
+    # The Array of +klass+ in a list answer; entries that are not objects are skipped.
+    def list(raw, klass)
+      raw.is_a?(Array) ? raw.filter_map { |item| klass.from_wire(item) if item.is_a?(Hash) } : []
     end
 
-    def level_to_wire(level)
-      level&.to_s&.tr("_", "-")
-    end
-
-    def actions_to_wire(actions)
-      return nil if actions.nil?
-      raise ArgumentError, "hansho: actions must be an Array" unless actions.is_a?(Array)
-
-      actions.map do |a|
-        a = symbolize(a, "action")
-        { id: a[:id], title: a[:title], ack: a[:ack], kind: a[:kind] }.compact
-      end
-    end
-
-    def actions_from_wire(raw)
-      return nil unless raw.is_a?(Array)
-
-      raw.map { |a| { id: a["id"], title: a["title"], ack: a["ack"], kind: a["kind"] }.compact }
-    end
-
-    def page_to_wire(page)
-      return nil if page.nil?
-
-      p = symbolize(page, "page")
-      { interval_s: p[:interval_seconds], max_retries: p[:max_retries], ack: p[:ack]&.to_s }.compact
-    end
-
-    def alert_to_wire(alert)
-      return nil if alert.nil?
-
-      a = symbolize(alert, "alert")
-      { title: a[:title], body: a[:body] }.compact
-    end
-
-    def audience_to_wire(audience)
-      return nil if audience.nil?
-
-      a = symbolize(audience, "audience")
-      %i[users groups].each do |key|
-        raise ArgumentError, "hansho: audience #{key} must be an Array" unless a[key].nil? || a[key].is_a?(Array)
-      end
-      { mode: a[:mode]&.to_s, users: non_empty(a[:users]), groups: non_empty(a[:groups]) }.compact
-    end
-
-    def non_empty(list)
-      list.nil? || list.empty? ? nil : list
-    end
-
-    def audience_from_wire(raw)
-      return nil unless raw.is_a?(Hash)
-
-      { mode: raw["mode"], users: raw["users"].is_a?(Array) ? raw["users"] : [], groups: raw["groups"].is_a?(Array) ? raw["groups"] : [] }
-    end
-
-    def group_from_wire(w, id)
-      Group.new(id: w["id"] || id, members: w["members"].is_a?(Array) ? w["members"] : [])
-    end
-
-    def recipients_from_wire(raw)
-      return [] unless raw.is_a?(Array)
-
-      raw.select { |r| r.is_a?(Hash) }.map do |r|
-        Recipient.new(external_user_id: r["external_user_id"], message_id: r["message_id"], status: r["status"],
-                      devices: r["devices"] || 0, deliveries: deliveries_from_wire(r["deliveries"]))
-      end
-    end
-
-    def deliveries_from_wire(raw)
-      return [] unless raw.is_a?(Array)
-
-      raw.map do |d|
-        err = d["error"]
-        Delivery.new(device_id: d["device_id"], status: d["status"], error: err.nil? || err == "" ? nil : err)
-      end
-    end
-
-    def str_or_nil(value)
-      value.is_a?(String) ? value : nil
-    end
-
-    def time(value)
-      value.is_a?(String) ? Time.iso8601(value) : nil
-    rescue ArgumentError
-      nil
+    # The Group of an answer; a hub that leaves the id out gets the one asked for.
+    def group_from_wire(raw, id)
+      group = Group.from_wire(raw)
+      group.id = id if group.id.empty?
+      group
     end
 
     def json(method, path, body = nil)
@@ -415,7 +357,7 @@ module Hansho
       return {} if text.strip.empty?
 
       parsed = JSON.parse(text)
-      parsed.is_a?(Hash) ? parsed : {}
+      parsed.is_a?(Hash) || parsed.is_a?(Array) ? parsed : {}
     rescue JSON::ParserError
       raise NetworkError.new(call.verb, call.path, "invalid JSON in response")
     end

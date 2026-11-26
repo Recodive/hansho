@@ -34,8 +34,9 @@ and tests) and `sleeper:` (replaces the retry wait; meant for tests).
 
 Arguments are keywords in `snake_case`; results are `Struct`s with the same names
 (`res.message_id`, `ticket.expires_at` as a `Time`). `level` is a String or Symbol
-(`:passive`, `:active`, `:time_sensitive` or `"time-sensitive"`, `:critical`, `:page`); a level the hub
-does not know comes back as its 400. Nested hashes (`actions`, `page`, `alert`) take Symbol or String keys.
+(`:passive`, `:active`, `:time_sensitive` or `"time-sensitive"`, `:critical`, `:page`; the values are in
+`Hansho::Level`); a level or audience mode that is not one of them raises `ArgumentError` before anything is sent, while
+an answer with a value this SDK does not know keeps it as a String. Nested hashes (`actions`, `page`, `alert`) take Symbol or String keys.
 
 ## Pairing
 
@@ -92,7 +93,8 @@ The answer has one `Recipient` per user in `res.recipients` (`message_id` is `ni
 `external_user_id:` the top-level fields describe that one recipient (`message_id` is `""`, `status` is
 `"no_access"` and `devices` is 0 without access); for several users or an audience the top-level `message_id`,
 `devices` and `status` are `nil`, `deliveries` is empty and each message is under `recipients`. `audience` comes
-back from `get_channel` and `get_feed` as a Hash with Symbol keys.
+back from `get_channel` and `get_feed` as a `Hansho::Audience` (`mode`, `users`, `groups`; `audience[:mode]` works too),
+and a channel's `actions` as `Hansho::Action`s. What you pass in stays a Hash (Symbol or String keys) or the type itself.
 
 Error codes: `Hansho::APIError::NO_ACCESS` (403, `start_activity` for a user outside the channel's audience) and
 `Hansho::APIError::UNKNOWN_GROUP` (404), compared against `e.code`.
@@ -139,6 +141,13 @@ hansho.put_feed("uptime", external_user_id: "user-42", template_id: "status", ti
 
 # A sound (audio/x-caf, audio/wav or audio/aiff, at most 1 MB).
 hansho.put_sound("ding", "audio/wav", File.binread("ding.wav"))
+
+# What the hub holds: list_channels, list_templates, list_sounds and list_groups return Arrays of Channel, Template,
+# Sound and Group; get_template and get_sound return one; delete_template and delete_sound remove one.
+hansho.list_channels.map(&:id)
+hansho.get_template("status").version
+hansho.get_sound("ding").bytes
+hansho.list_groups.map(&:members)
 ```
 
 Ids may contain any characters except `.` and `..`: they are path-escaped. Empty, non-String and
@@ -180,7 +189,7 @@ signature, replayed too late), `malformed_body`, `invalid_body`, `invalid_secret
 `Hansho::Webhook::Event` has `type`, `id`, `created_at` (a `Time`), `data` and the verified `raw` body.
 Events: `pairing.created`, `pairing.revoked`, `message.delivered`, `message.undeliverable`,
 `message.acked`, `message.dismissed`, `message.expired`, `action`, `activity.ended`, each with a `Struct` as
-`data` (`snake_case` fields); anything else is `type: "unknown"` with the event name in `name` and the
+`data` (`snake_case` fields; a payload field the hub left out is `""` or `0` when the event always carries it, else `nil`); anything else is `type: "unknown"` with the event name in `name` and the
 parsed payload in `data`.
 
 ## Errors
@@ -213,7 +222,8 @@ bundle install
 bundle exec rake test
 ```
 
-The unit tests load `../spec/api.json` and `../spec/webhook-vectors.json`. `test/integration_test.rb` runs
+The types in `lib/hansho/types_gen.rb` are generated from `../spec/openapi.json` (`cd ../scripts/gen && go run . -lang ruby`);
+the unit tests load its `x-conformance` cases and `../spec/webhook-vectors.json`. `test/integration_test.rb` runs
 against a real hub and is skipped unless `HANSHO_HUB_URL` is set; `../scripts/run-integration.sh` sets that up.
 
 ## Licence

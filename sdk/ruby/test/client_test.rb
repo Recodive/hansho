@@ -247,7 +247,7 @@ class ClientTest < Minitest::Test
       assert_nil ms.acked_at
       assert_equal [], ms.deliveries
       ch = h.client.get_channel("c")
-      assert_nil ch.actions
+      assert_equal [], ch.actions
       assert_nil ch.sound
     end
   end
@@ -564,10 +564,28 @@ class ClientTest < Minitest::Test
     end
   end
 
-  def test_unknown_levels_are_left_to_the_hub
+  def test_an_unknown_enum_value_or_field_in_an_answer_is_kept_or_ignored
+    body = '{"name":"C","default_level":"loud","max_level":"page","audience":{"mode":"someday"},"actions":[{"id":"a","title":"A","new":1}],"new":true}'
+    with_hub(->(_r) { reply(200, body) }) do |h|
+      ch = h.client.get_channel("c")
+      assert_equal %w[loud page someday], [ch.default_level, ch.max_level, ch.audience.mode]
+      assert_equal "a", ch.actions.first.id
+    end
+  end
+
+  def test_levels_and_audience_modes_are_strict_for_what_you_send
     with_hub do |h|
-      h.client.send_message(**MSG, level: "pager")
-      assert_equal "pager", body_of(h.requests[0])["level"]
+      h.client.send_message(**MSG, level: :time_sensitive)
+      assert_equal "time-sensitive", body_of(h.requests[0])["level"]
+      assert_raises(ArgumentError) { h.client.put_channel("c", name: "C", default_level: "active", max_level: "loud") }
+      assert_raises(ArgumentError) { h.client.put_channel("c", name: "C", default_level: "active", max_level: "page", audience: { mode: :some }) }
+    end
+  end
+
+  def test_unknown_levels_are_refused_before_sending
+    with_hub do |h|
+      assert_raises(ArgumentError) { h.client.send_message(**MSG, level: "pager") }
+      assert_empty h.requests
     end
   end
 end
