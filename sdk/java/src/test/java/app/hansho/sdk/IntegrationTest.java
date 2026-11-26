@@ -163,7 +163,7 @@ class IntegrationTest {
             // errors
             apiError(401, "unauthorized", null, () -> Hansho.create(hubUrl, "ck_not_a_key").createPairingTicket("x"));
             apiError(404, "unknown_channel", null, () -> c.getChannel("no-such-channel"));
-            apiError(400, "invalid_request", "title", () -> c.sendMessage(Message.builder(user, ch, "", "b").build()));
+            apiError(400, "invalid_request", "title", () -> c.sendMessage(Message.builder(ch, "", "b").externalUserId(user).build()));
 
             // catalog
             SoundResult sound = c.putSound(snd, "audio/wav", tinyWav());
@@ -174,13 +174,13 @@ class IntegrationTest {
             apiError(409, "version_conflict", null, () -> c.putTemplate(tpl, 1, template));
             c.putTemplate(tpl, 2, template);
             c.putChannel(ch, Channel.builder("Operations " + p, Level.ACTIVE, Level.PAGE).sound(snd).templateId(tpl).thread("ops")
-                    .actions(List.of(Action.acknowledge("ack", "Acknowledge"))).build());
+                    .actions(List.of(Action.builder("ack", "Acknowledge").ack(true).build())).build());
             Channel got = c.getChannel(ch);
             assertEquals("Operations " + p, got.name());
             assertEquals(Level.PAGE, got.maxLevel());
             assertEquals(snd, got.sound());
             assertEquals(tpl, got.templateId());
-            assertEquals(List.of(Action.acknowledge("ack", "Acknowledge")), got.actions());
+            assertEquals(List.of(Action.builder("ack", "Acknowledge").ack(true).build()), got.actions());
             apiError(400, "invalid_request", "id", () -> c.putChannel("bad id", Channel.builder("n", Level.ACTIVE, Level.PAGE).build()));
 
             // pairing
@@ -192,7 +192,7 @@ class IntegrationTest {
 
             // messages at every level
             for (Level level : new Level[] {Level.PASSIVE, Level.ACTIVE, Level.TIME_SENSITIVE, Level.CRITICAL}) {
-                MessageResult res = c.sendMessage(Message.builder(user, ch, "Disk full", "db-1 is at 97%").level(level)
+                MessageResult res = c.sendMessage(Message.builder(ch, "Disk full", "db-1 is at 97%").externalUserId(user).level(level)
                         .data(Map.of("disk", 97)).sound(snd).collapseId("disk-" + level.wire()).build());
                 assertEquals(level, res.level());
                 assertEquals(1, res.devices());
@@ -204,12 +204,12 @@ class IntegrationTest {
                 rx.await(WebhookEvent.MessageDelivered.class,
                         e -> e.data().messageId().equals(res.messageId()) && e.data().level() == level && e.data().devices() == 1);
             }
-            MessageResult def = c.sendMessage(Message.builder(user, ch, "Default", "b").build());
+            MessageResult def = c.sendMessage(Message.builder(ch, "Default", "b").externalUserId(user).build());
             assertEquals(Level.ACTIVE, def.level());
 
             // page + acknowledgement from the (fake) device
-            MessageResult page = c.sendMessage(Message.builder(user, ch, "Primary DB down", "Failover failed")
-                    .level(Level.PAGE).page(PageOptions.of(60, 3)).build());
+            MessageResult page = c.sendMessage(Message.builder(ch, "Primary DB down", "Failover failed").externalUserId(user)
+                    .level(Level.PAGE).page(PageOptions.builder().intervalSeconds(60).maxRetries(3).build()).build());
             assertEquals(Level.PAGE, page.level());
             waitStatus(c, page.messageId(), "paging");
             fakeDevice("ack", "-state", state, "-message", page.messageId());
@@ -220,30 +220,30 @@ class IntegrationTest {
             rx.await(WebhookEvent.ActionTaken.class, e -> e.data().messageId().equals(page.messageId()) && e.data().actionId().equals("ack"));
 
             // live activity
-            ActivityStarted started = c.startActivity(Activity.of(user, ch, tpl, Map.of("title", "Deploy", "progress", 0.1))
-                    .withAlert(new ActivityAlert("Deploy started", null)));
+            ActivityStarted started = c.startActivity(Activity.builder(user, ch, tpl, Map.of("title", "Deploy", "progress", 0.1))
+                    .alert(new ActivityAlert("Deploy started", null)).build());
             assertEquals(1, started.devices());
             assertTrue(started.activityId().startsWith("act_"));
             fakeDevice("activity-token", "-state", state, "-activity", started.activityId());
             ActivityUpdated up = c.updateActivity(started.activityId(),
-                    ActivityUpdate.of(Map.of("title", "Deploy", "progress", 0.6)).withPriority(10));
+                    ActivityUpdate.builder(Map.of("title", "Deploy", "progress", 0.6)).priority(10).build());
             assertEquals(started.activityId(), up.activityId());
             assertTrue(up.update() >= 1);
             c.endActivity(started.activityId());
-            apiError(409, "activity_ended", null, () -> c.updateActivity(started.activityId(), ActivityUpdate.of(Map.of("title", "x"))));
+            apiError(409, "activity_ended", null, () -> c.updateActivity(started.activityId(), ActivityUpdate.builder(Map.of("title", "x")).build()));
 
             // feeds
-            FeedResult own = c.putFeed(p + "-uptime", Feed.of(tpl, Map.of("title", "up", "ms", 41)).forUser(user));
+            FeedResult own = c.putFeed(p + "-uptime", Feed.builder(tpl, Map.of("title", "up", "ms", 41)).externalUserId(user).build());
             assertEquals(p + "-uptime", own.feedId());
             assertTrue(own.devices() >= 1);
-            FeedResult shared = c.putFeed(p + "-shared", Feed.of(tpl, Map.of("title", "all")));
+            FeedResult shared = c.putFeed(p + "-shared", Feed.builder(tpl, Map.of("title", "all")).build());
             assertTrue(shared.devices() >= 1);
-            apiError(400, "invalid_request", "template_id", () -> c.putFeed(p + "-bad", Feed.of("missing", 1)));
+            apiError(400, "invalid_request", "template_id", () -> c.putFeed(p + "-bad", Feed.builder("missing", 1).build()));
 
             // unpair, then nobody is left to deliver to
             c.unpair(user);
             rx.await(WebhookEvent.PairingRevoked.class, e -> e.data().externalUserId().equals(user) && e.data().by().equals("sender"));
-            MessageResult none = c.sendMessage(Message.builder(user, ch, "Anyone?", "b").build());
+            MessageResult none = c.sendMessage(Message.builder(ch, "Anyone?", "b").externalUserId(user).build());
             assertEquals(0, none.devices());
             waitStatus(c, none.messageId(), "undeliverable");
             rx.await(WebhookEvent.MessageUndeliverable.class, e -> e.data().messageId().equals(none.messageId()));

@@ -220,11 +220,15 @@ class Message:
     not delivered to: their recipient has status `no_access`.
     """
 
+    channel: str
+    title: str
+    body: str
     #: Exactly one of `external_user_id`, `external_user_ids` and `to_audience` is required.
     external_user_id: Optional[str] = None
-    channel: str = ""
-    title: str = ""
-    body: str = ""
+    #: Sends to several users at once (at most 1000).
+    external_user_ids: List[str] = field(default_factory=list)
+    #: Sends to every paired user in the channel's audience, resolved when you send.
+    to_audience: Optional[bool] = None
     level: Optional[Level] = None
     subtitle: Optional[str] = None
     image_url: Optional[str] = None
@@ -238,10 +242,6 @@ class Message:
     #: Opts this send in to retries of 429 and 503. Sent as the Idempotency-Key header, never in the body. The hub
     #: ignores it today, so a retried send is at-least-once.
     idempotency_key: Optional[str] = None
-    #: Sends to several users at once (at most 1000).
-    external_user_ids: List[str] = field(default_factory=list)
-    #: Sends to every paired user in the channel's audience, resolved when you send.
-    to_audience: Optional[bool] = None
 
 
 @dataclass
@@ -265,7 +265,7 @@ class MessageDelivered:
     external_user_id: str
     channel: Optional[str] = None
     level: Optional[Level] = None
-    devices: int = 0
+    devices: Optional[int] = None
 
 
 @dataclass
@@ -284,7 +284,7 @@ class MessageExpired:
     message_id: str
     external_user_id: str
     channel: Optional[str] = None
-    attempts: int = 0
+    attempts: Optional[int] = None
 
 
 @dataclass
@@ -295,7 +295,7 @@ class MessageResult:
 
     level: Level
     message_id: Optional[str] = None
-    devices: int = 0
+    devices: Optional[int] = None
     status: Optional[str] = None
     deliveries: List[Delivery] = field(default_factory=list)
     #: One entry per user.
@@ -379,7 +379,7 @@ class Recipient:
     #: The message status (queued, undeliverable) or `no_access`, with no message id.
     status: str
     message_id: Optional[str] = None
-    devices: int = 0
+    devices: Optional[int] = None
     deliveries: List[Delivery] = field(default_factory=list)
 
 
@@ -441,9 +441,9 @@ def from_wire_action_taken(raw: Any) -> ActionTaken:
     return ActionTaken(
         message_id=_s(w.get("message_id")),
         action_id=_s(w.get("action_id")),
-        device_id=_opt_s(w.get("device_id")) or None,
-        external_user_id=_opt_s(w.get("external_user_id")) or None,
-        text=_opt_s(w.get("text")) or None,
+        device_id=_opt_s(w.get("device_id")),
+        external_user_id=_opt_s(w.get("external_user_id")),
+        text=_opt_s(w.get("text")),
     )
 
 
@@ -503,9 +503,9 @@ def from_wire_activity_ended(raw: Any) -> ActivityEnded:
     w: Dict[str, Any] = raw if isinstance(raw, dict) else {}
     return ActivityEnded(
         activity_id=_s(w.get("activity_id")),
-        external_user_id=_opt_s(w.get("external_user_id")) or None,
-        channel=_opt_s(w.get("channel")) or None,
-        reason=_opt_s(w.get("reason")) or None,
+        external_user_id=_opt_s(w.get("external_user_id")),
+        channel=_opt_s(w.get("channel")),
+        reason=_opt_s(w.get("reason")),
     )
 
 
@@ -627,7 +627,7 @@ def from_wire_delivery(raw: Any) -> Delivery:
     return Delivery(
         device_id=_s(w.get("device_id")),
         status=_s(w.get("status")),
-        error=_opt_s(w.get("error")) or None,
+        error=_opt_s(w.get("error")),
     )
 
 
@@ -687,10 +687,10 @@ def from_wire_feed_settings(raw: Any) -> FeedSettings:
     w: Dict[str, Any] = raw if isinstance(raw, dict) else {}
     return FeedSettings(
         feed_id=_s(w.get("feed_id")),
-        external_user_id=_opt_s(w.get("external_user_id")) or None,
+        external_user_id=_opt_s(w.get("external_user_id")),
         template_id=_s(w.get("template_id")),
-        title=_opt_s(w.get("title")) or None,
-        channel=_opt_s(w.get("channel")) or None,
+        title=_opt_s(w.get("title")),
+        channel=_opt_s(w.get("channel")),
         audience=_obj(w.get("audience"), from_wire_audience),
         updated_at=_i(w.get("updated_at")),
     )
@@ -775,9 +775,9 @@ def from_wire_message_acked(raw: Any) -> MessageAcked:
     return MessageAcked(
         message_id=_s(w.get("message_id")),
         external_user_id=_s(w.get("external_user_id")),
-        device_id=_opt_s(w.get("device_id")) or None,
-        acked_by=_opt_s(w.get("acked_by")) or None,
-        acked_by_name=_opt_s(w.get("acked_by_name")) or None,
+        device_id=_opt_s(w.get("device_id")),
+        acked_by=_opt_s(w.get("acked_by")),
+        acked_by_name=_opt_s(w.get("acked_by_name")),
     )
 
 
@@ -798,9 +798,9 @@ def from_wire_message_delivered(raw: Any) -> MessageDelivered:
     return MessageDelivered(
         message_id=_s(w.get("message_id")),
         external_user_id=_s(w.get("external_user_id")),
-        channel=_opt_s(w.get("channel")) or None,
+        channel=_opt_s(w.get("channel")),
         level=_opt_enum(w.get("level")),
-        devices=_i(w.get("devices")),
+        devices=_opt_i(w.get("devices")),
     )
 
 
@@ -811,7 +811,7 @@ def to_wire_message_delivered(v: MessageDelivered) -> Dict[str, Any]:
             "external_user_id": v.external_user_id,
             "channel": v.channel,
             "level": v.level,
-            "devices": v.devices or None,
+            "devices": v.devices,
         }
     )
 
@@ -821,7 +821,7 @@ def from_wire_message_dismissed(raw: Any) -> MessageDismissed:
     return MessageDismissed(
         message_id=_s(w.get("message_id")),
         external_user_id=_s(w.get("external_user_id")),
-        device_id=_opt_s(w.get("device_id")) or None,
+        device_id=_opt_s(w.get("device_id")),
     )
 
 
@@ -840,8 +840,8 @@ def from_wire_message_expired(raw: Any) -> MessageExpired:
     return MessageExpired(
         message_id=_s(w.get("message_id")),
         external_user_id=_s(w.get("external_user_id")),
-        channel=_opt_s(w.get("channel")) or None,
-        attempts=_i(w.get("attempts")),
+        channel=_opt_s(w.get("channel")),
+        attempts=_opt_i(w.get("attempts")),
     )
 
 
@@ -851,7 +851,7 @@ def to_wire_message_expired(v: MessageExpired) -> Dict[str, Any]:
             "message_id": v.message_id,
             "external_user_id": v.external_user_id,
             "channel": v.channel,
-            "attempts": v.attempts or None,
+            "attempts": v.attempts,
         }
     )
 
@@ -859,10 +859,10 @@ def to_wire_message_expired(v: MessageExpired) -> Dict[str, Any]:
 def from_wire_message_result(raw: Any) -> MessageResult:
     w: Dict[str, Any] = raw if isinstance(raw, dict) else {}
     return MessageResult(
-        message_id=_opt_s(w.get("message_id")) or None,
+        message_id=_opt_s(w.get("message_id")),
         level=_enum(w.get("level")),
-        devices=_i(w.get("devices")),
-        status=_opt_s(w.get("status")) or None,
+        devices=_opt_i(w.get("devices")),
+        status=_opt_s(w.get("status")),
         deliveries=_list(w.get("deliveries"), from_wire_delivery),
         recipients=_list(w.get("recipients"), from_wire_recipient),
     )
@@ -873,7 +873,7 @@ def to_wire_message_result(v: MessageResult) -> Dict[str, Any]:
         {
             "message_id": v.message_id,
             "level": v.level,
-            "devices": v.devices or None,
+            "devices": v.devices,
             "status": v.status,
             "deliveries": _arr(v.deliveries, to_wire_delivery),
             "recipients": _arr(v.recipients, to_wire_recipient),
@@ -890,8 +890,8 @@ def from_wire_message_status(raw: Any) -> MessageStatus:
         attempts=_i(w.get("attempts")),
         deliveries=_list(w.get("deliveries"), from_wire_delivery),
         acked_at=_opt_time(w.get("acked_at")),
-        acked_by=_opt_s(w.get("acked_by")) or None,
-        acked_by_name=_opt_s(w.get("acked_by_name")) or None,
+        acked_by=_opt_s(w.get("acked_by")),
+        acked_by_name=_opt_s(w.get("acked_by_name")),
     )
 
 
@@ -915,8 +915,8 @@ def from_wire_message_undeliverable(raw: Any) -> MessageUndeliverable:
     return MessageUndeliverable(
         message_id=_s(w.get("message_id")),
         external_user_id=_s(w.get("external_user_id")),
-        channel=_opt_s(w.get("channel")) or None,
-        reason=_opt_s(w.get("reason")) or None,
+        channel=_opt_s(w.get("channel")),
+        reason=_opt_s(w.get("reason")),
     )
 
 
@@ -955,7 +955,7 @@ def from_wire_pairing_created(raw: Any) -> PairingCreated:
     return PairingCreated(
         pairing_id=_s(w.get("pairing_id")),
         external_user_id=_s(w.get("external_user_id")),
-        device_name=_opt_s(w.get("device_name")) or None,
+        device_name=_opt_s(w.get("device_name")),
     )
 
 
@@ -974,7 +974,7 @@ def from_wire_pairing_revoked(raw: Any) -> PairingRevoked:
     return PairingRevoked(
         pairing_id=_s(w.get("pairing_id")),
         external_user_id=_s(w.get("external_user_id")),
-        by=_opt_s(w.get("by")) or None,
+        by=_opt_s(w.get("by")),
     )
 
 
@@ -1011,9 +1011,9 @@ def from_wire_recipient(raw: Any) -> Recipient:
     w: Dict[str, Any] = raw if isinstance(raw, dict) else {}
     return Recipient(
         external_user_id=_s(w.get("external_user_id")),
-        message_id=_opt_s(w.get("message_id")) or None,
+        message_id=_opt_s(w.get("message_id")),
         status=_s(w.get("status")),
-        devices=_i(w.get("devices")),
+        devices=_opt_i(w.get("devices")),
         deliveries=_list(w.get("deliveries"), from_wire_delivery),
     )
 
@@ -1024,7 +1024,7 @@ def to_wire_recipient(v: Recipient) -> Dict[str, Any]:
             "external_user_id": v.external_user_id,
             "message_id": v.message_id,
             "status": v.status,
-            "devices": v.devices or None,
+            "devices": v.devices,
             "deliveries": _arr(v.deliveries, to_wire_delivery),
         }
     )

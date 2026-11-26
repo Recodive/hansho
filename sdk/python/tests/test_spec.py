@@ -149,7 +149,7 @@ CALLS: Dict[str, Tuple[Callable[[Hansho], Any], Any]] = {
     ),
     "getMessageAckedNoName": (
         lambda c: c.get_message("msg_3"),
-        MessageStatus("msg_3", "acked", "page", 1, [Delivery("dev_1", "sent")], utc(2026, 11, 8, 12, 5), "alice"),
+        MessageStatus("msg_3", "acked", "page", 1, [Delivery("dev_1", "sent", "")], utc(2026, 11, 8, 12, 5), "alice"),
     ),
     "getMessage": (
         lambda c: c.get_message("msg_2"),
@@ -158,7 +158,7 @@ CALLS: Dict[str, Tuple[Callable[[Hansho], Any], Any]] = {
             "acked",
             "page",
             2,
-            [Delivery("dev_1", "sent"), Delivery("dev_2", "failed", "unregistered")],
+            [Delivery("dev_1", "sent", ""), Delivery("dev_2", "failed", "unregistered")],
             utc(2026, 11, 8, 12, 5),
             "user-42",
             "Zoë 日本語",
@@ -313,7 +313,7 @@ def _make_err_test(e: Dict[str, Any]) -> Callable[[SpecErrors], None]:
 
         with Hub(serve) as hub:
             with self.assertRaises(HanshoError) as cm:
-                hub.client.send_message(Message("u", "c", "t", "b"))
+                hub.client.send_message(Message(external_user_id="u", channel="c", title="t", body="b"))
             err = cm.exception
             self.assertEqual(err.status, e["status"])
             self.assertEqual(err.code, e["code"])

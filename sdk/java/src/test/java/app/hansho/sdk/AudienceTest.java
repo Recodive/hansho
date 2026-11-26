@@ -26,7 +26,7 @@ class AudienceTest {
     }
 
     static Message toOne() {
-        return Message.builder("u", "c", "t", "b").build();
+        return Message.builder("c", "t", "b").externalUserId("u").build();
     }
 
     // --- groups ------------------------------------------------------------------
@@ -75,13 +75,13 @@ class AudienceTest {
     void putsAChannelAudienceAndOmitsItWhenAbsent() throws Exception {
         try (TestHub hub = new TestHub()) {
             hub.client().putChannel("pager", Channel.builder("Pager", Level.PAGE, Level.PAGE)
-                    .audience(Audience.only(List.of("alice"), List.of("oncall"))).build());
+                    .audience(Audience.builder(AudienceMode.ONLY).users(List.of("alice")).groups(List.of("oncall")).build()).build());
             assertEquals(json("{\"mode\":\"only\",\"users\":[\"alice\"],\"groups\":[\"oncall\"]}"), body(hub, 0).get("audience"));
 
             hub.client().putChannel("pager", PAGER);
             assertFalse(body(hub, 1).has("audience"), "an absent audience keeps the stored one");
 
-            hub.client().putChannel("pager", Channel.builder("Pager", Level.PAGE, Level.PAGE).audience(Audience.everyone()).build());
+            hub.client().putChannel("pager", Channel.builder("Pager", Level.PAGE, Level.PAGE).audience(Audience.builder(AudienceMode.EVERYONE).build()).build());
             assertEquals(json("{\"mode\":\"everyone\"}"), body(hub, 2).get("audience"));
         }
     }
@@ -91,7 +91,7 @@ class AudienceTest {
         try (TestHub hub = new TestHub().always(TestHub.Reply.json(200,
                 "{\"name\":\"Ops\",\"default_level\":\"active\",\"max_level\":\"page\",\"audience\":{\"mode\":\"except\",\"users\":[\"bob\"],\"groups\":[]}}"))) {
             Channel c = hub.client().getChannel("ops");
-            assertEquals(Audience.except(List.of("bob"), List.of()), c.audience());
+            assertEquals(Audience.builder(AudienceMode.EXCEPT).users(List.of("bob")).groups(List.of()).build(), c.audience());
         }
         try (TestHub hub = new TestHub().always(TestHub.Reply.json(200, "{\"name\":\"Ops\",\"audience\":{\"mode\":\"newmode\"}}"))) {
             assertNull(hub.client().getChannel("ops").audience().mode(), "an unknown mode is null, not an exception");
@@ -101,12 +101,13 @@ class AudienceTest {
     @Test
     void aFeedCarriesItsChannelAndAudience() throws Exception {
         try (TestHub hub = new TestHub()) {
-            hub.client().putFeed("queue", Feed.of("status", 1).withChannel("pager"));
+            hub.client().putFeed("queue", Feed.builder("status", 1).channel("pager").build());
             JsonNode plain = body(hub, 0);
             assertEquals("pager", plain.get("channel").asText());
             assertFalse(plain.has("audience"));
 
-            hub.client().putFeed("queue", Feed.of("status", 1).withAudience(Audience.except(List.of(), List.of("interns"))));
+            hub.client().putFeed("queue", Feed.builder("status", 1)
+                    .audience(Audience.builder(AudienceMode.EXCEPT).users(List.of()).groups(List.of("interns")).build()).build());
             JsonNode own = body(hub, 1);
             assertFalse(own.has("channel"));
             assertEquals(json("{\"mode\":\"except\",\"groups\":[\"interns\"]}"), own.get("audience"));
@@ -131,13 +132,13 @@ class AudienceTest {
     void anAudienceNamingAnUnknownGroupIsAValidationError() throws Exception {
         String err = "{\"error\":\"invalid_request\",\"field\":\"audience.groups\",\"message\":\"unknown group\"}";
         try (TestHub hub = new TestHub().always(TestHub.Reply.json(400, err))) {
-            Audience typo = Audience.only(List.of(), List.of("typo"));
+            Audience typo = Audience.builder(AudienceMode.ONLY).users(List.of()).groups(List.of("typo")).build();
             HanshoException e = assertThrows(HanshoException.class, () -> hub.client().putChannel("pager",
                     Channel.builder("Pager", Level.PAGE, Level.PAGE).audience(typo).build()));
             assertEquals(400, e.status());
             assertEquals("audience.groups", e.field());
             assertEquals("unknown group", e.detail());
-            assertThrows(HanshoException.class, () -> hub.client().putFeed("f", Feed.of("t", 1).withAudience(typo)));
+            assertThrows(HanshoException.class, () -> hub.client().putFeed("f", Feed.builder("t", 1).audience(typo).build()));
         }
     }
 
@@ -158,9 +159,9 @@ class AudienceTest {
     @Test
     void sendsToSeveralUsersOrToTheAudience() throws Exception {
         try (TestHub hub = new TestHub().always(TestHub.Reply.json(202, "{}"))) {
-            hub.client().sendMessage(Message.forUsers(List.of("alice", "bob"), "c", "t", "b").build());
+            hub.client().sendMessage(Message.builder("c", "t", "b").externalUserIds(List.of("alice", "bob")).build());
             assertEquals(json("{\"external_user_ids\":[\"alice\",\"bob\"],\"channel\":\"c\",\"title\":\"t\",\"body\":\"b\"}"), body(hub, 0));
-            hub.client().sendMessage(Message.forAudience("c", "t", "b").build());
+            hub.client().sendMessage(Message.builder("c", "t", "b").toAudience(true).build());
             assertEquals(json("{\"to_audience\":true,\"channel\":\"c\",\"title\":\"t\",\"body\":\"b\"}"), body(hub, 1));
             hub.client().sendMessage(toOne());
             assertEquals(json("{\"external_user_id\":\"u\",\"channel\":\"c\",\"title\":\"t\",\"body\":\"b\"}"), body(hub, 2));
@@ -173,7 +174,7 @@ class AudienceTest {
                 + "{\"external_user_id\":\"alice\",\"message_id\":\"msg_1\",\"status\":\"queued\",\"devices\":1,\"deliveries\":[{\"device_id\":\"d1\",\"status\":\"queued\"}]},"
                 + "{\"external_user_id\":\"carol\",\"status\":\"no_access\"}]}";
         try (TestHub hub = new TestHub().always(TestHub.Reply.json(202, reply))) {
-            MessageResult res = hub.client().sendMessage(Message.forUsers(List.of("alice", "carol"), "c", "t", "b").build());
+            MessageResult res = hub.client().sendMessage(Message.builder("c", "t", "b").externalUserIds(List.of("alice", "carol")).build());
             assertNull(res.messageId());
             assertNull(res.status());
             assertNull(res.devices());
@@ -187,7 +188,7 @@ class AudienceTest {
             assertEquals(List.of(new Delivery("d1", "queued", null)), alice.deliveries());
             Recipient carol = res.recipients().get(1);
             assertEquals("carol", carol.externalUserId());
-            assertEquals(Recipient.NO_ACCESS, carol.status());
+            assertEquals(Hansho.RECIPIENT_NO_ACCESS, carol.status());
             assertNull(carol.messageId());
             assertNull(carol.devices());
         }
@@ -200,9 +201,9 @@ class AudienceTest {
         try (TestHub hub = new TestHub().always(TestHub.Reply.json(202, reply))) {
             MessageResult res = hub.client().sendMessage(toOne());
             assertEquals("", res.messageId());
-            assertEquals(Recipient.NO_ACCESS, res.status());
+            assertEquals(Hansho.RECIPIENT_NO_ACCESS, res.status());
             assertEquals(0, res.devices());
-            assertEquals(Recipient.NO_ACCESS, res.recipients().get(0).status());
+            assertEquals(Hansho.RECIPIENT_NO_ACCESS, res.recipients().get(0).status());
         }
     }
 
@@ -221,7 +222,7 @@ class AudienceTest {
     void noAccessOnAnActivityIsAForbiddenError() throws Exception {
         try (TestHub hub = new TestHub().always(TestHub.Reply.json(403, "{\"error\":\"no_access\"}"))) {
             HanshoException e = assertThrows(HanshoException.class,
-                    () -> hub.client().startActivity(Activity.of("u", "c", "t", 1)));
+                    () -> hub.client().startActivity(Activity.builder("u", "c", "t", 1).build()));
             assertEquals(403, e.status());
             assertEquals(HanshoException.NO_ACCESS, e.code());
         }

@@ -149,7 +149,7 @@ class Sending(unittest.TestCase):
         )
         with Hub(answer(202, body)) as h:
             res = h.client.send_message(Message(external_user_ids=["alice", "carol"], channel="c", title="t", body="b"))
-        self.assertEqual((res.message_id, res.devices, res.status, res.deliveries), (None, 0, None, []))
+        self.assertEqual((res.message_id, res.devices, res.status, res.deliveries), (None, None, None, []))
         self.assertEqual(
             res.recipients,
             [
@@ -165,13 +165,13 @@ class Sending(unittest.TestCase):
             '"recipients":[{"external_user_id":"carol","status":"no_access"}]}'
         )
         with Hub(answer(202, body)) as h:
-            res = h.client.send_message(Message("carol", "c", "t", "b"))
-        self.assertEqual((res.message_id, res.devices, res.status), (None, 0, RECIPIENT_NO_ACCESS))
+            res = h.client.send_message(Message(external_user_id="carol", channel="c", title="t", body="b"))
+        self.assertEqual((res.message_id, res.devices, res.status), ("", 0, RECIPIENT_NO_ACCESS))
         self.assertEqual(res.recipients, [Recipient("carol", "no_access")])
 
     def test_an_answer_without_recipients_still_parses(self) -> None:
         with Hub(answer(202, '{"message_id":"m1","level":"active","devices":1,"status":"queued","deliveries":[]}')) as h:
-            res = h.client.send_message(Message("u", "c", "t", "b"))
+            res = h.client.send_message(Message(external_user_id="u", channel="c", title="t", body="b"))
         self.assertEqual((res.message_id, res.recipients), ("m1", []))
 
 

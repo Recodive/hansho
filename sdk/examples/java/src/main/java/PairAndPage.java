@@ -21,7 +21,8 @@ public class PairAndPage {
         new Scanner(System.in).nextLine();
 
         MessageResult res = hansho.sendMessage(
-                Message.builder(user, "oncall", "Primary DB down", "Failover did not complete").level(Level.PAGE).build());
+                Message.builder("oncall", "Primary DB down", "Failover did not complete").externalUserId(user)
+                        .level(Level.PAGE).build());
         System.out.println("sent " + res.messageId() + " to " + res.devices() + " device(s); it repeats until acknowledged");
     }
 }

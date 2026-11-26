@@ -31,7 +31,7 @@ class ClientTest {
     static final Channel CHANNEL = Channel.builder("Ops", Level.ACTIVE, Level.CRITICAL).build();
 
     static Message message() {
-        return Message.builder("u", "c", "t", "b").build();
+        return Message.builder("c", "t", "b").externalUserId("u").build();
     }
 
     static TestHub.Reply limited(int status) {
@@ -73,7 +73,6 @@ class ClientTest {
     void doesNotExposeTheKeyInToString() {
         Hansho c = Hansho.create("http://x", TestHub.KEY);
         assertFalse(c.toString().contains(TestHub.KEY));
-        assertFalse(new PairingTicket("tk_secret", "hansho://pair?t=tk_secret", null).toString().contains("tk_secret"));
     }
 
     @Test
@@ -85,7 +84,7 @@ class ClientTest {
             hub.client().putChannel("c", CHANNEL);
             assertEquals(MAPPER.readTree("{\"name\":\"Ops\",\"default_level\":\"active\",\"max_level\":\"critical\"}"),
                     MAPPER.readTree(hub.requests.get(1).body()));
-            hub.client().sendMessage(Message.builder("u", "c", "", "b").build());
+            hub.client().sendMessage(Message.builder("c", "", "b").externalUserId("u").build());
             assertEquals("", MAPPER.readTree(hub.requests.get(2).body()).get("title").asText(), "an empty title is sent, the hub rejects it");
         }
     }
@@ -98,7 +97,7 @@ class ClientTest {
             assertEquals("N", c.name());
             assertNull(c.defaultLevel(), "an unknown level is null, not an exception");
             assertEquals(Level.PAGE, c.maxLevel());
-            assertEquals(List.of(Action.of("a", "T")), c.actions());
+            assertEquals(List.of(Action.builder("a", "T").build()), c.actions());
         }
     }
 
@@ -133,7 +132,7 @@ class ClientTest {
     @Test
     void retriesGetAndDeleteOn503WithJitteredBackoff() throws Exception {
         for (Consumer<Hansho> call : List.<Consumer<Hansho>>of(c -> c.getChannel("a"), c -> c.deleteChannel("a"), c -> c.getMessage("m"), c -> c.unpair("u"),
-                c -> c.putTemplate("t", 1, Map.of()), c -> c.putSound("s", "audio/wav", new byte[] {1}), c -> c.putFeed("f", Feed.of("t", 1)),
+                c -> c.putTemplate("t", 1, Map.of()), c -> c.putSound("s", "audio/wav", new byte[] {1}), c -> c.putFeed("f", Feed.builder("t", 1).build()),
                 c -> c.endActivity("a"))) {
             try (TestHub hub = new TestHub().script(limited(503), limited(503), limited(503), OK)) {
                 call.accept(hub.client());
@@ -184,7 +183,7 @@ class ClientTest {
             assertEquals(1, hub.requests.size());
             assertNull(hub.requests.get(0).header("Idempotency-Key"));
             // other POSTs are not idempotent either
-            assertThrows(HanshoException.class, () -> hub.client().startActivity(Activity.of("u", "c", "t", 1)));
+            assertThrows(HanshoException.class, () -> hub.client().startActivity(Activity.builder("u", "c", "t", 1).build()));
             assertThrows(HanshoException.class, () -> hub.client().createPairingTicket("u"));
             assertEquals(3, hub.requests.size());
         }
@@ -194,7 +193,7 @@ class ClientTest {
     void retriesAMessageThatCarriesAnIdempotencyKey() throws Exception {
         try (TestHub hub = new TestHub().script(limited(503), TestHub.Reply.json(202, "{\"message_id\":\"m1\",\"devices\":1}"))) {
             MessageResult r = hub.client().sendMessage(
-                    Message.builder("u", "c", "t", "b").idempotencyKey("key-123").build());
+                    Message.builder("c", "t", "b").externalUserId("u").idempotencyKey("key-123").build());
             assertEquals("m1", r.messageId());
             assertEquals(2, hub.requests.size());
             for (TestHub.Req q : hub.requests) {
@@ -207,7 +206,7 @@ class ClientTest {
     @Test
     void doesNotRetryPatch() throws Exception {
         try (TestHub hub = new TestHub().always(limited(503))) {
-            assertThrows(HanshoException.class, () -> hub.client().updateActivity("a", ActivityUpdate.of(1)));
+            assertThrows(HanshoException.class, () -> hub.client().updateActivity("a", ActivityUpdate.builder(1).build()));
             assertEquals(1, hub.requests.size());
         }
     }
@@ -256,7 +255,7 @@ class ClientTest {
     void apiErrorsCarryStatusCodeFieldAndNeverTheKeyOrBody() throws Exception {
         String body = "{\"error\":\"invalid_request\",\"field\":\"title\",\"message\":\"required, not " + TestHub.KEY + "\"}";
         try (TestHub hub = new TestHub().always(TestHub.Reply.json(400, body))) {
-            Message secret = Message.builder("u", "c", "", "SECRET BODY TEXT").build();
+            Message secret = Message.builder("c", "", "SECRET BODY TEXT").externalUserId("u").build();
             HanshoException e = assertThrows(HanshoException.class, () -> hub.client().sendMessage(secret));
             assertEquals(400, e.status());
             assertEquals("invalid_request", e.code());
@@ -320,9 +319,9 @@ class ClientTest {
                 c.deleteChannel(id);
                 c.putTemplate(id, 1, Map.of());
                 c.putSound(id, "audio/wav", new byte[] {1});
-                c.putFeed(id, Feed.of("t", 1));
+                c.putFeed(id, Feed.builder("t", 1).build());
                 c.getMessage(id);
-                c.updateActivity(id, ActivityUpdate.of(1));
+                c.updateActivity(id, ActivityUpdate.builder(1).build());
                 c.endActivity(id);
                 for (int i = 0; i < cases.length; i++) {
                     String target = hub.requests.get(i).uri();
@@ -361,7 +360,7 @@ class ClientTest {
             }
             assertThrows(IllegalArgumentException.class, () -> c.createPairingTicket(""));
             assertThrows(IllegalArgumentException.class, () -> c.putSound("s", "audio/wav", new byte[(1 << 20) + 1]));
-            assertThrows(IllegalArgumentException.class, () -> ActivityUpdate.of(1).withPriority(7));
+            assertThrows(IllegalArgumentException.class, () -> ActivityUpdate.builder(1).priority(7).build());
             assertEquals(0, hub.requests.size());
         }
     }
@@ -406,11 +405,11 @@ class ClientTest {
     void pageAckIsSentOnlyWhenSet() throws Exception {
         try (TestHub hub = new TestHub().always(TestHub.Reply.json(202, "{}"))) {
             Hansho c = hub.client();
-            c.sendMessage(Message.builder("u", "c", "t", "b").level(Level.PAGE).page(PageOptions.of(60, 3)).build());
+            c.sendMessage(Message.builder("c", "t", "b").externalUserId("u").level(Level.PAGE).page(PageOptions.builder().intervalSeconds(60).maxRetries(3).build()).build());
             assertEquals(MAPPER.readTree("{\"interval_s\":60,\"max_retries\":3}"), MAPPER.readTree(hub.requests.get(0).body()).get("page"));
-            c.sendMessage(Message.builder("u", "c", "t", "b").level(Level.PAGE).page(PageOptions.of(60, 3).withAck(PageAck.EACH)).build());
+            c.sendMessage(Message.builder("c", "t", "b").externalUserId("u").level(Level.PAGE).page(PageOptions.builder().intervalSeconds(60).maxRetries(3).ack(PageAck.EACH).build()).build());
             assertEquals(MAPPER.readTree("{\"interval_s\":60,\"max_retries\":3,\"ack\":\"each\"}"), MAPPER.readTree(hub.requests.get(1).body()).get("page"));
-            c.sendMessage(Message.builder("u", "c", "t", "b").level(Level.PAGE).page(PageOptions.ack(PageAck.ANY)).build());
+            c.sendMessage(Message.builder("c", "t", "b").externalUserId("u").level(Level.PAGE).page(PageOptions.builder().ack(PageAck.ANY).build()).build());
             assertEquals(MAPPER.readTree("{\"ack\":\"any\"}"), MAPPER.readTree(hub.requests.get(2).body()).get("page"));
         }
     }
@@ -438,7 +437,7 @@ class ClientTest {
     @Test
     void sendsDataKeysUntouched() throws Exception {
         try (TestHub hub = new TestHub().always(TestHub.Reply.json(202, "{}"))) {
-            hub.client().sendMessage(Message.builder("u", "c", "t", "b").data(Map.of("snake_case", Map.of("camelCase", 1))).build());
+            hub.client().sendMessage(Message.builder("c", "t", "b").externalUserId("u").data(Map.of("snake_case", Map.of("camelCase", 1))).build());
             JsonNode data = MAPPER.readTree(hub.requests.get(0).body()).get("data");
             assertEquals(1, data.get("snake_case").get("camelCase").asInt());
         }

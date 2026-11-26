@@ -128,9 +128,9 @@ final class Spec
      *
      * @return list<mixed>|null
      */
-    public static function list(?array $v, bool $omitEmpty = false): ?array
+    public static function list(?array $v): ?array
     {
-        return $v === null || ($omitEmpty && $v === []) ? null : array_values($v);
+        return $v === null ? null : array_values($v);
     }
 
     /**
@@ -140,9 +140,9 @@ final class Spec
      *
      * @return list<array<string,mixed>>|null
      */
-    public static function wires(?array $v, bool $omitEmpty = false): ?array
+    public static function wires(?array $v): ?array
     {
-        return $v === null || ($omitEmpty && $v === []) ? null : array_values(array_map(static fn ($e) => $e->toWire(), $v));
+        return $v === null ? null : array_values(array_map(static fn ($e) => $e->toWire(), $v));
     }
 
     /**
@@ -170,7 +170,7 @@ final class Spec
 {{- range .Types}}{{$t := .}}{{$ps := phpParams .}}
 {{phpDoc "" .Desc}}final class {{.Name}}
 {
-{{phpExtra .Name}}    public function __construct(
+    public function __construct(
 {{- range $ps}}
 {{.Doc}}        {{.Decl}},
 {{- end}}

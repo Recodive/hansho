@@ -21,7 +21,7 @@ final class ClientTest extends TestCase
 {
     private static function msg(?string $key = null): Message
     {
-        return new Message('u', 'c', 't', 'b', idempotencyKey: $key);
+        return new Message('c', 't', 'b', idempotencyKey: $key, externalUserId: 'u');
     }
 
     public function testGetRetriesOn429HonouringRetryAfter(): void
@@ -203,7 +203,7 @@ final class ClientTest extends TestCase
     {
         [$c] = FakeTransport::client(fn () => FakeTransport::reply(400, ['error' => 'invalid_request', 'field' => 'title', 'message' => 'bad ' . FakeTransport::KEY]));
         try {
-            $c->sendMessage(new Message('u', 'c', '', 'super secret body'));
+            $c->sendMessage(new Message('c', '', 'super secret body', externalUserId: 'u'));
             $this->fail('expected ApiException');
         } catch (ApiException $e) {
             $this->assertSame('hansho: POST /api/v1/messages: 400 invalid_request (field title)', $e->getMessage());
@@ -259,8 +259,8 @@ final class ClientTest extends TestCase
     public function testPageAckOptionIsSentOnlyWhenSet(): void
     {
         [$c, $t] = FakeTransport::client(fn () => FakeTransport::reply(202, ['message_id' => 'm', 'level' => 'page', 'devices' => 0, 'status' => 'queued']));
-        $c->sendMessage(new Message('u', 'c', 't', 'b', level: Level::Page, page: new PageOptions(maxRetries: 1)));
-        $c->sendMessage(new Message('u', 'c', 't', 'b', level: Level::Page, page: new PageOptions(ack: 'each')));
+        $c->sendMessage(new Message('c', 't', 'b', level: Level::Page, page: new PageOptions(maxRetries: 1), externalUserId: 'u'));
+        $c->sendMessage(new Message('c', 't', 'b', level: Level::Page, page: new PageOptions(ack: 'each'), externalUserId: 'u'));
         $this->assertSame(['max_retries' => 1], json_decode((string) $t->requests[0]['body'], true)['page']);
         $this->assertSame(['ack' => 'each'], json_decode((string) $t->requests[1]['body'], true)['page']);
     }
@@ -308,7 +308,7 @@ final class ClientTest extends TestCase
     public function testBodyEncodingKeepsSlashesUnicodeAndFloats(): void
     {
         [$c, $t] = FakeTransport::client(fn () => FakeTransport::reply(202, ['message_id' => 'm']));
-        $c->sendMessage(new Message('ü', 'c', 'Ünï/x', 'b', data: ['v' => 1.0, 'empty' => new \stdClass()]));
+        $c->sendMessage(new Message('c', 'Ünï/x', 'b', data: ['v' => 1.0, 'empty' => new \stdClass()], externalUserId: 'ü'));
         $this->assertStringContainsString('"title":"Ünï/x"', (string) $t->requests[0]['body']);
         $this->assertStringContainsString('"v":1.0', (string) $t->requests[0]['body']);
         $this->assertStringContainsString('"empty":{}', (string) $t->requests[0]['body']);

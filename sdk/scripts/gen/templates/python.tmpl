@@ -40,20 +40,20 @@ class {{.Name}}:
 {{- if .Desc}}
 {{pyDoc "    " .Desc}}
 {{- end}}
-{{- $t := .}}{{range pyFields .}}
-{{pyComment "    " .Desc}}    {{pyLine $ $t .}}
+{{- range pyFields .}}
+{{pyComment "    " .Desc}}    {{pyLine .}}
 {{- end}}
 {{- if not .Fields}}
     pass
 {{- end}}
 {{end}}
-{{- range .Types}}{{$t := .}}
+{{- range .Types}}
 
 def from_wire_{{pySnake .Name}}(raw: Any) -> {{.Name}}:
     w: Dict[str, Any] = raw if isinstance(raw, dict) else {}
     return {{.Name}}(
 {{- range pyDecodes .}}
-        {{pyName .}}={{pyFrom $ $t .}},
+        {{pyName .}}={{pyFrom .}},
 {{- end}}
     )
 
@@ -62,7 +62,7 @@ def to_wire_{{pySnake .Name}}(v: {{.Name}}) -> Dict[str, Any]:
     return _drop_none(
         {
 {{- range pyEncodes .}}
-            {{quote .Wire}}: {{pyTo $ $t .}},
+            {{quote .Wire}}: {{pyTo .}},
 {{- end}}
         }
     )
