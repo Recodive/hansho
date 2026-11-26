@@ -43,7 +43,7 @@ type Message struct {
 	SendID         string // messages of one send share it
 	PageAck        string // PageAckAny or PageAckEach
 	AckedBy        string // external user id that acknowledged it
-	ShowAcker      bool   // other recipients' cancel banner may name AckedBy
+	AckedByName    string // the acknowledger's display name when they did, "" if they had none
 }
 
 // How a page is acknowledged.
@@ -62,7 +62,7 @@ type Delivery struct {
 }
 
 const messageCols = `id, external_user_id, channel_id, level, status, page_interval_s, page_max_retries, attempts,
-	next_attempt_at, created_at, acked_at, collapse_id, sound, payload_wrapped, send_id, page_ack, acked_by, show_acker`
+	next_attempt_at, created_at, acked_at, collapse_id, sound, payload_wrapped, send_id, page_ack, acked_by, acked_by_name`
 
 func scanMessage(sc interface{ Scan(...any) error }) (Message, error) {
 	var m Message
@@ -70,7 +70,7 @@ func scanMessage(sc interface{ Scan(...any) error }) (Message, error) {
 	var acked sql.NullInt64
 	err := sc.Scan(&m.ID, &m.ExternalUserID, &m.ChannelID, &m.Level, &m.Status, &m.PageIntervalS, &m.PageMaxRetries,
 		&m.Attempts, &next, &created, &acked, &m.CollapseID, &m.Sound, &m.PayloadWrapped,
-		&m.SendID, &m.PageAck, &m.AckedBy, &m.ShowAcker)
+		&m.SendID, &m.PageAck, &m.AckedBy, &m.AckedByName)
 	if err != nil {
 		return m, err
 	}
@@ -88,7 +88,7 @@ func (s *Store) CreateMessage(m Message, ds []Delivery) error {
 	_, err = tx.Exec(`INSERT INTO messages(`+messageCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ExternalUserID, m.ChannelID, m.Level, m.Status, m.PageIntervalS, m.PageMaxRetries, m.Attempts,
 		unix(m.NextAttemptAt), unix(m.CreatedAt), nullUnix(m.AckedAt), m.CollapseID, m.Sound, m.PayloadWrapped,
-		m.SendID, m.PageAck, m.AckedBy, m.ShowAcker)
+		m.SendID, m.PageAck, m.AckedBy, m.AckedByName)
 	if err != nil {
 		return err
 	}
@@ -204,11 +204,11 @@ func (s *Store) BumpPageAttempt(id string, next time.Time) (bool, error) {
 	return n > 0, err
 }
 
-// AckMessage acknowledges a paging or delivered message on behalf of the user by. changed is false when
+// AckMessage acknowledges a paging or delivered message on behalf of the user by (display name name). changed is false when
 // it was neither (already acked, expired, ...), so callers act at most once.
-func (s *Store) AckMessage(id, by string, now time.Time) (bool, error) {
-	res, err := s.exec(`UPDATE messages SET status = ?, acked_at = ?, acked_by = ? WHERE id = ? AND status IN (?, ?)`,
-		MsgAcked, unix(now), by, id, MsgPaging, MsgDelivered)
+func (s *Store) AckMessage(id, by, name string, now time.Time) (bool, error) {
+	res, err := s.exec(`UPDATE messages SET status = ?, acked_at = ?, acked_by = ?, acked_by_name = ? WHERE id = ? AND status IN (?, ?)`,
+		MsgAcked, unix(now), by, name, id, MsgPaging, MsgDelivered)
 	if err != nil {
 		return false, err
 	}
@@ -218,7 +218,7 @@ func (s *Store) AckMessage(id, by string, now time.Time) (bool, error) {
 
 // AckSiblings acknowledges, on behalf of by, the other pages of m's send that are still open (queued, paging or
 // delivered), and returns them as acknowledged. It does nothing unless m is a page of a send with ack "any".
-func (s *Store) AckSiblings(m Message, by string, now time.Time) ([]Message, error) {
+func (s *Store) AckSiblings(m Message, by, name string, now time.Time) ([]Message, error) {
 	if m.Level != "page" || m.PageAck != PageAckAny || m.SendID == "" {
 		return nil, nil
 	}
@@ -229,15 +229,15 @@ func (s *Store) AckSiblings(m Message, by string, now time.Time) ([]Message, err
 	}
 	var out []Message
 	for _, o := range open {
-		res, err := s.exec(`UPDATE messages SET status = ?, acked_at = ?, acked_by = ? WHERE id = ? AND status IN (?, ?, ?)`,
-			MsgAcked, unix(now), by, o.ID, MsgQueued, MsgPaging, MsgDelivered)
+		res, err := s.exec(`UPDATE messages SET status = ?, acked_at = ?, acked_by = ?, acked_by_name = ? WHERE id = ? AND status IN (?, ?, ?)`,
+			MsgAcked, unix(now), by, name, o.ID, MsgQueued, MsgPaging, MsgDelivered)
 		if err != nil {
 			return out, err
 		}
 		if n, err := res.RowsAffected(); err != nil {
 			return out, err
 		} else if n > 0 {
-			o.Status, o.AckedAt, o.AckedBy = MsgAcked, now, by
+			o.Status, o.AckedAt, o.AckedBy, o.AckedByName = MsgAcked, now, by, name
 			out = append(out, o)
 		}
 	}

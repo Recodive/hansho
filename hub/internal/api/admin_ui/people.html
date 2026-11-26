@@ -10,6 +10,12 @@
 <a class="btn danger" href="/admin/people/remove?person={{.Name}}" aria-label="Remove {{.Name}}">Remove</a>
 </div>
 <p class="meta">Paired {{.Paired}}</p>
+<form method="post" action="/admin/people/name" class="row">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="person" value="{{.Name}}">
+<label>Display name <input name="display_name" value="{{.DisplayName}}" maxlength="160" placeholder="Shown to others instead of {{.Name}}"></label>
+<button class="btn">Save</button>
+</form>
 <table>
 <caption class="sr">Devices of {{.Name}}</caption>
 <thead><tr><th scope="col">Device</th><th scope="col">Kind</th><th scope="col">Added</th></tr></thead>

@@ -59,10 +59,7 @@ export interface PageOptions {
    * Who must acknowledge a page sent to several people: `"any"` (hub default) stops it for everyone at the first
    * acknowledgement, `"each"` keeps paging each person until they acknowledge for themselves.
    */
-  ack?: "any" | "each";
-  /** Name the person who acknowledged in the other recipients' banner. Their external user id is shown to the others. Default false. */
-  showAcker?: boolean;
-}
+  ack?: "any" | "each";}
 
 export interface Message {
   /** Exactly one of `externalUserId`, `externalUserIds` and `toAudience` is required. */

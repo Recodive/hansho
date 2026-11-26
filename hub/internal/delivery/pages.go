@@ -106,14 +106,14 @@ func (w *Worker) processPage(ctx context.Context, m store.Message) error {
 const maxCancelTitleRunes = 100
 
 // cancelBody is the text of the cancel banner. When another recipient of the same send acknowledged the page it says so,
-// naming them only if the sender allowed it: their external user id is the sender's to share, not ours.
+// by display name, or generically when they have none: an external user id is never shown to other recipients.
 func cancelBody(title string, m store.Message) string {
 	body := title + " was acknowledged"
 	if m.AckedBy == "" || m.AckedBy == m.ExternalUserID {
 		return body
 	}
-	if m.ShowAcker {
-		return body + " by " + m.AckedBy
+	if m.AckedByName != "" {
+		return body + " by " + m.AckedByName
 	}
 	return body + " by another recipient"
 }

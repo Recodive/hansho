@@ -40,8 +40,7 @@ type sendRequest struct {
 type sendPage struct {
 	IntervalS  *int    `json:"interval_s"`
 	MaxRetries *int    `json:"max_retries"`
-	Ack        *string `json:"ack"`        // "any" (default) or "each"
-	ShowAcker  bool    `json:"show_acker"` // name the acknowledger in the other recipients' banner
+	Ack        *string `json:"ack"` // "any" (default) or "each"
 }
 
 // recipient is one entry of a send's "recipients".
@@ -206,11 +205,8 @@ func (s *server) send(ctx context.Context, req sendRequest) (string, []recipient
 	}
 	if lvl == level.Page {
 		in.PageAck, in.SendID = store.PageAckAny, store.NewID("send_")
-		if req.Page != nil {
-			in.ShowAcker = req.Page.ShowAcker
-			if req.Page.Ack != nil {
-				in.PageAck = *req.Page.Ack
-			}
+		if req.Page != nil && req.Page.Ack != nil {
+			in.PageAck = *req.Page.Ack
 		}
 	}
 
@@ -303,6 +299,9 @@ func (s *server) getMessage(w http.ResponseWriter, r *http.Request) {
 		out["acked_at"] = m.AckedAt.UTC().Format(time.RFC3339)
 		if m.AckedBy != "" {
 			out["acked_by"] = m.AckedBy
+		}
+		if m.AckedByName != "" {
+			out["acked_by_name"] = m.AckedByName
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
