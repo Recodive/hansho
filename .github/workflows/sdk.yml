@@ -91,8 +91,8 @@ jobs:
 
   python:
     name: Python SDK (Python ${{ matrix.python }})
-    # 3.9 (the oldest the SDK supports) has no build for the newest Ubuntu image.
-    runs-on: ubuntu-24.04
+    # 3.9 (the oldest the SDK supports) has no build for the newest Ubuntu image, so it stays on 24.04.
+    runs-on: ${{ matrix.python == '3.9' && 'ubuntu-24.04' || 'ubuntu-26.04' }}
     strategy:
       matrix:
         python: ["3.9", "3.13"]
