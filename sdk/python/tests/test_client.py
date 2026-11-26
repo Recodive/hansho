@@ -10,6 +10,7 @@ from typing import Any, List
 from urllib.parse import unquote
 
 from hansho import (
+    Action,
     NAME,
     VERSION,
     ActivityUpdate,
@@ -136,7 +137,31 @@ class ForwardCompatibility(unittest.TestCase):
         for body in ("", "  ", "[]", "null", "5"):
             with Hub(lambda _r, reply, body=body: setattr(reply, "body", body)) as h:
                 h.client.put_channel("ops", CHANNEL)
-                self.assertEqual(h.client.send_message(MSG).message_id, "")
+                self.assertIsNone(h.client.send_message(MSG).message_id)
+
+
+class GeneratedModels(unittest.TestCase):
+    def test_an_unknown_enum_value_and_an_unknown_field_are_read_as_they_come(self) -> None:
+        body = '{"id":"ops","name":"Ops","default_level":"loud","max_level":"page","audience":{"mode":"sometimes","new":1},"later":true}'
+        with Hub(lambda _r, reply: setattr(reply, "body", body)) as h:
+            c = h.client.get_channel("ops")
+        self.assertEqual((c.id, c.default_level, c.max_level), ("ops", "loud", "page"))
+        assert c.audience is not None
+        self.assertEqual(c.audience.mode, "sometimes")
+
+    def test_a_list_answer_that_is_not_a_list_is_empty(self) -> None:
+        with Hub(lambda _r, reply: setattr(reply, "body", "{}")) as h:
+            self.assertEqual(h.client.list_templates(), [])
+            self.assertEqual(h.client.list_groups(), [])
+
+    def test_an_empty_optional_list_is_left_out_and_a_url_action_is_sent(self) -> None:
+        with Hub() as h:
+            h.client.put_channel(
+                "ops", Channel("Ops", "active", "page", actions=[Action("a", "Docs", kind="url", url="https://example.com")])
+            )
+            h.client.put_channel("ops", Channel("Ops", "active", "page", actions=[]))
+        self.assertEqual(json.loads(h.requests[0].body)["actions"], [{"id": "a", "title": "Docs", "kind": "url", "url": "https://example.com"}])
+        self.assertNotIn("actions", json.loads(h.requests[1].body))
 
 
 class Retries(unittest.TestCase):

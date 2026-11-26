@@ -149,10 +149,10 @@ class WebhookTest < Minitest::Test
     end
   end
 
-  def test_known_event_with_missing_payload_fields_defaults
+  def test_known_event_with_missing_payload_fields_defaults # required ones to "", optional ones to nil
     body = '{"id":"9","event":"message.delivered","created_at":1}'
     ev = Hansho::Webhook.verify(secret: "s", header: sign("s", T, body), body: body, now: T)
-    assert_equal Hansho::Webhook::MessageDelivered.new(message_id: "", external_user_id: "", channel: "", level: "", devices: 0), ev.data
+    assert_equal Hansho::Webhook::MessageDelivered.new(message_id: "", external_user_id: "", channel: nil, level: nil, devices: nil), ev.data
   end
 
   def test_action_text_is_only_set_for_text_actions

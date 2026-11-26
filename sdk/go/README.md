@@ -55,15 +55,15 @@ err = c.SetUserDisplayName(ctx, "user-42", "")       // back to the id
 
 ## Audiences and groups
 
-A channel or feed is open to everyone unless it has an `Audience`: `AudienceOnly` the listed users and groups, or
-`AudienceExcept` them. Users are your external user ids (they may not have paired yet); groups are named lists you keep
+A channel or feed is open to everyone unless it has an `Audience`: `AudienceModeOnly` the listed users and groups, or
+`AudienceModeExcept` them. Users are your external user ids (they may not have paired yet); groups are named lists you keep
 on the hub. The hub decides who has access and checks it on every request, so a change applies at once.
 
 ```go
 c.PutGroup(ctx, "oncall", []string{"alice", "bob"}) // replaces the whole member list
 c.PutChannel(ctx, "pager", hansho.Channel{
     Name: "Pager", DefaultLevel: hansho.LevelPage, MaxLevel: hansho.LevelPage,
-    Audience: &hansho.Audience{Mode: hansho.AudienceOnly, Groups: []string{"oncall"}},
+    Audience: &hansho.Audience{Mode: hansho.AudienceModeOnly, Groups: []string{"oncall"}},
 })
 // PutChannel replaces the channel, except that a nil Audience keeps the stored one (send Mode "everyone" to open it up).
 

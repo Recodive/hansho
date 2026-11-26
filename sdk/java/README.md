@@ -7,12 +7,12 @@ runtime dependency is `jackson-databind`. It works from Kotlin and other JVM lan
 <dependency>
   <groupId>app.hansho</groupId>
   <artifactId>hansho</artifactId>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
 </dependency>
 ```
 
 ```kotlin
-implementation("app.hansho:hansho:0.1.0")
+implementation("app.hansho:hansho:0.2.0")
 ```
 
 See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) for the model shared with the other SDKs.
@@ -21,6 +21,7 @@ See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) f
 
 ```java
 import app.hansho.sdk.*;
+import app.hansho.sdk.Models.*;
 
 Hansho hansho = Hansho.create("https://hub.example.com", System.getenv("HANSHO_API_KEY"));
 
@@ -36,6 +37,17 @@ System.out.println(res.messageId() + " " + res.status()); // msg_... queued
 `userAgent`, `httpClient` (proxy, TLS, executor). Calls are synchronous; wrap them in your own
 executor or `CompletableFuture.supplyAsync` if you need async. Levels are the enum `Level`
 (`PASSIVE, ACTIVE, TIME_SENSITIVE, CRITICAL, PAGE`); an invalid level does not compile.
+
+## Types
+
+Every type that goes to or comes from the hub (`Message`, `Channel`, `Level`, `Audience`, `MessageResult`, the webhook
+payloads, ...) is generated from the spec all the SDKs share, and lives in `app.hansho.sdk.Models`: Java wants one public
+type per file, so they are nested in one class. `import app.hansho.sdk.Models.*;` brings them in. Each sent type has a
+`builder(...)` with the required fields, setters for the rest, and `toBuilder()`.
+
+A field the spec does not require is `null` when the hub leaves it out (a `String`, `Integer`, `Boolean`, ...; a list is
+empty), and an enum value or field this SDK does not know (a newer hub) is `null` or ignored: decoding an answer never
+throws for them.
 
 ## Pairing
 
@@ -69,6 +81,7 @@ once.
 
 ```java
 hansho.putGroup("oncall", List.of("alice", "bob")); // replaces the whole member list
+hansho.listGroups();                                // every group
 hansho.putChannel("pager", Channel.builder("Pager", Level.PAGE, Level.PAGE)
     .audience(Audience.only(List.of(), List.of("oncall"))).build());
 // An absent audience keeps the one stored on the hub (a new channel starts open to everyone);
@@ -91,8 +104,8 @@ for (Recipient r : res.recipients()) {
 A message has exactly one target: `Message.builder(userId, ...)`, `Message.forUsers(ids, ...)` (at most 1000) or
 `Message.forAudience(...)`. For a send to one user the top-level `messageId()`, `status()`, `devices()` and
 `deliveries()` describe that user (`messageId()` is empty and `status()` is `Recipient.NO_ACCESS` if they are outside the
-audience). For several users or an audience the top-level `messageId()`, `status()`, `devices()` and `deliveries()` are
-empty and every message is under `recipients()` (an empty list for a hub that predates audiences).
+audience). For several users or an audience the top-level `messageId()`, `status()` and `devices()` are `null`, `deliveries()` is
+empty, and every message is under `recipients()` (an empty list for a hub that predates audiences).
 
 Error codes: `HanshoException.NO_ACCESS` (403, `startActivity` for a user outside the channel's audience) and
 `HanshoException.UNKNOWN_GROUP` (404).
@@ -103,7 +116,8 @@ Error codes: `HanshoException.NO_ACCESS` (403, `startActivity` for a user outsid
 // A notification. The level defaults to the channel's default and is capped at its max.
 hansho.sendMessage(Message.builder("user-42", "ops", "Deploy failed", "web-3 rolled back")
     .level(Level.TIME_SENSITIVE)
-    .actions(List.of(Action.of("retry", "Retry")))
+    .actions(List.of(Action.of("retry", "Retry"),
+        Action.url("runbook", "Runbook", "https://example.com/runbook"))) // a button that opens an https URL
     .collapseId("deploy-web") // a later message with the same id replaces this one
     .build());
 
@@ -114,10 +128,10 @@ MessageResult page = hansho.sendMessage(Message.builder("user-42", "ops", "Prima
 MessageStatus status = hansho.getMessage(page.messageId()); // queued, delivered, undeliverable, paging, acked, expired
 // Once acked: status.ackedAt(), status.ackedBy() (external user id) and status.ackedByName() (null unless they have one).
 
-// A page to several people: by default the first acknowledgement stops it for everyone (Ack.ANY).
-// With Ack.EACH every recipient has to acknowledge for themselves.
+// A page to several people: by default the first acknowledgement stops it for everyone (PageAck.ANY).
+// With PageAck.EACH every recipient has to acknowledge for themselves.
 hansho.sendMessage(Message.forUsers(List.of("alice", "bob"), "ops", "Primary DB down", "Failover did not complete")
-    .level(Level.PAGE).page(PageOptions.of(60, 10).withAck(PageOptions.Ack.EACH)).build());
+    .level(Level.PAGE).page(PageOptions.of(60, 10).withAck(PageAck.EACH)).build());
 
 // A templated message; data is sent exactly as given (its keys are never renamed).
 hansho.putTemplate("status", 1, Map.of("type", "vstack", "children",
@@ -136,6 +150,24 @@ hansho.putFeed("uptime", Feed.of("status", Map.of("title", "up")).forUser("user-
 
 // A sound (audio/x-caf, audio/wav or audio/aiff, at most 1 MB).
 hansho.putSound("ding", "audio/wav", wavBytes);
+```
+
+## Channels, templates, sounds and groups
+
+```java
+List<Channel> channels = hansho.listChannels();   // channel.id() is set in answers (and ignored when sent)
+Channel ops = hansho.getChannel("ops");
+
+List<Template> templates = hansho.listTemplates(); // each at its latest version
+Template status = hansho.getTemplate("status");    // status.id(), status.version(), status.body() (Map/List/...)
+hansho.deleteTemplate("status");                   // refused with code "in_use" while a live channel names it
+
+List<Sound> sounds = hansho.listSounds();          // metadata: id(), contentType(), bytes(), sha256()
+Sound ding = hansho.getSound("ding");
+hansho.deleteSound("ding");                        // refused with code "in_use" while a live channel names it
+
+List<Group> groups = hansho.listGroups();
+FeedSettings feed = hansho.getFeed("uptime", "user-42"); // or getFeed("uptime") for the shared feed
 ```
 
 `data` and template bodies take a `Map`, a `List`, a Jackson `JsonNode` or any Jackson-serializable
@@ -157,9 +189,9 @@ server.createContext("/hansho-hook", ex -> {
             ex.getRequestHeaders().getFirst(Webhook.SIGNATURE_HEADER),
             body);
         if (event instanceof WebhookEvent.MessageAcked e) {
-            System.out.println("acknowledged: " + e.messageId());
+            System.out.println("acknowledged: " + e.data().messageId());
         } else if (event instanceof WebhookEvent.ActionTaken e) {
-            System.out.println("button " + e.actionId() + " on " + e.messageId());
+            System.out.println("button " + e.data().actionId() + " on " + e.data().messageId());
         } else if (event instanceof WebhookEvent.Unknown e) {
             System.out.println("newer hub event: " + e.name());
         }
@@ -182,7 +214,8 @@ rejects timestamps more than 300 s from now (pass `now` and `tolerance` to chang
 late), `MALFORMED_BODY, INVALID_BODY, INVALID_SECRET`; `code().wire()` spells it like the other SDKs
 (`"bad_signature"`). Events (records nested in the sealed interface `WebhookEvent`): `PairingCreated`,
 `PairingRevoked`, `MessageDelivered`, `MessageUndeliverable`, `MessageAcked`, `MessageDismissed`,
-`MessageExpired`, `ActionTaken`, `ActivityEnded`; anything else is `Unknown` with the event name and the
+`MessageExpired`, `ActionTaken`, `ActivityEnded`; each has `data()`, the payload as the `Models` type of the same name
+(`e.data().messageId()`); an optional field the hub left out is `null`. Anything else is `Unknown` with the event name and the
 parsed payload (Map, List, ...) in `data()`. Every event has `type()`, `id()`, `createdAt()` and `raw()`.
 
 ## Errors
@@ -212,7 +245,7 @@ Activity updates (`PATCH`) are not retried.
 ## Building and testing
 
 ```sh
-mvn verify                  # unit tests; they load ../spec/api.json and ../spec/webhook-vectors.json
+mvn verify                  # unit tests; they load ../spec/openapi.json (x-conformance) and ../spec/webhook-vectors.json
 ../scripts/run-integration.sh   # builds the hub, then runs IntegrationTest against it
 ```
 

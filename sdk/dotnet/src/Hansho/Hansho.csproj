@@ -18,7 +18,7 @@
   <!-- NuGet metadata. Nothing in this repository publishes the package: that is left to the owner. -->
   <PropertyGroup>
     <PackageId>Hansho</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>Recodive</Authors>
     <Company>Recodive</Company>
     <Product>Hansho</Product>

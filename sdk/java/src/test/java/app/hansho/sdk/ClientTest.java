@@ -1,5 +1,6 @@
 package app.hansho.sdk;
 
+import app.hansho.sdk.Models.*;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -72,6 +73,7 @@ class ClientTest {
     void doesNotExposeTheKeyInToString() {
         Hansho c = Hansho.create("http://x", TestHub.KEY);
         assertFalse(c.toString().contains(TestHub.KEY));
+        assertFalse(new PairingTicket("tk_secret", "hansho://pair?t=tk_secret", null).toString().contains("tk_secret"));
     }
 
     @Test
@@ -406,9 +408,9 @@ class ClientTest {
             Hansho c = hub.client();
             c.sendMessage(Message.builder("u", "c", "t", "b").level(Level.PAGE).page(PageOptions.of(60, 3)).build());
             assertEquals(MAPPER.readTree("{\"interval_s\":60,\"max_retries\":3}"), MAPPER.readTree(hub.requests.get(0).body()).get("page"));
-            c.sendMessage(Message.builder("u", "c", "t", "b").level(Level.PAGE).page(PageOptions.of(60, 3).withAck(PageOptions.Ack.EACH)).build());
+            c.sendMessage(Message.builder("u", "c", "t", "b").level(Level.PAGE).page(PageOptions.of(60, 3).withAck(PageAck.EACH)).build());
             assertEquals(MAPPER.readTree("{\"interval_s\":60,\"max_retries\":3,\"ack\":\"each\"}"), MAPPER.readTree(hub.requests.get(1).body()).get("page"));
-            c.sendMessage(Message.builder("u", "c", "t", "b").level(Level.PAGE).page(PageOptions.ack(PageOptions.Ack.ANY)).build());
+            c.sendMessage(Message.builder("u", "c", "t", "b").level(Level.PAGE).page(PageOptions.ack(PageAck.ANY)).build());
             assertEquals(MAPPER.readTree("{\"ack\":\"any\"}"), MAPPER.readTree(hub.requests.get(2).body()).get("page"));
         }
     }

@@ -138,7 +138,7 @@ class IntegrationTest < Minitest::Test
       assert_equal "page", got.max_level
       assert_equal snd, got.sound
       assert_equal tpl, got.template_id
-      assert_equal [{ id: "ack", title: "Acknowledge", ack: true }], got.actions
+      assert_equal [{ id: "ack", title: "Acknowledge", ack: true }], got.actions.map { |a| a.to_h.compact }
       assert_api_error(400, "invalid_request", "id") { c.put_channel("bad id", name: "n", default_level: :active, max_level: :page) }
 
       # pairing

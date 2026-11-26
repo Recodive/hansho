@@ -135,10 +135,10 @@ mod basics {
     fn message_status_acked_by_present_and_absent() {
         let h = start(|_| Reply::default().body(r#"{"message_id":"m","status":"acked","acked_by":"bob","acked_by_name":"Bob ボブ"}"#));
         let st = h.client().get_message("m").unwrap();
-        assert_eq!((st.acked_by.as_deref(), st.acked_by_name.as_deref()), (Some("bob"), Some("Bob ボブ")));
+        assert_eq!((st.acked_by.as_str(), st.acked_by_name.as_str()), ("bob", "Bob ボブ"));
         let h = start(|_| Reply::default().body(r#"{"message_id":"m","status":"acked"}"#));
         let st = h.client().get_message("m").unwrap();
-        assert_eq!((st.acked_by, st.acked_by_name), (None, None));
+        assert_eq!((st.acked_by.as_str(), st.acked_by_name.as_str()), ("", ""));
     }
 
     #[test]
@@ -613,5 +613,41 @@ mod errors {
     fn invalid_arguments_name_the_problem() {
         let c = Client::new("http://127.0.0.1:1", TEST_KEY).unwrap();
         assert_eq!(c.get_channel("..").unwrap_err().to_string(), "hansho: id must not be \"..\"");
+    }
+}
+
+mod answers_from_a_newer_hub {
+    use super::*;
+
+    #[test]
+    fn an_unknown_enum_value_or_field_is_kept_not_rejected() {
+        let body =
+            r#"{"id":"c","name":"n","default_level":"urgent","max_level":"critical","audience":{"mode":"sometimes"},"added_later":1}"#;
+        let h = start(move |_| Reply::default().body(body));
+        let ch = h.client().get_channel("c").unwrap();
+        assert_eq!(ch.default_level, Level::Other("urgent".into()));
+        assert_eq!(ch.default_level.as_str(), "urgent");
+        assert_eq!(ch.audience.unwrap().mode, AudienceMode::Other("sometimes".into()));
+    }
+
+    #[test]
+    fn an_unknown_level_in_a_message_status_is_kept() {
+        let h = start(|_| Reply::default().body(r#"{"message_id":"m","status":"acked","level":"holographic"}"#));
+        assert_eq!(h.client().get_message("m").unwrap().level, Level::Other("holographic".into()));
+    }
+
+    #[test]
+    fn a_list_answer_may_be_empty_or_null() {
+        for body in ["[]", "null", ""] {
+            let h = start(move |_| Reply::default().body(body));
+            assert!(h.client().list_groups().unwrap().is_empty(), "{body:?}");
+        }
+    }
+
+    #[test]
+    fn a_list_that_is_not_an_array_is_a_network_error() {
+        let h = start(|_| Reply::default().body(r#"{"id":"oncall"}"#));
+        let err = h.client().list_sounds().unwrap_err();
+        assert!(matches!(err, Error::Network(_)), "{err}");
     }
 }

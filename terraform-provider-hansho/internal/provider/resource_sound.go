@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -15,8 +16,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-
-	"github.com/recodive/hansho/terraform-provider-hansho/internal/client"
 )
 
 type soundResource struct{ base }
@@ -113,12 +112,12 @@ func (r *soundResource) upsert(ctx context.Context, plan tfsdk.Plan, state *tfsd
 		diags.AddError("Cannot read the sound", err.Error())
 		return
 	}
-	sum, size, err := r.c.PutSound(ctx, m.ID.ValueString(), m.ContentType.ValueString(), data)
+	res, err := r.c.PutSound(ctx, m.ID.ValueString(), m.ContentType.ValueString(), bytes.NewReader(data))
 	if err != nil {
-		diags.AddError("Cannot save sound", err.Error())
+		diags.AddError("Cannot save sound", hubError(err))
 		return
 	}
-	m.SHA256, m.Bytes = types.StringValue(sum), types.Int64Value(int64(size))
+	m.SHA256, m.Bytes = types.StringValue(res.SHA256), types.Int64Value(int64(res.Size))
 	diags.Append(state.Set(ctx, m)...)
 }
 
@@ -136,12 +135,12 @@ func (r *soundResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 	s, err := r.c.GetSound(ctx, m.ID.ValueString())
-	if client.IsNotFound(err) {
+	if isNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
 	}
 	if err != nil {
-		resp.Diagnostics.AddError("Cannot read sound", err.Error())
+		resp.Diagnostics.AddError("Cannot read sound", hubError(err))
 		return
 	}
 	m.ContentType, m.SHA256, m.Bytes = types.StringValue(s.ContentType), types.StringValue(s.SHA256), types.Int64Value(int64(s.Bytes))
@@ -153,7 +152,7 @@ func (r *soundResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	if resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...); resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.c.DeleteSound(ctx, id.ValueString()); err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Cannot delete sound", err.Error())
+	if err := r.c.DeleteSound(ctx, id.ValueString()); err != nil && !isNotFound(err) {
+		resp.Diagnostics.AddError("Cannot delete sound", hubError(err))
 	}
 }

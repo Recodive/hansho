@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -128,34 +129,24 @@ public final class Webhook {
         JsonNode dn = env.get("data");
         JsonNode d = dn != null && dn.isObject() ? dn : Json.MAPPER.createObjectNode();
 
-        String user = Json.str(d.get("external_user_id"));
-        return switch (name) {
-            case "pairing.created" -> new WebhookEvent.PairingCreated(
-                    id, createdAt, body, Json.str(d.get("pairing_id")), user, Json.str(d.get("device_name")));
-            case "pairing.revoked" -> new WebhookEvent.PairingRevoked(
-                    id, createdAt, body, Json.str(d.get("pairing_id")), user, Json.str(d.get("by")));
-            case "message.delivered" -> new WebhookEvent.MessageDelivered(
-                    id, createdAt, body, Json.str(d.get("message_id")), user, Json.str(d.get("channel")),
-                    Level.fromWire(Json.str(d.get("level"))), (int) Json.num(d.get("devices")));
-            case "message.undeliverable" -> new WebhookEvent.MessageUndeliverable(
-                    id, createdAt, body, Json.str(d.get("message_id")), user, Json.str(d.get("channel")),
-                    Json.str(d.get("reason")));
-            case "message.acked" -> new WebhookEvent.MessageAcked(
-                    id, createdAt, body, Json.str(d.get("message_id")), user, Json.str(d.get("device_id")),
-                    Json.optStr(d.get("acked_by")), Json.optStr(d.get("acked_by_name")));
-            case "message.dismissed" -> new WebhookEvent.MessageDismissed(
-                    id, createdAt, body, Json.str(d.get("message_id")), user, Json.str(d.get("device_id")));
-            case "message.expired" -> new WebhookEvent.MessageExpired(
-                    id, createdAt, body, Json.str(d.get("message_id")), user, Json.str(d.get("channel")),
-                    (int) Json.num(d.get("attempts")));
-            case "action" -> new WebhookEvent.ActionTaken(
-                    id, createdAt, body, Json.str(d.get("message_id")), Json.str(d.get("action_id")),
-                    Json.str(d.get("device_id")), user, Json.optStr(d.get("text")));
-            case "activity.ended" -> new WebhookEvent.ActivityEnded(
-                    id, createdAt, body, Json.str(d.get("activity_id")), user, Json.str(d.get("channel")),
-                    Json.str(d.get("reason")));
-            default -> new WebhookEvent.Unknown(
+        Function<JsonNode, Object> decode = Models.EVENTS.get(name);
+        if (decode == null) {
+            return new WebhookEvent.Unknown(
                     id, createdAt, body, name, dn == null ? null : Json.MAPPER.convertValue(dn, Object.class));
+        }
+        Object data = decode.apply(d);
+        return switch (name) {
+            case "pairing.created" -> new WebhookEvent.PairingCreated(id, createdAt, body, (Models.PairingCreated) data);
+            case "pairing.revoked" -> new WebhookEvent.PairingRevoked(id, createdAt, body, (Models.PairingRevoked) data);
+            case "message.delivered" -> new WebhookEvent.MessageDelivered(id, createdAt, body, (Models.MessageDelivered) data);
+            case "message.undeliverable" -> new WebhookEvent.MessageUndeliverable(id, createdAt, body, (Models.MessageUndeliverable) data);
+            case "message.acked" -> new WebhookEvent.MessageAcked(id, createdAt, body, (Models.MessageAcked) data);
+            case "message.dismissed" -> new WebhookEvent.MessageDismissed(id, createdAt, body, (Models.MessageDismissed) data);
+            case "message.expired" -> new WebhookEvent.MessageExpired(id, createdAt, body, (Models.MessageExpired) data);
+            case "action" -> new WebhookEvent.ActionTaken(id, createdAt, body, (Models.ActionTaken) data);
+            case "activity.ended" -> new WebhookEvent.ActivityEnded(id, createdAt, body, (Models.ActivityEnded) data);
+            // an event the hub table has and this switch does not: WebhookTest wants none
+            default -> new WebhookEvent.Unknown(id, createdAt, body, name, Json.MAPPER.convertValue(d, Object.class));
         };
     }
 

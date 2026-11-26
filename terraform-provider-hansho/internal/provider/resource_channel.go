@@ -16,7 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"github.com/recodive/hansho/terraform-provider-hansho/internal/client"
+	hansho "github.com/recodive/hansho/sdk/go"
 )
 
 type channelResource struct{ base }
@@ -81,7 +81,7 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"thread": schema.StringAttribute{
 				Optional: true, Computed: true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
-				Description: "Thread id notifications are grouped under. The hub uses the channel id when unset.",
+				Description:   "Thread id notifications are grouped under. The hub uses the channel id when unset.",
 			},
 			"actions": schema.ListNestedAttribute{
 				Optional: true, Computed: true,
@@ -111,33 +111,56 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 	}
 }
 
-func (m channelModel) toAPI() client.Channel {
-	ch := client.Channel{
-		Name: m.Name.ValueString(), DefaultLevel: m.DefaultLevel.ValueString(), MaxLevel: m.MaxLevel.ValueString(),
+// toAPI is the body of the PUT. The audience is always sent, even an empty one: the hub keeps the stored audience when
+// it is left out, which would turn a removed audience block into no change. The SDK leaves empty lists out, which the
+// hub reads the same as empty ones.
+func (m channelModel) toAPI() hansho.Channel {
+	ch := hansho.Channel{
+		Name: m.Name.ValueString(), DefaultLevel: hansho.Level(m.DefaultLevel.ValueString()), MaxLevel: hansho.Level(m.MaxLevel.ValueString()),
 		Sound: m.Sound.ValueString(), TemplateID: m.TemplateID.ValueString(), Thread: m.Thread.ValueString(),
-		Actions:  make([]client.Action, 0, len(m.Actions)),
-		Audience: client.Audience{Mode: m.Audience.Mode.ValueString(), Users: strs(m.Audience.Users), Groups: strs(m.Audience.Groups)},
+		Actions: make([]hansho.Action, 0, len(m.Actions)),
+		Audience: &hansho.Audience{Mode: hansho.AudienceMode(m.Audience.Mode.ValueString()),
+			Users: strs(m.Audience.Users), Groups: strs(m.Audience.Groups)},
 	}
 	for _, a := range m.Actions {
-		ch.Actions = append(ch.Actions, client.Action{ID: a.ID.ValueString(), Title: a.Title.ValueString(),
-			Kind: a.Kind.ValueString(), URL: a.URL.ValueString(), Ack: a.Ack.ValueBoolPointer()})
+		ch.Actions = append(ch.Actions, hansho.Action{ID: a.ID.ValueString(), Title: a.Title.ValueString(),
+			Kind: a.Kind.ValueString(), URL: a.URL.ValueString(), Ack: a.Ack.ValueBool()})
 	}
 	return ch
 }
 
-func channelFromAPI(id types.String, ch client.Channel) channelModel {
+// channelFromAPI maps a channel the hub returned to the model. The SDK's Action.Ack is a plain bool, so an answer
+// cannot tell ack = false from no ack. A false stays false only where the prior value (the plan, or the state on a
+// refresh) for the action of the same id was a known false; otherwise it is null. So ack = false in the configuration
+// is neither an inconsistent result nor a permanent diff, and a hub-side change to true still shows.
+func channelFromAPI(id types.String, ch hansho.Channel, prior []actionModel) channelModel {
 	m := channelModel{
-		ID: id, Name: types.StringValue(ch.Name), DefaultLevel: types.StringValue(ch.DefaultLevel), MaxLevel: types.StringValue(ch.MaxLevel),
+		ID: id, Name: types.StringValue(ch.Name), DefaultLevel: types.StringValue(string(ch.DefaultLevel)), MaxLevel: types.StringValue(string(ch.MaxLevel)),
 		Sound: nullIfEmpty(ch.Sound), TemplateID: nullIfEmpty(ch.TemplateID), Thread: types.StringValue(ch.Thread),
 		Actions:  make([]actionModel, 0, len(ch.Actions)),
-		Audience: audienceModel{Mode: types.StringValue(ch.Audience.Mode), Users: tfStrs(ch.Audience.Users), Groups: tfStrs(ch.Audience.Groups)},
+		Audience: audienceModel{Mode: types.StringValue("everyone"), Users: tfStrs(nil), Groups: tfStrs(nil)},
 	}
-	if ch.Audience.Mode == "" {
-		m.Audience.Mode = types.StringValue("everyone")
+	if a := ch.Audience; a != nil {
+		if a.Mode != "" {
+			m.Audience.Mode = types.StringValue(string(a.Mode))
+		}
+		m.Audience.Users, m.Audience.Groups = tfStrs(a.Users), tfStrs(a.Groups)
+	}
+	knownFalse := map[string]bool{}
+	for _, p := range prior {
+		if !p.Ack.IsNull() && !p.Ack.IsUnknown() && !p.Ack.ValueBool() {
+			knownFalse[p.ID.ValueString()] = true
+		}
 	}
 	for _, a := range ch.Actions {
-		act := actionModel{ID: types.StringValue(a.ID), Title: types.StringValue(a.Title), Kind: nullIfEmpty(a.Kind), URL: nullIfEmpty(a.URL), Ack: types.BoolPointerValue(a.Ack)}
-		m.Actions = append(m.Actions, act)
+		ack := types.BoolNull()
+		if a.Ack {
+			ack = types.BoolValue(true)
+		} else if knownFalse[a.ID] {
+			ack = types.BoolValue(false)
+		}
+		m.Actions = append(m.Actions, actionModel{ID: types.StringValue(a.ID), Title: types.StringValue(a.Title),
+			Kind: nullIfEmpty(a.Kind), URL: nullIfEmpty(a.URL), Ack: ack})
 	}
 	return m
 }
@@ -148,12 +171,16 @@ func (r *channelResource) upsert(ctx context.Context, plan tfsdk.Plan, state *tf
 	if diags.Append(plan.Get(ctx, &m)...); diags.HasError() {
 		return
 	}
-	ch, err := r.c.PutChannel(ctx, m.ID.ValueString(), m.toAPI())
-	if err != nil {
-		diags.AddError("Cannot save channel", err.Error())
+	if err := r.c.PutChannel(ctx, m.ID.ValueString(), m.toAPI()); err != nil {
+		diags.AddError("Cannot save channel", hubError(err))
 		return
 	}
-	diags.Append(state.Set(ctx, channelFromAPI(m.ID, ch))...)
+	ch, err := r.c.GetChannel(ctx, m.ID.ValueString())
+	if err != nil {
+		diags.AddError("Cannot read channel", hubError(err))
+		return
+	}
+	diags.Append(state.Set(ctx, channelFromAPI(m.ID, ch, m.Actions))...)
 }
 
 func (r *channelResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -169,16 +196,20 @@ func (r *channelResource) Read(ctx context.Context, req resource.ReadRequest, re
 	if resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...); resp.Diagnostics.HasError() {
 		return
 	}
+	var prior []actionModel
+	if resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("actions"), &prior)...); resp.Diagnostics.HasError() {
+		return
+	}
 	ch, err := r.c.GetChannel(ctx, id.ValueString())
-	if client.IsNotFound(err) {
+	if isNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
 	}
 	if err != nil {
-		resp.Diagnostics.AddError("Cannot read channel", err.Error())
+		resp.Diagnostics.AddError("Cannot read channel", hubError(err))
 		return
 	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, channelFromAPI(id, ch))...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, channelFromAPI(id, ch, prior))...)
 }
 
 func (r *channelResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -186,7 +217,7 @@ func (r *channelResource) Delete(ctx context.Context, req resource.DeleteRequest
 	if resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...); resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.c.DeleteChannel(ctx, id.ValueString()); err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Cannot delete channel", err.Error())
+	if err := r.c.DeleteChannel(ctx, id.ValueString()); err != nil && !isNotFound(err) {
+		resp.Diagnostics.AddError("Cannot delete channel", hubError(err))
 	}
 }

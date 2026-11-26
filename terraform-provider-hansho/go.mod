@@ -7,7 +7,11 @@ require (
 	github.com/hashicorp/terraform-plugin-framework-jsontypes v0.2.0
 	github.com/hashicorp/terraform-plugin-go v0.31.0
 	github.com/hashicorp/terraform-plugin-testing v1.16.0
+	github.com/recodive/hansho/sdk/go v0.2.0
 )
+
+// v0.2.0 is not tagged yet; until it is, the provider builds against the SDK in this repository.
+replace github.com/recodive/hansho/sdk/go => ../sdk/go
 
 require (
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect

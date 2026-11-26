@@ -69,7 +69,7 @@ class AudienceTest < Minitest::Test
     end
     answer_body = '{"name":"Pager","default_level":"page","max_level":"page","audience":{"mode":"only","groups":["oncall"]}}'
     with_hub(answer(200, answer_body)) do |h|
-      assert_equal({ mode: "only", users: [], groups: ["oncall"] }, h.client.get_channel("pager").audience)
+      assert_equal Hansho::Audience.new(mode: "only", users: [], groups: ["oncall"]), h.client.get_channel("pager").audience
     end
   end
 
@@ -115,7 +115,7 @@ class AudienceTest < Minitest::Test
     with_hub(answer(200, body)) do |h|
       f = h.client.get_feed("queue", external_user_id: "alice")
       assert_equal Hansho::FeedSettings.new(feed_id: "queue", external_user_id: "alice", template_id: "status", title: "Queue",
-                                            channel: "pager", audience: { mode: "only", users: ["alice"], groups: [] },
+                                            channel: "pager", audience: Hansho::Audience.new(mode: "only", users: ["alice"], groups: []),
                                             updated_at: 1_760_000_000), f
       assert_equal ["GET", "/api/v1/feeds/queue?external_user_id=alice"], [h.requests[0].method, h.requests[0].target]
     end

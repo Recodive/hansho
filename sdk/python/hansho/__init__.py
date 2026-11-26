@@ -10,12 +10,13 @@ Webhooks are verified with :func:`verify_webhook`. Standard library only.
 
 from ._client import NAME, VERSION, Hansho, urllib_transport
 from ._errors import CODE_NO_ACCESS, CODE_UNKNOWN_GROUP, HanshoError, HanshoNetworkError
-from ._types import (
-    LEVELS,
-    RECIPIENT_NO_ACCESS,
+from ._types import LEVELS, RECIPIENT_NO_ACCESS, Transport, TransportRequest, TransportResponse
+from ._types_gen import (
     Action,
+    ActionTaken,
     Activity,
     ActivityAlert,
+    ActivityEnded,
     ActivityStarted,
     ActivityUpdate,
     ActivityUpdated,
@@ -29,34 +30,26 @@ from ._types import (
     Group,
     Level,
     Message,
-    MessageResult,
-    MessageStatus,
-    PageOptions,
-    PairingTicket,
-    Recipient,
-    SoundResult,
-    Transport,
-    TransportRequest,
-    TransportResponse,
-)
-from ._version import __version__
-from ._webhook import (
-    DEFAULT_TOLERANCE,
-    WEBHOOK_SIGNATURE_HEADER,
-    ActionTaken,
-    ActivityEnded,
-    Event,
     MessageAcked,
     MessageDelivered,
     MessageDismissed,
     MessageExpired,
+    MessageResult,
+    MessageStatus,
     MessageUndeliverable,
+    PageAck,
+    PageOptions,
     PairingCreated,
     PairingRevoked,
+    PairingTicket,
     Payload,
-    WebhookError,
-    verify_webhook,
+    Recipient,
+    Sound,
+    SoundResult,
+    Template,
 )
+from ._version import __version__
+from ._webhook import DEFAULT_TOLERANCE, WEBHOOK_SIGNATURE_HEADER, Event, WebhookError, verify_webhook
 
 __all__ = [
     "CODE_NO_ACCESS",
@@ -96,13 +89,16 @@ __all__ = [
     "MessageResult",
     "MessageStatus",
     "MessageUndeliverable",
+    "PageAck",
     "PageOptions",
     "PairingCreated",
     "PairingRevoked",
     "PairingTicket",
     "Payload",
     "Recipient",
+    "Sound",
     "SoundResult",
+    "Template",
     "Transport",
     "TransportRequest",
     "TransportResponse",
