@@ -73,6 +73,8 @@ export async function startHub(fn?: (r: Recorded, reply: Reply) => void, opts: P
 
 export interface SpecOp {
   name: string;
+  /** The operationId. */
+  operation: string;
   method: string;
   path: string;
   request: null | { content_type: string; body?: unknown; raw_base64?: string };
@@ -89,8 +91,9 @@ export interface SpecErr {
   retry_after_ms: number;
 }
 
+/** The conformance cases of the shared contract: the requests every SDK must produce and the answers the hub gives. */
 export function loadSpec(): { operations: SpecOp[]; errors: SpecErr[] } {
-  return JSON.parse(readFileSync(new URL("../../spec/api.json", import.meta.url), "utf8"));
+  return JSON.parse(readFileSync(new URL("../../spec/openapi.json", import.meta.url), "utf8"))["x-conformance"];
 }
 
 export function loadJson<T>(rel: string): T {
