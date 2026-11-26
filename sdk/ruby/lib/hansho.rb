@@ -3,6 +3,7 @@
 require_relative "hansho/version"
 require_relative "hansho/errors"
 require_relative "hansho/retry"
+require_relative "hansho/types_gen"
 require_relative "hansho/types"
 require_relative "hansho/transport"
 require_relative "hansho/client"

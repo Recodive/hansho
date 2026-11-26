@@ -1,0 +1,29 @@
+{{define "iac"}}
+<p class="warn" role="note"><strong>Note.</strong> If you manage this hub with Terraform or scripts, the next apply overwrites changes made here.</p>
+{{end}}
+{{define "apicall"}}
+<section aria-labelledby="apicall-h">
+<h2 id="apicall-h">Copy as API call</h2>
+<p class="hint">The same thing as an API call, for your scripts or Terraform. Put an API key into <code>KEY</code> first, for example <code>export KEY=...</code>. You can make a key on the API keys page.</p>
+<div class="field">
+<label for="apicall-curl">curl command</label>
+<textarea id="apicall-curl" rows="10" readonly data-select spellcheck="false" autocomplete="off">{{.Curl}}</textarea>
+<div><button type="button" class="btn ghost" data-copy="apicall-curl" hidden>Copy curl command</button></div>
+</div>
+<div class="field">
+<label for="apicall-body">JSON body only</label>
+<textarea id="apicall-body" rows="8" readonly data-select spellcheck="false" autocomplete="off">{{.Body}}</textarea>
+<div><button type="button" class="btn ghost" data-copy="apicall-body" hidden>Copy JSON</button></div>
+</div>
+</section>
+{{end}}
+{{define "messagefacts"}}
+<dl class="facts">
+<div><dt>Message</dt><dd><code>{{.ID}}</code></dd></div>
+<div><dt>Status</dt><dd>{{.Status}}: {{.StatusText}}</dd></div>
+<div><dt>Level</dt><dd>{{.Level}}. {{.LevelHelp}}</dd></div>
+<div><dt>Repeats so far</dt><dd>{{.Attempts}} (only a page repeats)</dd></div>
+{{if .Acked}}<div><dt>Acknowledged</dt><dd>{{.Acked}}</dd></div>{{end}}
+<div><dt>Devices</dt><dd>{{if .Deliveries}}<ul class="plain">{{range .Deliveries}}<li><code>{{.DeviceID}}</code>: {{.Status}}{{with .Error}} ({{.}}){{end}}</li>{{end}}</ul>{{else}}None. No device could be reached.{{end}}</dd></div>
+</dl>
+{{end}}

@@ -132,6 +132,14 @@ main>:nth-child(2){animation-delay:.06s}main>:nth-child(3){animation-delay:.12s}
 </html>
 `))
 
+// homeURL is the project site's address, https://hansho.app unless HUB_HOME_URL says otherwise.
+func (s *server) homeURL() string {
+	if s.Cfg.HomeURL == "" {
+		return "https://hansho.app"
+	}
+	return s.Cfg.HomeURL
+}
+
 type homeData struct{ Name, Domain, Fingerprint, HomeURL, HomeHost string }
 
 func (s *server) home(w http.ResponseWriter, _ *http.Request) {
@@ -141,10 +149,7 @@ func (s *server) home(w http.ResponseWriter, _ *http.Request) {
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	h.Set("Cache-Control", "no-cache")
-	home := s.Cfg.HomeURL
-	if home == "" {
-		home = "https://hansho.app"
-	}
+	home := s.homeURL()
 	host := strings.TrimPrefix(home, "https://")
 	_ = homeTmpl.Execute(w, homeData{Name: s.Cfg.DisplayName, Domain: s.domain, Fingerprint: s.fp, HomeURL: home, HomeHost: host})
 }

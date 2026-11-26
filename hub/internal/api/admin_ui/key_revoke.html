@@ -1,0 +1,9 @@
+{{define "content"}}
+<h1>Revoke {{.Data.Name}}?</h1>
+<p class="lead">Software using this key is refused straight away. This cannot be undone: you would need to make a new key and put it into that software.</p>
+<form method="post" action="/admin/keys/{{.Data.ID}}/revoke" class="row">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button class="btn danger">Yes, revoke it</button>
+<a class="btn ghost" href="/admin/keys">Cancel</a>
+</form>
+{{end}}

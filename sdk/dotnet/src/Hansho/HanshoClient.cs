@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -28,14 +26,9 @@ public sealed class HanshoClient : IDisposable
     public const string Name = "hansho";
 
     /// <summary>SDK version, sent in the default User-Agent.</summary>
-    public const string Version = "0.1.0";
+    public const string Version = HanshoSpec.Version;
 
     private const int MaxSoundBytes = 1 << 20;
-
-    private static readonly JsonSerializerOptions DataOptions = new()
-    {
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
 
     private readonly string _baseUrl;
     private readonly string _apiKey;
@@ -94,11 +87,32 @@ public sealed class HanshoClient : IDisposable
     /// Creates a single-use pairing ticket (valid 10 minutes). Render <see cref="PairingTicket.Qr"/> as a QR code
     /// for the user to scan in the Hansho app.
     /// </summary>
-    public async Task<PairingTicket> CreatePairingTicketAsync(string externalUserId, CancellationToken cancellationToken = default)
+    public Task<PairingTicket> CreatePairingTicketAsync(string externalUserId, CancellationToken cancellationToken = default) =>
+        CreatePairingTicketAsync(externalUserId, null, cancellationToken);
+
+    /// <summary>
+    /// Like <see cref="CreatePairingTicketAsync(string, CancellationToken)"/>, and gives the user a display name with
+    /// the ticket: what other people see instead of their id (any language, trimmed, at most 40 characters, no control
+    /// characters). Null sends none; "" is sent as given.
+    /// </summary>
+    public async Task<PairingTicket> CreatePairingTicketAsync(string externalUserId, string? displayName, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(externalUserId)) throw new ArgumentException("hansho: id must not be empty", nameof(externalUserId));
-        var w = await JsonCallAsync("POST", "/api/v1/pairing-tickets", new JsonObject { ["external_user_id"] = externalUserId }, cancellationToken).ConfigureAwait(false);
-        return new PairingTicket(Str(w, "ticket"), Str(w, "qr"), Time(w, "expires_at") ?? default);
+        var body = new JsonObject { ["external_user_id"] = externalUserId };
+        if (displayName is not null) body["display_name"] = displayName;
+        var w = await JsonCallAsync("POST", "/api/v1/pairing-tickets", body, cancellationToken).ConfigureAwait(false);
+        return Wire.ReadPairingTicket(w);
+    }
+
+    // --- users ---------------------------------------------------------------
+
+    /// <summary>
+    /// Sets what other people see for the user instead of their external user id: any language, trimmed, at most 40
+    /// characters, no control characters. "" (or null) clears it. The user need not be paired yet.
+    /// </summary>
+    public async Task SetUserDisplayNameAsync(string externalUserId, string? displayName, CancellationToken cancellationToken = default)
+    {
+        await JsonCallAsync("PUT", $"/api/v1/users/{Seg(externalUserId)}", new JsonObject { ["display_name"] = displayName ?? "" }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Revokes every pairing of the user.</summary>
@@ -119,32 +133,19 @@ public sealed class HanshoClient : IDisposable
     public async Task PutChannelAsync(string id, Channel channel, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(channel);
-        var body = new JsonObject();
-        Put(body, "name", channel.Name);
-        Put(body, "default_level", channel.DefaultLevel.ToString());
-        Put(body, "max_level", channel.MaxLevel.ToString());
-        Put(body, "sound", channel.Sound);
-        Put(body, "template_id", channel.TemplateId);
-        Put(body, "thread", channel.Thread);
-        if (channel.Actions is not null) body["actions"] = ActionsToWire(channel.Actions);
-        if (channel.Audience is { } audience) body["audience"] = AudienceToWire(audience);
-        await JsonCallAsync("PUT", $"/api/v1/channels/{Seg(id)}", body, cancellationToken).ConfigureAwait(false);
+        await JsonCallAsync("PUT", $"/api/v1/channels/{Seg(id)}", Wire.WriteChannel(channel), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<Channel> GetChannelAsync(string id, CancellationToken cancellationToken = default)
     {
         var w = await JsonCallAsync("GET", $"/api/v1/channels/{Seg(id)}", null, cancellationToken).ConfigureAwait(false);
-        return new Channel
-        {
-            Name = Str(w, "name"),
-            DefaultLevel = new Level(Str(w, "default_level")),
-            MaxLevel = new Level(Str(w, "max_level")),
-            Sound = OptStr(w, "sound"),
-            TemplateId = OptStr(w, "template_id"),
-            Thread = OptStr(w, "thread"),
-            Actions = ActionsFromWire(w),
-            Audience = AudienceFromWire(w),
-        };
+        return Wire.ReadChannel(w);
+    }
+
+    public async Task<IReadOnlyList<Channel>> ListChannelsAsync(CancellationToken cancellationToken = default)
+    {
+        var w = await JsonCallAsync("GET", "/api/v1/channels", null, cancellationToken).ConfigureAwait(false);
+        return Wire.ListOf(w, JsonValueKind.Object, Wire.ReadChannel);
     }
 
     public async Task DeleteChannelAsync(string id, CancellationToken cancellationToken = default)
@@ -161,17 +162,22 @@ public sealed class HanshoClient : IDisposable
     public async Task<Group> PutGroupAsync(string id, IEnumerable<string> members, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(members);
-        var list = new JsonArray();
-        foreach (var m in members) list.Add(JsonValue.Create(m));
+        var list = Wire.Arr(members, static m => JsonValue.Create(m));
         var w = await JsonCallAsync("PUT", $"/api/v1/groups/{Seg(id)}", new JsonObject { ["members"] = list }, cancellationToken).ConfigureAwait(false);
-        return GroupFromWire(w);
+        return Wire.ReadGroup(w);
     }
 
     /// <summary>A missing group is a <see cref="HanshoApiException"/> with code <see cref="ErrorCodes.UnknownGroup"/>.</summary>
     public async Task<Group> GetGroupAsync(string id, CancellationToken cancellationToken = default)
     {
         var w = await JsonCallAsync("GET", $"/api/v1/groups/{Seg(id)}", null, cancellationToken).ConfigureAwait(false);
-        return GroupFromWire(w);
+        return Wire.ReadGroup(w);
+    }
+
+    public async Task<IReadOnlyList<Group>> ListGroupsAsync(CancellationToken cancellationToken = default)
+    {
+        var w = await JsonCallAsync("GET", "/api/v1/groups", null, cancellationToken).ConfigureAwait(false);
+        return Wire.ListOf(w, JsonValueKind.Object, Wire.ReadGroup);
     }
 
     /// <summary>An audience that still names the group matches nobody through it.</summary>
@@ -180,15 +186,37 @@ public sealed class HanshoClient : IDisposable
         await JsonCallAsync("DELETE", $"/api/v1/groups/{Seg(id)}", null, cancellationToken).ConfigureAwait(false);
     }
 
+    // --- templates -----------------------------------------------------------
+
     /// <summary>
     /// Stores a template version; the version must increase. <paramref name="body"/> is the template tree: a
     /// dictionary, an anonymous or plain object, a <c>JsonElement</c> or a <c>JsonNode</c>.
     /// </summary>
     public async Task PutTemplateAsync(string id, int version, object body, CancellationToken cancellationToken = default)
     {
-        var wire = new JsonObject { ["version"] = version, ["body"] = ToNode(body) };
+        var wire = new JsonObject { ["version"] = version, ["body"] = Wire.ToNode(body) };
         await JsonCallAsync("PUT", $"/api/v1/templates/{Seg(id)}", wire, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>The stored template; its <c>Body</c> is the template tree as a <c>JsonElement</c>.</summary>
+    public async Task<Template> GetTemplateAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var w = await JsonCallAsync("GET", $"/api/v1/templates/{Seg(id)}", null, cancellationToken).ConfigureAwait(false);
+        return Wire.ReadTemplate(w);
+    }
+
+    public async Task<IReadOnlyList<Template>> ListTemplatesAsync(CancellationToken cancellationToken = default)
+    {
+        var w = await JsonCallAsync("GET", "/api/v1/templates", null, cancellationToken).ConfigureAwait(false);
+        return Wire.ListOf(w, JsonValueKind.Object, Wire.ReadTemplate);
+    }
+
+    public async Task DeleteTemplateAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await JsonCallAsync("DELETE", $"/api/v1/templates/{Seg(id)}", null, cancellationToken).ConfigureAwait(false);
+    }
+
+    // --- sounds --------------------------------------------------------------
 
     /// <summary>Uploads a sound (<c>audio/x-caf</c>, <c>audio/wav</c> or <c>audio/aiff</c>, at most 1 MB).</summary>
     public async Task<SoundResult> PutSoundAsync(string id, string contentType, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default)
@@ -198,7 +226,25 @@ public sealed class HanshoClient : IDisposable
         if (bytes.Length > MaxSoundBytes) throw new ArgumentException("hansho: sound exceeds 1 MB", nameof(bytes));
         var call = new Call("PUT", path, bytes.ToArray(), contentType, Retry: true);
         var w = await SendAsync(call, cancellationToken).ConfigureAwait(false);
-        return new SoundResult(Str(w, "id"), Str(w, "filename"), Str(w, "sha256"), Long(w, "size"));
+        return Wire.ReadSoundResult(w);
+    }
+
+    /// <summary>A stored sound's metadata, not its bytes.</summary>
+    public async Task<Sound> GetSoundAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var w = await JsonCallAsync("GET", $"/api/v1/sounds/{Seg(id)}", null, cancellationToken).ConfigureAwait(false);
+        return Wire.ReadSound(w);
+    }
+
+    public async Task<IReadOnlyList<Sound>> ListSoundsAsync(CancellationToken cancellationToken = default)
+    {
+        var w = await JsonCallAsync("GET", "/api/v1/sounds", null, cancellationToken).ConfigureAwait(false);
+        return Wire.ListOf(w, JsonValueKind.Object, Wire.ReadSound);
+    }
+
+    public async Task DeleteSoundAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await JsonCallAsync("DELETE", $"/api/v1/sounds/{Seg(id)}", null, cancellationToken).ConfigureAwait(false);
     }
 
     // --- messages ------------------------------------------------------------
@@ -210,40 +256,17 @@ public sealed class HanshoClient : IDisposable
     public async Task<MessageResult> SendMessageAsync(Message message, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);
-        var body = new JsonObject();
-        Put(body, "external_user_id", message.ExternalUserId);
-        if (message.ExternalUserIds is { } ids) body["external_user_ids"] = StringsToWire(ids);
-        if (message.ToAudience) body["to_audience"] = true;
-        Put(body, "channel", message.Channel);
-        Put(body, "level", message.Level?.ToString());
-        Put(body, "title", message.Title);
-        Put(body, "subtitle", message.Subtitle);
-        Put(body, "body", message.Body);
-        Put(body, "image_url", message.ImageUrl);
-        Put(body, "template_id", message.TemplateId);
-        if (message.Data is not null) body["data"] = ToNode(message.Data);
-        Put(body, "sound", message.Sound);
-        if (message.Actions is not null) body["actions"] = ActionsToWire(message.Actions);
-        Put(body, "collapse_id", message.CollapseId);
-        if (message.Page is { } page)
-        {
-            var p = new JsonObject();
-            if (page.IntervalSeconds is { } i) p["interval_s"] = i;
-            if (page.MaxRetries is { } m) p["max_retries"] = m;
-            body["page"] = p;
-        }
-
-        var call = new Call("POST", "/api/v1/messages", Encode(body), "application/json", Retry: false);
-        if (!string.IsNullOrEmpty(message.IdempotencyKey))
-            call = call with { Retry = true, Headers = new[] { ("Idempotency-Key", message.IdempotencyKey) } };
+        var call = new Call("POST", "/api/v1/messages", Encode(Wire.WriteMessage(message)), "application/json", Retry: false);
+        var headers = Wire.HeadersOfMessage(message);
+        if (headers.Length > 0) call = call with { Retry = true, Headers = headers };
         var w = await SendAsync(call, cancellationToken).ConfigureAwait(false);
-        return new MessageResult(Str(w, "message_id"), new Level(Str(w, "level")), Int(w, "devices"), Str(w, "status"), DeliveriesFromWire(w), RecipientsFromWire(w));
+        return Wire.ReadMessageResult(w);
     }
 
     public async Task<MessageStatus> GetMessageAsync(string id, CancellationToken cancellationToken = default)
     {
         var w = await JsonCallAsync("GET", $"/api/v1/messages/{Seg(id)}", null, cancellationToken).ConfigureAwait(false);
-        return new MessageStatus(Str(w, "message_id"), Str(w, "status"), new Level(Str(w, "level")), Int(w, "attempts"), DeliveriesFromWire(w), Time(w, "acked_at"));
+        return Wire.ReadMessageStatus(w);
     }
 
     // --- live activities and feeds -------------------------------------------
@@ -251,25 +274,16 @@ public sealed class HanshoClient : IDisposable
     public async Task<ActivityStarted> StartActivityAsync(Activity activity, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(activity);
-        var body = new JsonObject();
-        Put(body, "external_user_id", activity.ExternalUserId);
-        Put(body, "channel", activity.Channel);
-        Put(body, "template_id", activity.TemplateId);
-        body["data"] = ToNode(activity.Data);
-        if (activity.Alert is { } alert) body["alert"] = AlertToWire(alert);
-        var w = await JsonCallAsync("POST", "/api/v1/activities", body, cancellationToken).ConfigureAwait(false);
-        return new ActivityStarted(Str(w, "activity_id"), Int(w, "devices"));
+        var w = await JsonCallAsync("POST", "/api/v1/activities", Wire.WriteActivity(activity), cancellationToken).ConfigureAwait(false);
+        return Wire.ReadActivityStarted(w);
     }
 
     /// <summary>Not retried automatically.</summary>
     public async Task<ActivityUpdated> UpdateActivityAsync(string id, ActivityUpdate update, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(update);
-        var body = new JsonObject { ["data"] = ToNode(update.Data) };
-        if (update.Priority is { } priority) body["priority"] = priority;
-        if (update.Alert is { } alert) body["alert"] = AlertToWire(alert);
-        var w = await JsonCallAsync("PATCH", $"/api/v1/activities/{Seg(id)}", body, cancellationToken).ConfigureAwait(false);
-        return new ActivityUpdated(Str(w, "activity_id"), Int(w, "update"));
+        var w = await JsonCallAsync("PATCH", $"/api/v1/activities/{Seg(id)}", Wire.WriteActivityUpdate(update), cancellationToken).ConfigureAwait(false);
+        return Wire.ReadActivityUpdated(w);
     }
 
     public async Task EndActivityAsync(string id, CancellationToken cancellationToken = default)
@@ -280,16 +294,8 @@ public sealed class HanshoClient : IDisposable
     public async Task<FeedResult> PutFeedAsync(string id, Feed feed, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(feed);
-        var path = $"/api/v1/feeds/{Seg(id)}";
-        var body = new JsonObject();
-        Put(body, "external_user_id", feed.ExternalUserId);
-        Put(body, "template_id", feed.TemplateId);
-        Put(body, "title", feed.Title);
-        Put(body, "channel", feed.Channel);
-        if (feed.Audience is { } audience) body["audience"] = AudienceToWire(audience);
-        body["data"] = ToNode(feed.Data);
-        var w = await JsonCallAsync("PUT", path, body, cancellationToken).ConfigureAwait(false);
-        return new FeedResult(Str(w, "feed_id"), Int(w, "devices"));
+        var w = await JsonCallAsync("PUT", $"/api/v1/feeds/{Seg(id)}", Wire.WriteFeed(feed), cancellationToken).ConfigureAwait(false);
+        return Wire.ReadFeedResult(w);
     }
 
     /// <summary>A feed's settings without its data. Leave <paramref name="externalUserId"/> null for the feed shared by all users.</summary>
@@ -298,7 +304,7 @@ public sealed class HanshoClient : IDisposable
         var path = $"/api/v1/feeds/{Seg(id)}";
         if (!string.IsNullOrEmpty(externalUserId)) path += "?external_user_id=" + Uri.EscapeDataString(externalUserId);
         var w = await JsonCallAsync("GET", path, null, cancellationToken).ConfigureAwait(false);
-        return new FeedSettings(Str(w, "feed_id"), OptStr(w, "external_user_id"), Str(w, "template_id"), OptStr(w, "title"), OptStr(w, "channel"), AudienceFromWire(w), Long(w, "updated_at"));
+        return Wire.ReadFeedSettings(w);
     }
 
     // --- wire helpers --------------------------------------------------------
@@ -312,135 +318,8 @@ public sealed class HanshoClient : IDisposable
         return Uri.EscapeDataString(id);
     }
 
-    private static void Put(JsonObject o, string key, string? value)
-    {
-        if (value is not null) o[key] = value;
-    }
-
-    private static JsonNode? ToNode(object? value) => value switch
-    {
-        null => null,
-        JsonNode n => n.DeepClone(),
-        JsonElement e => JsonSerializer.SerializeToNode(e, DataOptions),
-        _ => JsonSerializer.SerializeToNode(value, value.GetType(), DataOptions),
-    };
-
-    private static JsonArray ActionsToWire(IReadOnlyList<MessageAction> actions)
-    {
-        var arr = new JsonArray();
-        foreach (var a in actions)
-        {
-            var o = new JsonObject { ["id"] = a.Id, ["title"] = a.Title };
-            if (a.Ack is { } ack) o["ack"] = ack;
-            Put(o, "kind", a.Kind);
-            arr.Add(o);
-        }
-        return arr;
-    }
-
-    private static JsonArray StringsToWire(IEnumerable<string> values)
-    {
-        var arr = new JsonArray();
-        foreach (var v in values) arr.Add(JsonValue.Create(v)); // not Add<T>: that needs reflection-based serialization
-        return arr;
-    }
-
-    private static JsonObject AudienceToWire(Audience a)
-    {
-        var o = new JsonObject { ["mode"] = a.Mode.ToString() };
-        if (a.Users.Count > 0) o["users"] = StringsToWire(a.Users);
-        if (a.Groups.Count > 0) o["groups"] = StringsToWire(a.Groups);
-        return o;
-    }
-
-    private static JsonObject AlertToWire(ActivityAlert alert)
-    {
-        var o = new JsonObject();
-        Put(o, "title", alert.Title);
-        Put(o, "body", alert.Body);
-        return o;
-    }
-
     private static byte[] Encode(JsonNode body) =>
-        Encoding.UTF8.GetBytes(body.ToJsonString(DataOptions));
-
-    private static IReadOnlyList<MessageAction>? ActionsFromWire(JsonElement w)
-    {
-        if (!w.TryGetProperty("actions", out var raw) || raw.ValueKind != JsonValueKind.Array) return null;
-        var list = new List<MessageAction>();
-        foreach (var a in raw.EnumerateArray())
-        {
-            if (a.ValueKind != JsonValueKind.Object) continue;
-            list.Add(new MessageAction
-            {
-                Id = Str(a, "id"),
-                Title = Str(a, "title"),
-                Ack = a.TryGetProperty("ack", out var ack) && ack.ValueKind is JsonValueKind.True or JsonValueKind.False ? ack.GetBoolean() : null,
-                Kind = OptStr(a, "kind"),
-            });
-        }
-        return list;
-    }
-
-    private static List<string> StringsFromWire(JsonElement w, string key)
-    {
-        var list = new List<string>();
-        if (w.ValueKind == JsonValueKind.Object && w.TryGetProperty(key, out var raw) && raw.ValueKind == JsonValueKind.Array)
-            foreach (var s in raw.EnumerateArray())
-                if (s.ValueKind == JsonValueKind.String) list.Add(s.GetString()!);
-        return list;
-    }
-
-    private static Audience? AudienceFromWire(JsonElement w)
-    {
-        if (w.ValueKind != JsonValueKind.Object || !w.TryGetProperty("audience", out var a) || a.ValueKind != JsonValueKind.Object) return null;
-        return new Audience { Mode = new AudienceMode(Str(a, "mode")), Users = StringsFromWire(a, "users"), Groups = StringsFromWire(a, "groups") };
-    }
-
-    private static Group GroupFromWire(JsonElement w) => new(Str(w, "id"), StringsFromWire(w, "members"));
-
-    private static IReadOnlyList<Recipient>? RecipientsFromWire(JsonElement w)
-    {
-        if (w.ValueKind != JsonValueKind.Object || !w.TryGetProperty("recipients", out var raw) || raw.ValueKind != JsonValueKind.Array) return null;
-        var list = new List<Recipient>();
-        foreach (var r in raw.EnumerateArray())
-        {
-            if (r.ValueKind != JsonValueKind.Object) continue;
-            list.Add(new Recipient(Str(r, "external_user_id"), OptStr(r, "message_id"), Str(r, "status"), Int(r, "devices"), DeliveriesFromWire(r)));
-        }
-        return list;
-    }
-
-    private static IReadOnlyList<Delivery> DeliveriesFromWire(JsonElement w)
-    {
-        var list = new List<Delivery>();
-        if (w.TryGetProperty("deliveries", out var raw) && raw.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var d in raw.EnumerateArray())
-            {
-                if (d.ValueKind != JsonValueKind.Object) continue;
-                var err = OptStr(d, "error");
-                list.Add(new Delivery(Str(d, "device_id"), Str(d, "status"), string.IsNullOrEmpty(err) ? null : err));
-            }
-        }
-        return list;
-    }
-
-    // Lenient readers: a missing or differently typed field reads as empty, never as an exception.
-    private static string Str(JsonElement o, string key) => OptStr(o, key) ?? "";
-
-    private static string? OptStr(JsonElement o, string key) =>
-        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-
-    private static int Int(JsonElement o, string key) => (int)Math.Clamp(Long(o, key), int.MinValue, int.MaxValue);
-
-    private static long Long(JsonElement o, string key) =>
-        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number
-            ? (v.TryGetInt64(out var l) ? l : (long)v.GetDouble())
-            : 0;
-
-    private static DateTimeOffset? Time(JsonElement o, string key) =>
-        OptStr(o, key) is { } s && DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var t) ? t : null;
+        Encoding.UTF8.GetBytes(body.ToJsonString(Wire.DataOptions));
 
     // --- plumbing ------------------------------------------------------------
 
@@ -462,7 +341,7 @@ public sealed class HanshoClient : IDisposable
                 try
                 {
                     using var doc = JsonDocument.Parse(res.Text);
-                    return doc.RootElement.ValueKind == JsonValueKind.Object ? doc.RootElement.Clone() : default;
+                    return doc.RootElement.ValueKind is JsonValueKind.Object or JsonValueKind.Array ? doc.RootElement.Clone() : default;
                 }
                 catch (JsonException e)
                 {
@@ -539,9 +418,9 @@ public sealed class HanshoClient : IDisposable
             var o = doc.RootElement;
             if (o.ValueKind == JsonValueKind.Object)
             {
-                code = OptStr(o, "error");
-                field = OptStr(o, "field");
-                detail = OptStr(o, "message")?.Replace(_apiKey, "[redacted]", StringComparison.Ordinal);
+                code = Wire.OptStr(o, "error");
+                field = Wire.OptStr(o, "field");
+                detail = Wire.OptStr(o, "message")?.Replace(_apiKey, "[redacted]", StringComparison.Ordinal);
             }
         }
         catch (JsonException)

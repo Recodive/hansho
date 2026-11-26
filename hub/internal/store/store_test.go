@@ -40,7 +40,7 @@ func TestMigrationsIdempotentOnReopen(t *testing.T) {
 	}
 	defer st.Close()
 	var n int
-	if err := st.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil || n != 4 { // 001_init, 002_unique_active_device, 003_feed_title and 004_audiences, each applied once
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil || n != 5 { // 001_init, 002_unique_active_device, 003_feed_title, 004_audiences and 005_page_ack, each applied once
 		t.Fatalf("migrations applied %d times (%v)", n, err)
 	}
 	var fk int
@@ -92,6 +92,34 @@ func TestTicketExpiredAndUnknown(t *testing.T) {
 	}
 	if _, err := st.ConsumeTicket("nope", t0); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown: %v", err)
+	}
+}
+
+func TestTicketStatus(t *testing.T) {
+	st := openTest(t)
+	tk, _ := st.CreateTicket("user-1", 10*time.Minute)
+	state, exp, err := st.TicketStatus(tk, t0.Add(time.Minute))
+	if err != nil || state != TicketValid || !exp.Equal(t0.Add(10*time.Minute)) {
+		t.Fatalf("valid: %v %v %v", state, exp, err)
+	}
+	if state, _, _ := st.TicketStatus(tk, t0.Add(10*time.Minute)); state != TicketExpired {
+		t.Fatalf("at expiry: %v", state)
+	}
+	if _, err := st.ConsumeTicket(tk, t0.Add(time.Minute)); err != nil {
+		t.Fatalf("status consumed the ticket: %v", err)
+	}
+	if state, _, _ := st.TicketStatus(tk, t0.Add(time.Minute)); state != TicketUsed {
+		t.Fatalf("used: %v", state)
+	}
+	if _, _, err := st.TicketStatus("nope", t0); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown: %v", err)
+	}
+	other, _ := st.CreateTicket("user-2", time.Hour)
+	if err := st.ExpireTicketsForUser("user-2"); err != nil {
+		t.Fatal(err)
+	}
+	if state, _, _ := st.TicketStatus(other, t0); state != TicketExpired {
+		t.Fatalf("expired by unpair: %v", state)
 	}
 }
 
@@ -385,6 +413,38 @@ func TestMigrationRetiresDuplicateActiveDevices(t *testing.T) {
 	}
 	if len(devs) != 2 || !got["new"] || !got["other"] {
 		t.Fatalf("active devices after migration: %v", got)
+	}
+}
+
+func TestListFeeds(t *testing.T) {
+	st := openTest(t)
+	st.UpsertChannel(Channel{ID: "ops", Name: "Ops", DefaultLevel: "active", MaxLevel: "page", Audience: Audience{Mode: AudienceOnly, Users: []string{"alice"}}})
+	put := func(f Feed) {
+		t.Helper()
+		f.DataJSON, f.UpdatedAt = `{"secret":1}`, t0
+		if err := st.UpsertFeed(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(Feed{ID: "status", ExternalUserID: "alice", Title: "Alice"})
+	put(Feed{ID: "status", Title: "Global", TemplateID: "card", ChannelID: "ops"})
+	put(Feed{ID: "alpha"})
+	got, err := st.ListFeeds()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var line []string
+	for _, f := range got {
+		line = append(line, f.ID+"/"+f.ExternalUserID+"/"+f.Title)
+		if f.DataJSON != "" {
+			t.Errorf("%s: the listing carries data %q", f.ID, f.DataJSON)
+		}
+	}
+	if want := "alpha//,status//Global,status/alice/Alice"; strings.Join(line, ",") != want {
+		t.Fatalf("feeds %q, want %q", strings.Join(line, ","), want)
+	}
+	if g := got[1]; g.TemplateID != "card" || g.ChannelID != "ops" || g.Audience != nil || g.Effective.Mode != AudienceOnly || !g.UpdatedAt.Equal(t0) {
+		t.Errorf("global status feed: %+v", g)
 	}
 }
 

@@ -12,7 +12,9 @@ use Recodive\Hansho\Exception\HanshoException;
 use Recodive\Hansho\Exception\NetworkException;
 use Recodive\Hansho\Hansho;
 use Recodive\Hansho\Http\Transport;
+use Recodive\Hansho\Level;
 use Recodive\Hansho\Message;
+use Recodive\Hansho\PageOptions;
 use Recodive\Hansho\Retry;
 
 final class ClientTest extends TestCase
@@ -227,6 +229,40 @@ final class ClientTest extends TestCase
         $c->unpair('u-1 ü/42?x');
         $this->assertSame('/api/v1/channels/a%2Fb%3Fc%20d%23e%25%C3%BC', $t->requests[0]['path']);
         $this->assertSame('/api/v1/users/u-1%20%C3%BC%2F42%3Fx/pairings', $t->requests[1]['path']);
+    }
+
+    public function testDisplayNamePutAndTicketBody(): void
+    {
+        [$c, $t] = FakeTransport::client(fn () => FakeTransport::reply(201, ['ticket' => 't', 'qr' => 'q', 'expires_at' => '2026-11-08T12:10:00Z']));
+        $c->setUserDisplayName('a/b c', 'Ada');
+        $c->setUserDisplayName('u', '');
+        $c->createPairingTicket('u');
+        $c->createPairingTicket('u', '');
+        $c->createPairingTicket('u', 'Zoë');
+        $r = $t->requests;
+        $this->assertSame(['PUT', '/api/v1/users/a%2Fb%20c'], [$r[0]['method'], $r[0]['path']]);
+        $this->assertSame(['display_name' => 'Ada'], json_decode((string) $r[0]['body'], true));
+        $this->assertSame(['display_name' => ''], json_decode((string) $r[1]['body'], true));
+        $this->assertSame(['external_user_id' => 'u'], json_decode((string) $r[2]['body'], true));
+        $this->assertSame(['external_user_id' => 'u', 'display_name' => ''], json_decode((string) $r[3]['body'], true));
+        $this->assertSame(['external_user_id' => 'u', 'display_name' => 'Zoë'], json_decode((string) $r[4]['body'], true));
+        foreach (['', '.', '..'] as $bad) {
+            try {
+                $c->setUserDisplayName($bad, 'x');
+                $this->fail("id '$bad' accepted");
+            } catch (\InvalidArgumentException) {
+            }
+        }
+        $this->assertCount(5, $t->requests);
+    }
+
+    public function testPageAckOptionIsSentOnlyWhenSet(): void
+    {
+        [$c, $t] = FakeTransport::client(fn () => FakeTransport::reply(202, ['message_id' => 'm', 'level' => 'page', 'devices' => 0, 'status' => 'queued']));
+        $c->sendMessage(new Message('u', 'c', 't', 'b', level: Level::Page, page: new PageOptions(maxRetries: 1)));
+        $c->sendMessage(new Message('u', 'c', 't', 'b', level: Level::Page, page: new PageOptions(ack: 'each')));
+        $this->assertSame(['max_retries' => 1], json_decode((string) $t->requests[0]['body'], true)['page']);
+        $this->assertSame(['ack' => 'each'], json_decode((string) $t->requests[1]['body'], true)['page']);
     }
 
     public function testEmptyAndDotIdsAreRejectedBeforeAnyRequest(): void

@@ -175,10 +175,11 @@ fn runs_the_whole_flow_against_the_real_hub() {
     c.put_template(&tpl, 1, &template).unwrap();
     expect_api(c.put_template(&tpl, 1, &template), 409, "version_conflict", None);
     c.put_template(&tpl, 2, &template).unwrap();
-    let ack = Action { id: "ack".into(), title: "Acknowledge".into(), ack: Some(true), kind: None };
+    let ack = Action { id: "ack".into(), title: "Acknowledge".into(), ack: Some(true), ..Default::default() };
     c.put_channel(
         &ch,
         &Channel {
+            id: None,
             name: format!("Operations {p}"),
             default_level: Level::Active,
             max_level: Level::Page,
@@ -240,7 +241,7 @@ fn runs_the_whole_flow_against_the_real_hub() {
     let page = c
         .send_message(&Message {
             level: Some(Level::Page),
-            page: Some(PageOptions { interval_seconds: Some(60), max_retries: Some(3) }),
+            page: Some(PageOptions { interval_seconds: Some(60), max_retries: Some(3), ..Default::default() }),
             ..Message::new(&user, &ch, "Primary DB down", "Failover failed")
         })
         .unwrap();

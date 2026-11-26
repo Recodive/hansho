@@ -77,7 +77,7 @@ func TestChannelAndFeedAudienceOnTheWire(t *testing.T) {
 			w.Body = `{"name":"Ops","default_level":"active","max_level":"page","audience":{"mode":"except","users":["bob"],"groups":[]}}`
 		}
 	})
-	aud := &Audience{Mode: AudienceOnly, Users: []string{"alice"}, Groups: []string{"oncall"}}
+	aud := &Audience{Mode: AudienceModeOnly, Users: []string{"alice"}, Groups: []string{"oncall"}}
 	if err := h.client.PutChannel(ctx(), "ops", Channel{Name: "Ops", DefaultLevel: LevelActive, MaxLevel: LevelPage, Audience: aud}); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestChannelAndFeedAudienceOnTheWire(t *testing.T) {
 		t.Fatal(got)
 	}
 	ch, err := h.client.GetChannel(ctx(), "ops")
-	if err != nil || !reflect.DeepEqual(ch.Audience, &Audience{Mode: AudienceExcept, Users: []string{"bob"}, Groups: []string{}}) {
+	if err != nil || !reflect.DeepEqual(ch.Audience, &Audience{Mode: AudienceModeExcept, Users: []string{"bob"}, Groups: []string{}}) {
 		t.Fatalf("%+v %v", ch, err)
 	}
 	if _, err := h.client.PutFeed(ctx(), "uptime", Feed{TemplateID: "status", Channel: "ops", Audience: aud, Data: 1}); err != nil {
@@ -116,7 +116,7 @@ func TestGetFeedSettings(t *testing.T) {
 	if r.Path != "/api/v1/feeds/own" || r.RawQuery != "external_user_id=a%26b" {
 		t.Fatalf("%s?%s", r.Path, r.RawQuery)
 	}
-	if f.FeedID != "own" || f.ExternalUserID != "a&b" || f.Channel != "ops" || f.Audience == nil || f.Audience.Mode != AudienceEveryone || f.UpdatedAt != 7 {
+	if f.FeedID != "own" || f.ExternalUserID != "a&b" || f.Channel != "ops" || f.Audience == nil || f.Audience.Mode != AudienceModeEveryone || f.UpdatedAt != 7 {
 		t.Fatalf("%+v", f)
 	}
 	if _, err := h.client.GetFeed(ctx(), "own", ""); err != nil {
