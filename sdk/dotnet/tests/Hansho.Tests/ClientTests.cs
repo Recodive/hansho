@@ -154,6 +154,9 @@ public class ClientTests
             using var hub = FakeHub.Start((_, reply) => reply.Body = body);
             await hub.Client.PutChannelAsync("ops", ChannelDef);
             await hub.Client.EndActivityAsync("a");
+            // A list that is not an array is an empty list; a get that is not an object is an empty value.
+            Assert.Empty(await hub.Client.ListGroupsAsync());
+            Assert.Equal("", (await hub.Client.GetGroupAsync("g")).Id);
         }
     }
 

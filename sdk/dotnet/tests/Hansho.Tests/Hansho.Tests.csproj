@@ -26,7 +26,7 @@
 
   <ItemGroup>
     <!-- The wire contract shared by every SDK. -->
-    <Content Include="../../../spec/api.json" Link="spec/api.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../spec/openapi.json" Link="spec/openapi.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../../spec/webhook-vectors.json" Link="spec/webhook-vectors.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

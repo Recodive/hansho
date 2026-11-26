@@ -15,7 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"github.com/recodive/hansho/terraform-provider-hansho/internal/client"
+	hansho "github.com/recodive/hansho/sdk/go"
 )
 
 type templateResource struct{ base }
@@ -55,6 +55,9 @@ func (r *templateResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 	}
 }
 
+// bodyJSON is a stored template's body as JSON text.
+func bodyJSON(t hansho.Template) ([]byte, error) { return json.Marshal(t.Body) }
+
 func sameJSON(a, b []byte) bool {
 	var x, y any
 	return json.Unmarshal(a, &x) == nil && json.Unmarshal(b, &y) == nil && reflect.DeepEqual(x, y)
@@ -69,15 +72,20 @@ func (r *templateResource) upsert(ctx context.Context, plan tfsdk.Plan, state *t
 	}
 	id, body := m.ID.ValueString(), []byte(m.Body.ValueString())
 	cur, err := r.c.GetTemplate(ctx, id)
-	if err != nil && !client.IsNotFound(err) {
-		diags.AddError("Cannot read template", err.Error())
+	if err != nil && !isNotFound(err) {
+		diags.AddError("Cannot read template", hubError(err))
+		return
+	}
+	curBody, merr := bodyJSON(cur)
+	if merr != nil {
+		diags.AddError("Cannot read template", merr.Error())
 		return
 	}
 	m.Version = types.Int64Value(int64(cur.Version))
-	if err != nil || !sameJSON(cur.Body, body) {
+	if err != nil || !sameJSON(curBody, body) {
 		next := cur.Version + 1
-		if err := r.c.PutTemplate(ctx, id, next, body); err != nil {
-			diags.AddError("Cannot save template", err.Error())
+		if err := r.c.PutTemplate(ctx, id, next, json.RawMessage(body)); err != nil {
+			diags.AddError("Cannot save template", hubError(err))
 			return
 		}
 		m.Version = types.Int64Value(int64(next))
@@ -99,15 +107,20 @@ func (r *templateResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 	t, err := r.c.GetTemplate(ctx, id.ValueString())
-	if client.IsNotFound(err) {
+	if isNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
 	}
 	if err != nil {
+		resp.Diagnostics.AddError("Cannot read template", hubError(err))
+		return
+	}
+	body, err := bodyJSON(t)
+	if err != nil {
 		resp.Diagnostics.AddError("Cannot read template", err.Error())
 		return
 	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, templateModel{ID: id, Body: jsontypes.NewNormalizedValue(string(t.Body)), Version: types.Int64Value(int64(t.Version))})...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, templateModel{ID: id, Body: jsontypes.NewNormalizedValue(string(body)), Version: types.Int64Value(int64(t.Version))})...)
 }
 
 func (r *templateResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -115,7 +128,7 @@ func (r *templateResource) Delete(ctx context.Context, req resource.DeleteReques
 	if resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...); resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.c.DeleteTemplate(ctx, id.ValueString()); err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Cannot delete template", err.Error())
+	if err := r.c.DeleteTemplate(ctx, id.ValueString()); err != nil && !isNotFound(err) {
+		resp.Diagnostics.AddError("Cannot delete template", hubError(err))
 	}
 }

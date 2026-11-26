@@ -1,7 +1,22 @@
 package app.hansho.sdk;
 
+import app.hansho.sdk.Models.Activity;
+import app.hansho.sdk.Models.ActivityStarted;
+import app.hansho.sdk.Models.ActivityUpdate;
+import app.hansho.sdk.Models.ActivityUpdated;
+import app.hansho.sdk.Models.Channel;
+import app.hansho.sdk.Models.Feed;
+import app.hansho.sdk.Models.FeedResult;
+import app.hansho.sdk.Models.FeedSettings;
+import app.hansho.sdk.Models.Group;
+import app.hansho.sdk.Models.Message;
+import app.hansho.sdk.Models.MessageResult;
+import app.hansho.sdk.Models.MessageStatus;
+import app.hansho.sdk.Models.PairingTicket;
+import app.hansho.sdk.Models.Sound;
+import app.hansho.sdk.Models.SoundResult;
+import app.hansho.sdk.Models.Template;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.net.URI;
@@ -11,8 +26,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -31,7 +44,7 @@ public final class Hansho {
     /** Product codename. */
     public static final String NAME = "hansho";
     /** SDK version, sent in the default User-Agent. */
-    public static final String VERSION = "0.1.0";
+    public static final String VERSION = Models.VERSION;
 
     private static final int MAX_SOUND_BYTES = 1 << 20;
 
@@ -158,8 +171,7 @@ public final class Hansho {
         requireId(externalUserId);
         ObjectNode body = Json.MAPPER.createObjectNode().put("external_user_id", externalUserId);
         Json.put(body, "display_name", displayName);
-        JsonNode w = json("POST", "/api/v1/pairing-tickets", body);
-        return new PairingTicket(Json.str(w.get("ticket")), Json.str(w.get("qr")), instant(w.get("expires_at")));
+        return PairingTicket.fromWire(json("POST", "/api/v1/pairing-tickets", body));
     }
 
     // --- users ---------------------------------------------------------------
@@ -191,36 +203,22 @@ public final class Hansho {
 
     /**
      * Creates or replaces a channel. A {@code null} {@link Channel#audience()} keeps the audience stored on the hub (a
-     * new channel starts open to everyone); send {@link Audience#everyone()} to open an existing channel up. The groups
-     * an audience names must exist, or the hub answers 400 (field {@code audience.groups}).
+     * new channel starts open to everyone); send {@link Models.Audience#everyone()} to open an existing channel up. The groups
+     * an audience names must exist, or the hub answers 400 (field {@code audience.groups}). {@link Channel#id()} is the
+     * hub's to set and is not sent.
      */
     public void putChannel(String id, Channel channel) {
         Objects.requireNonNull(channel, "channel");
-        ObjectNode w = Json.MAPPER.createObjectNode();
-        Json.put(w, "name", channel.name());
-        Json.put(w, "default_level", wire(channel.defaultLevel()));
-        Json.put(w, "max_level", wire(channel.maxLevel()));
-        Json.put(w, "sound", channel.sound());
-        Json.put(w, "template_id", channel.templateId());
-        Json.put(w, "thread", channel.thread());
-        putActions(w, channel.actions());
-        if (channel.audience() != null) {
-            w.set("audience", audienceToWire(channel.audience()));
-        }
-        json("PUT", "/api/v1/channels/" + seg(id), w);
+        json("PUT", "/api/v1/channels/" + seg(id), channel.toWire());
     }
 
     public Channel getChannel(String id) {
-        JsonNode w = json("GET", "/api/v1/channels/" + seg(id), null);
-        return new Channel(
-                Json.optStr(w.get("name")),
-                Level.fromWire(Json.optStr(w.get("default_level"))),
-                Level.fromWire(Json.optStr(w.get("max_level"))),
-                Json.optStr(w.get("sound")),
-                Json.optStr(w.get("template_id")),
-                Json.optStr(w.get("thread")),
-                actionsFromWire(w.get("actions")),
-                audienceFromWire(w.get("audience")));
+        return Channel.fromWire(json("GET", "/api/v1/channels/" + seg(id), null));
+    }
+
+    /** Every channel. */
+    public List<Channel> listChannels() {
+        return Json.list(json("GET", "/api/v1/channels", null), Channel::fromWire);
     }
 
     public void deleteChannel(String id) {
@@ -237,18 +235,25 @@ public final class Hansho {
         Objects.requireNonNull(members, "members");
         ObjectNode w = Json.MAPPER.createObjectNode();
         putStrings(w, "members", members);
-        return groupFromWire(json("PUT", "/api/v1/groups/" + seg(id), w));
+        return Group.fromWire(json("PUT", "/api/v1/groups/" + seg(id), w));
     }
 
     /** A missing group is a {@link HanshoException} with code {@link HanshoException#UNKNOWN_GROUP}. */
     public Group getGroup(String id) {
-        return groupFromWire(json("GET", "/api/v1/groups/" + seg(id), null));
+        return Group.fromWire(json("GET", "/api/v1/groups/" + seg(id), null));
+    }
+
+    /** Every group. */
+    public List<Group> listGroups() {
+        return Json.list(json("GET", "/api/v1/groups", null), Group::fromWire);
     }
 
     /** An audience that still names the group matches nobody through it. */
     public void deleteGroup(String id) {
         json("DELETE", "/api/v1/groups/" + seg(id), null);
     }
+
+    // --- templates and sounds ------------------------------------------------
 
     /**
      * Stores a template version; the version must increase.
@@ -257,8 +262,23 @@ public final class Hansho {
      */
     public void putTemplate(String id, int version, Object body) {
         ObjectNode w = Json.MAPPER.createObjectNode().put("version", version);
-        w.set("body", tree(body));
+        w.set("body", Json.tree(body));
         json("PUT", "/api/v1/templates/" + seg(id), w);
+    }
+
+    /** Every template at its latest version. */
+    public List<Template> listTemplates() {
+        return Json.list(json("GET", "/api/v1/templates", null), Template::fromWire);
+    }
+
+    /** A missing template is a {@link HanshoException} with code {@code unknown_template}. */
+    public Template getTemplate(String id) {
+        return Template.fromWire(json("GET", "/api/v1/templates/" + seg(id), null));
+    }
+
+    /** A template a live channel still names is refused with a {@link HanshoException} (code {@code in_use}). */
+    public void deleteTemplate(String id) {
+        json("DELETE", "/api/v1/templates/" + seg(id), null);
     }
 
     /** Uploads a sound ({@code audio/x-caf}, {@code audio/wav} or {@code audio/aiff}, at most 1 MB). */
@@ -269,106 +289,53 @@ public final class Hansho {
         if (bytes.length > MAX_SOUND_BYTES) {
             throw new IllegalArgumentException("hansho: sound exceeds 1 MB");
         }
-        JsonNode w = send(new Call("PUT", path, bytes, contentType, true, null));
-        return new SoundResult(
-                Json.str(w.get("id")), Json.str(w.get("filename")), Json.str(w.get("sha256")), Json.num(w.get("size")));
+        return SoundResult.fromWire(send(new Call("PUT", path, bytes, contentType, true, null)));
+    }
+
+    /** Every sound's metadata. */
+    public List<Sound> listSounds() {
+        return Json.list(json("GET", "/api/v1/sounds", null), Sound::fromWire);
+    }
+
+    /** A missing sound is a {@link HanshoException} with code {@code unknown_sound}. */
+    public Sound getSound(String id) {
+        return Sound.fromWire(json("GET", "/api/v1/sounds/" + seg(id), null));
+    }
+
+    /** A sound a live channel still names is refused with a {@link HanshoException} (code {@code in_use}). */
+    public void deleteSound(String id) {
+        json("DELETE", "/api/v1/sounds/" + seg(id), null);
     }
 
     // --- messages ------------------------------------------------------------
 
     /**
-     * Sends a notification, or a page when the level is {@link Level#PAGE}. It is never retried automatically
+     * Sends a notification, or a page when the level is {@link Models.Level#PAGE}. It is never retried automatically
      * (a repeat would notify twice) unless the message has an {@link Message#idempotencyKey()}.
      */
     public MessageResult sendMessage(Message m) {
         Objects.requireNonNull(m, "message");
-        ObjectNode w = Json.MAPPER.createObjectNode();
-        Json.put(w, "external_user_id", m.externalUserId());
-        if (m.externalUserIds() != null) {
-            putStrings(w, "external_user_ids", m.externalUserIds());
-        }
-        if (m.toAudience()) {
-            w.put("to_audience", true);
-        }
-        Json.put(w, "channel", m.channel());
-        Json.put(w, "level", wire(m.level()));
-        Json.put(w, "title", m.title());
-        Json.put(w, "subtitle", m.subtitle());
-        Json.put(w, "body", m.body());
-        Json.put(w, "image_url", m.imageUrl());
-        Json.put(w, "template_id", m.templateId());
-        if (m.data() != null) {
-            w.set("data", tree(m.data()));
-        }
-        Json.put(w, "sound", m.sound());
-        putActions(w, m.actions());
-        Json.put(w, "collapse_id", m.collapseId());
-        if (m.page() != null) {
-            ObjectNode p = w.putObject("page");
-            if (m.page().intervalSeconds() != null) {
-                p.put("interval_s", m.page().intervalSeconds());
-            }
-            if (m.page().maxRetries() != null) {
-                p.put("max_retries", m.page().maxRetries());
-            }
-            if (m.page().ack() != null) {
-                p.put("ack", m.page().ack().wire());
-            }
-        }
         String key = m.idempotencyKey();
         boolean keyed = key != null && !key.isEmpty();
-        JsonNode r = send(new Call("POST", "/api/v1/messages", bytes(w), "application/json", keyed, keyed ? key : null));
-        return new MessageResult(
-                Json.str(r.get("message_id")),
-                Level.fromWire(Json.optStr(r.get("level"))),
-                (int) Json.num(r.get("devices")),
-                Json.str(r.get("status")),
-                deliveriesFromWire(r.get("deliveries")),
-                recipientsFromWire(r.get("recipients")));
+        return MessageResult.fromWire(
+                send(new Call("POST", "/api/v1/messages", bytes(m.toWire()), "application/json", keyed, keyed ? key : null)));
     }
 
     public MessageStatus getMessage(String id) {
-        JsonNode w = json("GET", "/api/v1/messages/" + seg(id), null);
-        return new MessageStatus(
-                Json.str(w.get("message_id")),
-                Json.str(w.get("status")),
-                Level.fromWire(Json.optStr(w.get("level"))),
-                (int) Json.num(w.get("attempts")),
-                deliveriesFromWire(w.get("deliveries")),
-                instant(w.get("acked_at")),
-                Json.optStr(w.get("acked_by")),
-                Json.optStr(w.get("acked_by_name")));
+        return MessageStatus.fromWire(json("GET", "/api/v1/messages/" + seg(id), null));
     }
 
     // --- live activities and feeds -------------------------------------------
 
     public ActivityStarted startActivity(Activity a) {
         Objects.requireNonNull(a, "activity");
-        ObjectNode w = Json.MAPPER.createObjectNode();
-        Json.put(w, "external_user_id", a.externalUserId());
-        Json.put(w, "channel", a.channel());
-        Json.put(w, "template_id", a.templateId());
-        if (a.data() != null) {
-            w.set("data", tree(a.data()));
-        }
-        putAlert(w, a.alert());
-        JsonNode r = json("POST", "/api/v1/activities", w);
-        return new ActivityStarted(Json.str(r.get("activity_id")), (int) Json.num(r.get("devices")));
+        return ActivityStarted.fromWire(json("POST", "/api/v1/activities", a.toWire()));
     }
 
     /** Not retried automatically. */
     public ActivityUpdated updateActivity(String id, ActivityUpdate u) {
         Objects.requireNonNull(u, "update");
-        ObjectNode w = Json.MAPPER.createObjectNode();
-        if (u.data() != null) {
-            w.set("data", tree(u.data()));
-        }
-        if (u.priority() != null) {
-            w.put("priority", u.priority());
-        }
-        putAlert(w, u.alert());
-        JsonNode r = json("PATCH", "/api/v1/activities/" + seg(id), w);
-        return new ActivityUpdated(Json.str(r.get("activity_id")), (int) Json.num(r.get("update")));
+        return ActivityUpdated.fromWire(json("PATCH", "/api/v1/activities/" + seg(id), u.toWire()));
     }
 
     public void endActivity(String id) {
@@ -377,19 +344,7 @@ public final class Hansho {
 
     public FeedResult putFeed(String id, Feed f) {
         Objects.requireNonNull(f, "feed");
-        ObjectNode w = Json.MAPPER.createObjectNode();
-        Json.put(w, "external_user_id", f.externalUserId());
-        Json.put(w, "template_id", f.templateId());
-        Json.put(w, "title", f.title());
-        Json.put(w, "channel", f.channel());
-        if (f.audience() != null) {
-            w.set("audience", audienceToWire(f.audience()));
-        }
-        if (f.data() != null) {
-            w.set("data", tree(f.data()));
-        }
-        JsonNode r = json("PUT", "/api/v1/feeds/" + seg(id), w);
-        return new FeedResult(Json.str(r.get("feed_id")), (int) Json.num(r.get("devices")));
+        return FeedResult.fromWire(json("PUT", "/api/v1/feeds/" + seg(id), f.toWire()));
     }
 
     /** A feed's settings without its data; for the feed shared by all users. */
@@ -400,30 +355,10 @@ public final class Hansho {
     /** A feed's settings without its data. Pass {@code null} as {@code externalUserId} for the feed shared by all users. */
     public FeedSettings getFeed(String id, String externalUserId) {
         String query = externalUserId == null || externalUserId.isEmpty() ? "" : "?external_user_id=" + escape(externalUserId);
-        JsonNode w = json("GET", "/api/v1/feeds/" + seg(id) + query, null);
-        return new FeedSettings(
-                Json.str(w.get("feed_id")),
-                Json.optStr(w.get("external_user_id")),
-                Json.str(w.get("template_id")),
-                Json.optStr(w.get("title")),
-                Json.optStr(w.get("channel")),
-                audienceFromWire(w.get("audience")),
-                Json.num(w.get("updated_at")));
+        return FeedSettings.fromWire(json("GET", "/api/v1/feeds/" + seg(id) + query, null));
     }
 
     // --- wire mapping --------------------------------------------------------
-
-    private static String wire(Level l) {
-        return l == null ? null : l.wire();
-    }
-
-    private static JsonNode tree(Object value) {
-        try {
-            return Json.MAPPER.valueToTree(value);
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("hansho: data is not JSON-serializable", e);
-        }
-    }
 
     private static byte[] bytes(JsonNode node) {
         try {
@@ -433,123 +368,10 @@ public final class Hansho {
         }
     }
 
-    private static void putActions(ObjectNode w, List<Action> actions) {
-        if (actions == null) {
-            return;
-        }
-        ArrayNode arr = w.putArray("actions");
-        for (Action a : actions) {
-            ObjectNode o = arr.addObject();
-            o.put("id", a.id());
-            o.put("title", a.title());
-            if (a.ack() != null) {
-                o.put("ack", a.ack());
-            }
-            Json.put(o, "kind", a.kind());
-        }
-    }
-
     private static void putStrings(ObjectNode w, String key, List<String> values) {
-        ArrayNode arr = w.putArray(key);
+        var arr = w.putArray(key);
         for (String v : values) {
             arr.add(v);
-        }
-    }
-
-    private static ObjectNode audienceToWire(Audience a) {
-        ObjectNode o = Json.MAPPER.createObjectNode();
-        o.put("mode", Objects.requireNonNull(a.mode(), "audience mode").wire());
-        if (!a.users().isEmpty()) {
-            putStrings(o, "users", a.users());
-        }
-        if (!a.groups().isEmpty()) {
-            putStrings(o, "groups", a.groups());
-        }
-        return o;
-    }
-
-    private static void putAlert(ObjectNode w, ActivityAlert alert) {
-        if (alert == null) {
-            return;
-        }
-        ObjectNode o = w.putObject("alert");
-        Json.put(o, "title", alert.title());
-        Json.put(o, "body", alert.body());
-    }
-
-    private static List<Action> actionsFromWire(JsonNode raw) {
-        List<Action> out = new ArrayList<>();
-        if (raw != null && raw.isArray()) {
-            for (JsonNode a : raw) {
-                out.add(new Action(
-                        Json.str(a.get("id")),
-                        Json.str(a.get("title")),
-                        a.path("ack").isBoolean() ? a.get("ack").asBoolean() : null,
-                        Json.optStr(a.get("kind"))));
-            }
-        }
-        return out;
-    }
-
-    private static List<String> stringsFromWire(JsonNode raw) {
-        List<String> out = new ArrayList<>();
-        if (raw != null && raw.isArray()) {
-            for (JsonNode s : raw) {
-                if (s.isTextual()) {
-                    out.add(s.asText());
-                }
-            }
-        }
-        return out;
-    }
-
-    private static Audience audienceFromWire(JsonNode raw) {
-        if (raw == null || !raw.isObject()) {
-            return null;
-        }
-        return new Audience(
-                AudienceMode.fromWire(Json.optStr(raw.get("mode"))), stringsFromWire(raw.get("users")), stringsFromWire(raw.get("groups")));
-    }
-
-    private static Group groupFromWire(JsonNode w) {
-        return new Group(Json.str(w.get("id")), stringsFromWire(w.get("members")));
-    }
-
-    private static List<Recipient> recipientsFromWire(JsonNode raw) {
-        List<Recipient> out = new ArrayList<>();
-        if (raw != null && raw.isArray()) {
-            for (JsonNode r : raw) {
-                out.add(new Recipient(
-                        Json.str(r.get("external_user_id")),
-                        Json.optStr(r.get("message_id")),
-                        Json.str(r.get("status")),
-                        (int) Json.num(r.get("devices")),
-                        deliveriesFromWire(r.get("deliveries"))));
-            }
-        }
-        return out;
-    }
-
-    private static List<Delivery> deliveriesFromWire(JsonNode raw) {
-        List<Delivery> out = new ArrayList<>();
-        if (raw != null && raw.isArray()) {
-            for (JsonNode d : raw) {
-                String err = Json.str(d.get("error"));
-                out.add(new Delivery(Json.str(d.get("device_id")), Json.str(d.get("status")), err.isEmpty() ? null : err));
-            }
-        }
-        return out;
-    }
-
-    private static Instant instant(JsonNode n) {
-        String s = Json.optStr(n);
-        if (s == null) {
-            return null;
-        }
-        try {
-            return Instant.parse(s);
-        } catch (DateTimeParseException e) {
-            return null;
         }
     }
 
@@ -611,7 +433,7 @@ public final class Hansho {
                 }
                 try {
                     JsonNode parsed = Json.MAPPER.readTree(raw);
-                    return parsed != null && parsed.isObject() ? parsed : Json.MAPPER.createObjectNode();
+                    return parsed != null && (parsed.isObject() || parsed.isArray()) ? parsed : Json.MAPPER.createObjectNode();
                 } catch (IOException e) {
                     throw new HanshoNetworkException(call.method, call.path, new IOException("invalid JSON in response"));
                 }

@@ -7,10 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
-// The shared contract, also loaded by the Node SDK tests.
+// The shared contract's x-conformance cases, which every SDK's tests replay.
 type specFile struct {
 	Operations []specOp  `json:"operations"`
 	Errors     []specErr `json:"errors"`
@@ -43,15 +44,17 @@ type specErr struct {
 
 func loadSpec(t *testing.T) specFile {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "spec", "api.json"))
+	b, err := os.ReadFile(filepath.Join("..", "spec", "openapi.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var s specFile
-	if err := json.Unmarshal(b, &s); err != nil {
+	var doc struct {
+		Conformance specFile `json:"x-conformance"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatal(err)
 	}
-	return s
+	return doc.Conformance
 }
 
 func (o specOp) wantBody(t *testing.T) []byte {
@@ -119,7 +122,7 @@ var calls = map[string]struct {
 	},
 	"getChannel": {
 		func(c *Client) (any, error) { return c.GetChannel(ctx(), "ops") },
-		Channel{Name: "Operations", DefaultLevel: LevelActive, MaxLevel: LevelCritical, Thread: "ops", Actions: []Action{}},
+		Channel{ID: "ops", Name: "Operations", DefaultLevel: LevelActive, MaxLevel: LevelCritical, Thread: "ops", Actions: []Action{}},
 	},
 	"deleteChannel": {
 		func(c *Client) (any, error) { return nil, c.DeleteChannel(ctx(), "ops") }, nil,
@@ -227,17 +230,53 @@ var calls = map[string]struct {
 		func(c *Client) (any, error) {
 			return nil, c.PutChannel(ctx(), "ops", Channel{
 				Name: "Operations", DefaultLevel: LevelActive, MaxLevel: LevelCritical,
-				Audience: &Audience{Mode: AudienceOnly, Users: []string{"alice"}, Groups: []string{"oncall"}},
+				Audience: &Audience{Mode: AudienceModeOnly, Users: []string{"alice"}, Groups: []string{"oncall"}},
 			})
 		}, nil,
 	},
 	"putFeedWithChannel": {
 		func(c *Client) (any, error) {
 			return c.PutFeed(ctx(), "uptime", Feed{TemplateID: "status", Channel: "ops",
-				Audience: &Audience{Mode: AudienceOnly, Users: []string{"alice"}, Groups: []string{"oncall"}},
+				Audience: &Audience{Mode: AudienceModeOnly, Users: []string{"alice"}, Groups: []string{"oncall"}},
 				Data:     map[string]any{"up": true}})
 		},
 		FeedResult{FeedID: "uptime", Devices: 1},
+	},
+	"listChannels": {
+		func(c *Client) (any, error) { return c.ListChannels(ctx()) },
+		[]Channel{{ID: "ops", Name: "Operations", DefaultLevel: LevelActive, MaxLevel: LevelCritical, Thread: "ops",
+			Actions: []Action{}, Audience: &Audience{Mode: AudienceModeEveryone}}},
+	},
+	"listTemplates": {
+		func(c *Client) (any, error) { return c.ListTemplates(ctx()) },
+		[]Template{{ID: "status", Version: 2, Body: map[string]any{"type": "text", "text": "{{title}}"}}},
+	},
+	"getTemplate": {
+		func(c *Client) (any, error) { return c.GetTemplate(ctx(), "status") },
+		Template{ID: "status", Version: 2, Body: map[string]any{"type": "text", "text": "{{title}}"}},
+	},
+	"deleteTemplate": {
+		func(c *Client) (any, error) { return nil, c.DeleteTemplate(ctx(), "status") }, nil,
+	},
+	"listSounds": {
+		func(c *Client) (any, error) { return c.ListSounds(ctx()) },
+		[]Sound{{ID: "ding", ContentType: "audio/wav", Bytes: 12, SHA256: "00"}},
+	},
+	"getSound": {
+		func(c *Client) (any, error) { return c.GetSound(ctx(), "ding") },
+		Sound{ID: "ding", ContentType: "audio/wav", Bytes: 12, SHA256: "00"},
+	},
+	"deleteSound": {
+		func(c *Client) (any, error) { return nil, c.DeleteSound(ctx(), "ding") }, nil,
+	},
+	"listGroups": {
+		func(c *Client) (any, error) { return c.ListGroups(ctx()) },
+		[]Group{{ID: "oncall", Members: []string{"alice", "bob"}}},
+	},
+	"getFeed": {
+		func(c *Client) (any, error) { return c.GetFeed(ctx(), "uptime", "user-42") },
+		FeedSettings{FeedID: "uptime", ExternalUserID: "user-42", TemplateID: "status", Title: "Uptime", Channel: "ops",
+			Audience: &Audience{Mode: AudienceModeOnly, Users: []string{"alice"}}, UpdatedAt: 1762603200},
 	},
 	"sendToAudience": {
 		func(c *Client) (any, error) {
@@ -254,7 +293,8 @@ var calls = map[string]struct {
 var specChannel = Channel{
 	Name: "Operations", DefaultLevel: LevelActive, MaxLevel: LevelCritical,
 	Sound: "ding", TemplateID: "status", Thread: "ops-thread",
-	Actions: []Action{{ID: "ack", Title: "Acknowledge", Ack: true}, {ID: "reply", Title: "Reply", Kind: "text"}},
+	Actions: []Action{{ID: "ack", Title: "Acknowledge", Ack: true}, {ID: "reply", Title: "Reply", Kind: "text"},
+		{ID: "runbook", Title: "Runbook", Kind: "url", URL: "https://example.com/runbook"}},
 }
 
 func TestSpecOperations(t *testing.T) {
@@ -268,8 +308,12 @@ func TestSpecOperations(t *testing.T) {
 				t.Fatalf("no SDK call for spec operation %q", op.Name)
 			}
 			h := newHub(t, func(r *recorded, w *respond) {
-				if r.Method != op.Method || r.EscapedPath != op.Path {
-					t.Errorf("request line = %s %s, want %s %s", r.Method, r.EscapedPath, op.Method, op.Path)
+				got := r.EscapedPath
+				if r.RawQuery != "" {
+					got += "?" + r.RawQuery
+				}
+				if r.Method != op.Method || got != op.Path {
+					t.Errorf("request line = %s %s, want %s %s", r.Method, got, op.Method, op.Path)
 				}
 				if r.Header.Get("Authorization") != "Bearer "+testKey {
 					t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
@@ -307,7 +351,17 @@ func TestSpecOperations(t *testing.T) {
 	}
 	for name := range calls {
 		if !seen[name] {
-			t.Errorf("SDK call %q has no operation in sdk/spec/api.json", name)
+			t.Errorf("SDK call %q has no x-conformance case in sdk/spec/openapi.json", name)
+		}
+	}
+}
+
+// TestSpecCoverage wants a Client method for every operation in the spec, named after its operationId.
+func TestSpecCoverage(t *testing.T) {
+	ct := reflect.TypeFor[*Client]()
+	for _, id := range specOperations {
+		if _, ok := ct.MethodByName(strings.ToUpper(id[:1]) + id[1:]); !ok {
+			t.Errorf("spec operation %s: no Client method %s", id, strings.ToUpper(id[:1])+id[1:])
 		}
 	}
 }

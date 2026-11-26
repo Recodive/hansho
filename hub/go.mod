@@ -3,7 +3,7 @@ module github.com/recodive/hansho/hub
 go 1.27
 
 require (
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 	rsc.io/qr v0.2.0
 )
 

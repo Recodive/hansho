@@ -2,21 +2,28 @@
 
 require_relative "test_helper"
 
-# Every operation and error of the shared wire contract, sdk/spec/api.json.
+# Every operation and error of the shared wire contract, "x-conformance" in sdk/spec/openapi.json.
 class SpecTest < Minitest::Test
   include HubHelper
 
-  SPEC = load_spec_file("api.json")
+  SPEC = load_spec_file("openapi.json").fetch("x-conformance")
   WAV = "UklGRgAAAABXQVZF".unpack1("m")
 
   SPEC_CHANNEL = {
     name: "Operations", default_level: "active", max_level: "critical", sound: "ding", template_id: "status", thread: "ops-thread",
-    actions: [{ id: "ack", title: "Acknowledge", ack: true }, { id: "reply", title: "Reply", kind: "text" }]
+    actions: [{ id: "ack", title: "Acknowledge", ack: true }, { id: "reply", title: "Reply", kind: "text" },
+              { id: "runbook", title: "Runbook", kind: "url", url: "https://example.com/runbook" }]
   }.freeze
 
   SPEC_AUDIENCE = { mode: :only, users: ["alice"], groups: ["oncall"] }.freeze
   # What an audience reads back as.
-  SPEC_AUDIENCE_READ = { mode: "only", users: ["alice"], groups: ["oncall"] }.freeze
+  SPEC_AUDIENCE_READ = Hansho::Audience.new(mode: "only", users: ["alice"], groups: ["oncall"]).freeze
+  SPEC_CHANNEL_READ = Hansho::Channel.new(id: "ops", name: "Operations", default_level: "active", max_level: "critical", sound: "",
+                                          template_id: "", thread: "ops", actions: [],
+                                          audience: Hansho::Audience.new(mode: "everyone", users: [], groups: []))
+  SPEC_TEMPLATE = Hansho::Template.new(id: "status", version: 2, body: { "type" => "text", "text" => "{{title}}" })
+  SPEC_SOUND = Hansho::Sound.new(id: "ding", content_type: "audio/wav", bytes: 12, sha256: "00")
+  SPEC_GROUP = Hansho::Group.new(id: "oncall", members: %w[alice bob])
 
   # Every operation of the spec: the SDK call and the value it must produce.
   CALLS = {
@@ -36,13 +43,21 @@ class SpecTest < Minitest::Test
     "putChannel" => [->(c) { c.put_channel("ops", **SPEC_CHANNEL) }, nil],
     "getChannel" => [
       ->(c) { c.get_channel("ops") },
-      Hansho::Channel.new(name: "Operations", default_level: "active", max_level: "critical", sound: "", template_id: "", thread: "ops", actions: [])
+      Hansho::Channel.new(id: "ops", name: "Operations", default_level: "active", max_level: "critical", sound: "", template_id: "",
+                          thread: "ops", actions: [])
     ],
+    "listChannels" => [->(c) { c.list_channels }, [SPEC_CHANNEL_READ]],
     "deleteChannel" => [->(c) { c.delete_channel("ops") }, nil],
     "putTemplate" => [
       ->(c) { c.put_template("status", 2, { type: "vstack", children: [{ type: "text", style: "headline", text: "{{title}}" }] }) },
       nil
     ],
+    "listTemplates" => [->(c) { c.list_templates }, [SPEC_TEMPLATE]],
+    "getTemplate" => [->(c) { c.get_template("status") }, SPEC_TEMPLATE],
+    "deleteTemplate" => [->(c) { c.delete_template("status") }, nil],
+    "listSounds" => [->(c) { c.list_sounds }, [SPEC_SOUND]],
+    "getSound" => [->(c) { c.get_sound("ding") }, SPEC_SOUND],
+    "deleteSound" => [->(c) { c.delete_sound("ding") }, nil],
     "putSound" => [
       ->(c) { c.put_sound("ding", "audio/wav", WAV) },
       Hansho::SoundResult.new(id: "ding", filename: "ding.wav", sha256: "00", size: 12)
@@ -117,7 +132,13 @@ class SpecTest < Minitest::Test
       Hansho::FeedResult.new(feed_id: "uptime", devices: 2)
     ],
     "putGroup" => [->(c) { c.put_group("oncall", %w[alice bob]) }, Hansho::Group.new(id: "oncall", members: %w[alice bob])],
-    "getGroup" => [->(c) { c.get_group("oncall") }, Hansho::Group.new(id: "oncall", members: %w[alice bob])],
+    "getGroup" => [->(c) { c.get_group("oncall") }, SPEC_GROUP],
+    "listGroups" => [->(c) { c.list_groups }, [SPEC_GROUP]],
+    "getFeed" => [
+      ->(c) { c.get_feed("uptime", external_user_id: "user-42") },
+      Hansho::FeedSettings.new(feed_id: "uptime", external_user_id: "user-42", template_id: "status", title: "Uptime", channel: "ops",
+                               audience: Hansho::Audience.new(mode: "only", users: ["alice"], groups: []), updated_at: 1_762_603_200)
+    ],
     "deleteGroup" => [->(c) { c.delete_group("oncall") }, nil],
     "kick" => [->(c) { c.kick("user-42") }, nil],
     "putChannelWithAudience" => [
@@ -176,8 +197,18 @@ class SpecTest < Minitest::Test
 
   def test_covers_every_sdk_call
     names = SPEC["operations"].map { |o| o["name"] }
-    assert_empty CALLS.keys - names, "SDK calls without an operation in sdk/spec/api.json"
+    assert_empty CALLS.keys - names, "SDK calls without an x-conformance case in sdk/spec/openapi.json"
     assert_empty names - CALLS.keys, "spec operations without an SDK call"
+  end
+
+  # Every operationId of the spec has a method on the client, named in snake_case.
+  def test_client_has_a_method_for_every_spec_operation
+    missing = Hansho::SPEC_OPERATIONS.reject { |id| Hansho::Client.method_defined?(id.gsub(/([A-Z])/) { "_#{$1.downcase}" }) }
+    assert_empty missing, "spec operations without a client method"
+  end
+
+  def test_covers_every_operation_of_the_spec
+    assert_empty Hansho::SPEC_OPERATIONS - SPEC["operations"].map { |o| o["operation"] }, "operations without a conformance case"
   end
 
   SPEC["errors"].each_with_index do |e, i|

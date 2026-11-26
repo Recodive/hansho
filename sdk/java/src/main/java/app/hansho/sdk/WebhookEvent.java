@@ -4,7 +4,8 @@ import java.time.Instant;
 
 /**
  * A verified webhook. Narrow with {@code instanceof}; an event this SDK does not know is {@link Unknown}.
- * {@link #raw()} is the verified request body.
+ * {@link #raw()} is the verified request body, and {@code data()} of a known event is its payload, one of the
+ * {@link Models} types of the same name (for example {@link Models.MessageAcked}).
  */
 public sealed interface WebhookEvent {
     /** The event name, e.g. {@code "message.acked"}; {@code "unknown"} for {@link Unknown}. */
@@ -19,7 +20,7 @@ public sealed interface WebhookEvent {
     byte[] raw();
 
     /** {@code pairing.created}. */
-    record PairingCreated(String id, Instant createdAt, byte[] raw, String pairingId, String externalUserId, String deviceName) implements WebhookEvent {
+    record PairingCreated(String id, Instant createdAt, byte[] raw, Models.PairingCreated data) implements WebhookEvent {
         @Override
         public String type() {
             return "pairing.created";
@@ -27,7 +28,7 @@ public sealed interface WebhookEvent {
     }
 
     /** {@code pairing.revoked}. */
-    record PairingRevoked(String id, Instant createdAt, byte[] raw, String pairingId, String externalUserId, String by) implements WebhookEvent {
+    record PairingRevoked(String id, Instant createdAt, byte[] raw, Models.PairingRevoked data) implements WebhookEvent {
         @Override
         public String type() {
             return "pairing.revoked";
@@ -35,7 +36,7 @@ public sealed interface WebhookEvent {
     }
 
     /** {@code message.delivered}. */
-    record MessageDelivered(String id, Instant createdAt, byte[] raw, String messageId, String externalUserId, String channel, Level level, int devices) implements WebhookEvent {
+    record MessageDelivered(String id, Instant createdAt, byte[] raw, Models.MessageDelivered data) implements WebhookEvent {
         @Override
         public String type() {
             return "message.delivered";
@@ -43,33 +44,23 @@ public sealed interface WebhookEvent {
     }
 
     /** {@code message.undeliverable}. */
-    record MessageUndeliverable(String id, Instant createdAt, byte[] raw, String messageId, String externalUserId, String channel, String reason) implements WebhookEvent {
+    record MessageUndeliverable(String id, Instant createdAt, byte[] raw, Models.MessageUndeliverable data) implements WebhookEvent {
         @Override
         public String type() {
             return "message.undeliverable";
         }
     }
 
-    /**
-     * {@code message.acked}. {@code ackedBy} is who acknowledged (an external user id; differs from
-     * {@code externalUserId} when a page went to several people) and {@code ackedByName} their display name; each is
-     * {@code null} when the hub did not send it.
-     */
-    record MessageAcked(String id, Instant createdAt, byte[] raw, String messageId, String externalUserId, String deviceId,
-                        String ackedBy, String ackedByName) implements WebhookEvent {
-        /** Without the acknowledger: {@code ackedBy} and {@code ackedByName} are {@code null}. */
-        public MessageAcked(String id, Instant createdAt, byte[] raw, String messageId, String externalUserId, String deviceId) {
-            this(id, createdAt, raw, messageId, externalUserId, deviceId, null, null);
-        }
-
+    /** {@code message.acked}. */
+    record MessageAcked(String id, Instant createdAt, byte[] raw, Models.MessageAcked data) implements WebhookEvent {
         @Override
         public String type() {
             return "message.acked";
         }
     }
 
-    /** The person swiped away a message that asked to be acknowledged, without acknowledging it. */
-    record MessageDismissed(String id, Instant createdAt, byte[] raw, String messageId, String externalUserId, String deviceId) implements WebhookEvent {
+    /** {@code message.dismissed}. */
+    record MessageDismissed(String id, Instant createdAt, byte[] raw, Models.MessageDismissed data) implements WebhookEvent {
         @Override
         public String type() {
             return "message.dismissed";
@@ -77,15 +68,15 @@ public sealed interface WebhookEvent {
     }
 
     /** {@code message.expired}. */
-    record MessageExpired(String id, Instant createdAt, byte[] raw, String messageId, String externalUserId, String channel, int attempts) implements WebhookEvent {
+    record MessageExpired(String id, Instant createdAt, byte[] raw, Models.MessageExpired data) implements WebhookEvent {
         @Override
         public String type() {
             return "message.expired";
         }
     }
 
-    /** A button press; {@code text} is the reply of a text action, otherwise {@code null}. */
-    record ActionTaken(String id, Instant createdAt, byte[] raw, String messageId, String actionId, String deviceId, String externalUserId, String text) implements WebhookEvent {
+    /** {@code action}. */
+    record ActionTaken(String id, Instant createdAt, byte[] raw, Models.ActionTaken data) implements WebhookEvent {
         @Override
         public String type() {
             return "action";
@@ -93,7 +84,7 @@ public sealed interface WebhookEvent {
     }
 
     /** {@code activity.ended}. */
-    record ActivityEnded(String id, Instant createdAt, byte[] raw, String activityId, String externalUserId, String channel, String reason) implements WebhookEvent {
+    record ActivityEnded(String id, Instant createdAt, byte[] raw, Models.ActivityEnded data) implements WebhookEvent {
         @Override
         public String type() {
             return "activity.ended";

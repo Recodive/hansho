@@ -162,12 +162,12 @@ describe("integration against the real hub", { skip }, () => {
         });
         assert.equal(res.level, level);
         assert.equal(res.devices, 1);
-        assert.ok(res.messageId.startsWith("msg_"));
-        const ms = await waitStatus(c, res.messageId, "delivered");
+        assert.ok(res.messageId!.startsWith("msg_"));
+        const ms = await waitStatus(c, res.messageId!, "delivered");
         assert.equal(ms.level, level);
         assert.equal(ms.deliveries.length, 1);
         assert.equal(ms.deliveries[0]!.status, "sent");
-        await rx.wait("message.delivered", (e) => e.data.messageId === res.messageId && e.data.level === level && e.data.devices === 1);
+        await rx.wait("message.delivered", (e) => e.data.messageId === res.messageId! && e.data.level === level && e.data.devices === 1);
       }
       const def = await c.sendMessage({ externalUserId: user, channel: ch, title: "Default", body: "b" });
       assert.equal(def.level, "active");
@@ -182,13 +182,13 @@ describe("integration against the real hub", { skip }, () => {
         page: { intervalSeconds: 60, maxRetries: 3 },
       });
       assert.equal(page.level, "page");
-      await waitStatus(c, page.messageId, "paging");
-      fakeDevice("ack", "-state", statePath, "-message", page.messageId);
-      const acked = await waitStatus(c, page.messageId, "acked");
+      await waitStatus(c, page.messageId!, "paging");
+      fakeDevice("ack", "-state", statePath, "-message", page.messageId!);
+      const acked = await waitStatus(c, page.messageId!, "acked");
       assert.ok(acked.ackedAt instanceof Date && !Number.isNaN(acked.ackedAt.getTime()));
-      const ev = await rx.wait("message.acked", (e) => e.data.messageId === page.messageId);
+      const ev = await rx.wait("message.acked", (e) => e.data.messageId === page.messageId!);
       assert.equal(ev.data.externalUserId, user);
-      await rx.wait("action", (e) => e.data.messageId === page.messageId && e.data.actionId === "ack");
+      await rx.wait("action", (e) => e.data.messageId === page.messageId! && e.data.actionId === "ack");
 
       // live activity
       const started = await c.startActivity({
@@ -220,8 +220,8 @@ describe("integration against the real hub", { skip }, () => {
       await rx.wait("pairing.revoked", (e) => e.data.externalUserId === user && e.data.by === "sender");
       const none = await c.sendMessage({ externalUserId: user, channel: ch, title: "Anyone?", body: "b" });
       assert.equal(none.devices, 0);
-      await waitStatus(c, none.messageId, "undeliverable");
-      await rx.wait("message.undeliverable", (e) => e.data.messageId === none.messageId);
+      await waitStatus(c, none.messageId!, "undeliverable");
+      await rx.wait("message.undeliverable", (e) => e.data.messageId === none.messageId!);
       await c.deleteChannel(ch);
       await assert.rejects(c.getChannel(ch), isApiError(404, "unknown_channel"));
 

@@ -1,12 +1,12 @@
 // Pair a user with the Hansho app and send them a page.
 //
 //   HANSHO_HUB_URL=https://hub.example.com HANSHO_API_KEY=ck_... mvn -q compile exec:java -Dexec.args=user-42
-import app.hansho.sdk.Channel;
 import app.hansho.sdk.Hansho;
-import app.hansho.sdk.Level;
-import app.hansho.sdk.Message;
-import app.hansho.sdk.MessageResult;
-import app.hansho.sdk.PairingTicket;
+import app.hansho.sdk.Models.Channel;
+import app.hansho.sdk.Models.Level;
+import app.hansho.sdk.Models.Message;
+import app.hansho.sdk.Models.MessageResult;
+import app.hansho.sdk.Models.PairingTicket;
 import java.util.Scanner;
 
 public class PairAndPage {

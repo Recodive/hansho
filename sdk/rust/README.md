@@ -5,7 +5,7 @@ Dependencies: `ureq` (rustls), `serde`, `serde_json`, `hmac`, `sha2`.
 
 ```toml
 [dependencies]
-hansho = "0.1"
+hansho = "0.2"
 ```
 
 See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) for the model shared with the Go and Node SDKs.
@@ -35,9 +35,13 @@ Configure with the builder: `Client::builder(url, key).max_retries(3).timeout(Du
 `max_retries` defaults to 3 (0 disables), `timeout` applies to each attempt (default 30 s, `Duration::ZERO` disables).
 A `Client` is cheap to clone and safe to share across threads.
 
+The types, enums and webhook payloads are generated from `sdk/spec/openapi.json` into `src/types_gen.rs` (do not edit it).
 `Level` is an enum (`Passive`, `Active`, `TimeSensitive`, `Critical`, `Page`); a level from a newer hub arrives as
-`Level::Other(String)` instead of failing. Structs have public fields and implement `Default`, so build them with
-`..Default::default()`. Timestamps are `std::time::SystemTime`. `hansho::json!` and `hansho::Value` are
+`Level::Other(String)` instead of failing, and so does a mode of `AudienceMode`. An unknown field in an answer is ignored.
+Structs have public fields and implement `Default`, so build them with `..Default::default()`. In a type you build, an
+optional field is an `Option` (`None` is not sent) and an optional list is a `Vec` (empty is not sent); in an answer, an
+optional text or number the hub leaves out reads as `""` or `0`, and an optional timestamp, object or JSON value as
+`None`. Timestamps are `std::time::SystemTime`. `hansho::json!` and `hansho::Value` are
 `serde_json`'s, re-exported for template bodies and data.
 
 ## Pairing
@@ -73,7 +77,7 @@ keep on the hub. The hub decides who has access and checks it on every request, 
 ```rust
 use hansho::{json, Audience, AudienceMode, Channel, Feed, Level, Message, RECIPIENT_NO_ACCESS};
 
-hansho.put_group("oncall", &["alice", "bob"])?; // replaces the whole member list; also get_group, delete_group
+hansho.put_group("oncall", &["alice", "bob"])?; // replaces the whole member list; also get_group, delete_group, list_groups
 hansho.put_channel("pager", &Channel {
     name: "Pager".into(),
     default_level: Level::Page,
@@ -95,7 +99,7 @@ let settings = hansho.get_feed("queue", None)?; // settings without the data; So
 
 // Send to several users, or to everyone in the channel's audience. People outside it are not delivered to.
 let res = hansho.send_message(&Message {
-    to_audience: true, // or external_user_ids: vec![...]; give exactly one target
+    to_audience: Some(true), // or external_user_ids: vec![...]; give exactly one target
     channel: "pager".into(),
     title: "DB down".into(),
     body: "...".into(),
@@ -120,7 +124,11 @@ use hansho::{json, Action, Activity, ActivityUpdate, Feed, Level, Message, PageA
 // A notification. The level defaults to the channel's default and is capped at its max.
 hansho.send_message(&Message {
     level: Some(Level::TimeSensitive),
-    actions: vec![Action { id: "retry".into(), title: "Retry".into(), ..Default::default() }],
+    actions: vec![
+        Action { id: "retry".into(), title: "Retry".into(), ..Default::default() },
+        // A button that opens a page (kind "url" needs an https url).
+        Action { id: "log".into(), title: "Logs".into(), kind: Some("url".into()), url: Some("https://example.com/logs".into()), ..Default::default() },
+    ],
     collapse_id: Some("deploy-web".into()), // a later message with the same id replaces this one
     ..Message::new("user-42", "ops", "Deploy failed", "web-3 rolled back")
 })?;
@@ -133,8 +141,8 @@ let page = hansho.send_message(&Message {
     ..Message::new("user-42", "ops", "Primary DB down", "Failover did not complete")
 })?;
 let status = hansho.get_message(&page.message_id)?; // queued, delivered, undeliverable, paging, acked, expired
-// status.acked_by: who acknowledged (their external user id); status.acked_by_name: their display name, if they
-// have one. The message.acked webhook (MessageAcked) carries both too.
+// status.acked_by: who acknowledged (their external user id, "" until then); status.acked_by_name: their display
+// name, if they have one. The message.acked webhook (MessageAcked) carries both too.
 
 // A page to several people stops for everyone at the first acknowledgement (PageAck::Any, the default).
 // With PageAck::Each every person keeps being paged until they acknowledge for themselves.
@@ -171,10 +179,28 @@ hansho.put_feed("uptime", &Feed {
     template_id: "status".into(),
     title: Some("Uptime".into()),
     data: json!({"title": "up"}),
+    ..Default::default()
 })?;
 
 // A sound (audio/x-caf, audio/wav or audio/aiff, at most 1 MB).
 hansho.put_sound("ding", "audio/wav", &wav_bytes)?;
+```
+
+## Catalog
+
+Channels, templates, sounds and groups can be listed, read and deleted; the answers are typed (`Channel`, `Template`,
+`Sound`, `Group`). A missing one is an API error (`unknown_channel`, `unknown_template`, `unknown_sound`, `unknown_group`).
+
+```rust
+for ch in hansho.list_channels()? {
+    println!("{} {}", ch.id.unwrap_or_default(), ch.name); // `id` is set by the hub in answers and ignored when sent
+}
+let template = hansho.get_template("status")?; // Template { id, version, body }
+let sound = hansho.get_sound("ding")?; // Sound { id, content_type, bytes, sha256 }
+hansho.list_templates()?;
+hansho.list_sounds()?;
+hansho.list_groups()?;
+hansho.delete_template("status")?; // also delete_sound, delete_channel, delete_group
 ```
 
 Ids may contain any characters except `.` and `..` (and must not be empty): they are path-escaped. A bad id is
@@ -245,7 +271,7 @@ neither are connection errors. Retry waits block the calling thread.
 ## Testing
 
 ```sh
-cargo test                                   # unit tests; they read ../spec/*.json
+cargo test                                   # unit tests; they read ../spec/*.json (the conformance cases are x-conformance in openapi.json)
 cargo test --test integration -- --nocapture # end to end; needs the environment below
 ```
 

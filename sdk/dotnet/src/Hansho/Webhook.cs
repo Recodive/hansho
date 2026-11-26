@@ -48,61 +48,7 @@ public abstract record WebhookEvent
     public byte[] Raw { get; init; } = Array.Empty<byte>();
 }
 
-public sealed record PairingCreated(string PairingId, string ExternalUserId, string DeviceName) : WebhookEvent
-{
-    public override string Type => "pairing.created";
-}
-
-/// <summary>By is who revoked: "sender", "device" or "relay".</summary>
-public sealed record PairingRevoked(string PairingId, string ExternalUserId, string By) : WebhookEvent
-{
-    public override string Type => "pairing.revoked";
-}
-
-public sealed record MessageDelivered(string MessageId, string ExternalUserId, string Channel, Level Level, int Devices) : WebhookEvent
-{
-    public override string Type => "message.delivered";
-}
-
-/// <summary>Reason is "no_devices" or "all_deliveries_failed".</summary>
-public sealed record MessageUndeliverable(string MessageId, string ExternalUserId, string Channel, string Reason) : WebhookEvent
-{
-    public override string Type => "message.undeliverable";
-}
-
-/// <summary>
-/// <c>AckedBy</c> is who acknowledged (an external user id; differs from <c>ExternalUserId</c> when a page went to
-/// several people) and <c>AckedByName</c> their display name; each is null when the hub did not send it.
-/// </summary>
-public sealed record MessageAcked(string MessageId, string ExternalUserId, string DeviceId) : WebhookEvent
-{
-    public string? AckedBy { get; init; }
-    public string? AckedByName { get; init; }
-
-    public override string Type => "message.acked";
-}
-
-/// <summary>The person swiped away a message that asked to be acknowledged, without acknowledging it.</summary>
-public sealed record MessageDismissed(string MessageId, string ExternalUserId, string DeviceId) : WebhookEvent
-{
-    public override string Type => "message.dismissed";
-}
-
-public sealed record MessageExpired(string MessageId, string ExternalUserId, string Channel, int Attempts) : WebhookEvent
-{
-    public override string Type => "message.expired";
-}
-
-/// <summary>A button press. Text is the reply of a text action.</summary>
-public sealed record ActionTaken(string MessageId, string ActionId, string DeviceId, string ExternalUserId, string? Text) : WebhookEvent
-{
-    public override string Type => "action";
-}
-
-public sealed record ActivityEnded(string ActivityId, string ExternalUserId, string Channel, string Reason) : WebhookEvent
-{
-    public override string Type => "activity.ended";
-}
+// The payload of each event (PairingCreated, MessageAcked, ...) is a record in Generated.cs that derives from WebhookEvent.
 
 /// <summary>An event newer than this SDK: Name is the event name as sent, Data the payload as parsed JSON, untouched.</summary>
 public sealed record UnknownWebhookEvent(string Name, JsonElement Data) : WebhookEvent
@@ -241,23 +187,7 @@ public static class HanshoWebhook
             var createdAt = Unix(env, "created_at");
             var data = env.TryGetProperty("data", out var d) && d.ValueKind == JsonValueKind.Object ? d : default;
 
-            WebhookEvent? mapped = name switch
-            {
-                "pairing.created" => new PairingCreated(S(data, "pairing_id"), S(data, "external_user_id"), S(data, "device_name")),
-                "pairing.revoked" => new PairingRevoked(S(data, "pairing_id"), S(data, "external_user_id"), S(data, "by")),
-                "message.delivered" => new MessageDelivered(S(data, "message_id"), S(data, "external_user_id"), S(data, "channel"), new Level(S(data, "level")), N(data, "devices")),
-                "message.undeliverable" => new MessageUndeliverable(S(data, "message_id"), S(data, "external_user_id"), S(data, "channel"), S(data, "reason")),
-                "message.acked" => new MessageAcked(S(data, "message_id"), S(data, "external_user_id"), S(data, "device_id"))
-                {
-                    AckedBy = OptS(data, "acked_by"),
-                    AckedByName = OptS(data, "acked_by_name"),
-                },
-                "message.dismissed" => new MessageDismissed(S(data, "message_id"), S(data, "external_user_id"), S(data, "device_id")),
-                "message.expired" => new MessageExpired(S(data, "message_id"), S(data, "external_user_id"), S(data, "channel"), N(data, "attempts")),
-                "action" => new ActionTaken(S(data, "message_id"), S(data, "action_id"), S(data, "device_id"), S(data, "external_user_id"), data.ValueKind == JsonValueKind.Object && data.TryGetProperty("text", out var tx) && tx.ValueKind == JsonValueKind.String ? tx.GetString() : null),
-                "activity.ended" => new ActivityEnded(S(data, "activity_id"), S(data, "external_user_id"), S(data, "channel"), S(data, "reason")),
-                _ => null,
-            };
+            var mapped = Wire.ReadEvent(name, data);
             if (mapped is null)
             {
                 // The payload as sent (not an empty object when it was something else), detached from the document.
@@ -269,9 +199,6 @@ public static class HanshoWebhook
     }
 
     // A forgiving read, like the other SDKs: a missing or oddly typed field reads as empty, never as an exception.
-    private static string? OptS(JsonElement o, string key) =>
-        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-
     private static string S(JsonElement o, string key)
     {
         if (o.ValueKind != JsonValueKind.Object || !o.TryGetProperty(key, out var v)) return "";
@@ -281,15 +208,6 @@ public static class HanshoWebhook
             JsonValueKind.Null or JsonValueKind.Undefined => "",
             _ => v.GetRawText(),
         };
-    }
-
-    private static int N(JsonElement o, string key)
-    {
-        if (o.ValueKind != JsonValueKind.Object || !o.TryGetProperty(key, out var v)) return 0;
-        if (v.ValueKind == JsonValueKind.Number) return v.TryGetInt32(out var i) ? i : (int)Math.Clamp(v.GetDouble(), int.MinValue, int.MaxValue);
-        return v.ValueKind == JsonValueKind.String && double.TryParse(v.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d)
-            ? (int)Math.Clamp(d, int.MinValue, int.MaxValue)
-            : 0;
     }
 
     private static DateTimeOffset Unix(JsonElement o, string key)

@@ -11,8 +11,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-
-	"github.com/recodive/hansho/terraform-provider-hansho/internal/client"
 )
 
 type groupResource struct{ base }
@@ -53,12 +51,12 @@ func (r *groupResource) upsert(ctx context.Context, plan tfsdk.Plan, state *tfsd
 	if diags.Append(plan.Get(ctx, &m)...); diags.HasError() {
 		return
 	}
-	members, err := r.c.PutGroup(ctx, m.ID.ValueString(), strs(m.Members))
+	g, err := r.c.PutGroup(ctx, m.ID.ValueString(), strs(m.Members))
 	if err != nil {
-		diags.AddError("Cannot save group", err.Error())
+		diags.AddError("Cannot save group", hubError(err))
 		return
 	}
-	m.Members = tfStrs(members)
+	m.Members = tfStrs(g.Members)
 	diags.Append(state.Set(ctx, m)...)
 }
 
@@ -75,16 +73,16 @@ func (r *groupResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	if resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...); resp.Diagnostics.HasError() {
 		return
 	}
-	members, err := r.c.GetGroup(ctx, id.ValueString())
-	if client.IsNotFound(err) {
+	g, err := r.c.GetGroup(ctx, id.ValueString())
+	if isNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
 	}
 	if err != nil {
-		resp.Diagnostics.AddError("Cannot read group", err.Error())
+		resp.Diagnostics.AddError("Cannot read group", hubError(err))
 		return
 	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, groupModel{ID: id, Members: tfStrs(members)})...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, groupModel{ID: id, Members: tfStrs(g.Members)})...)
 }
 
 func (r *groupResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -92,7 +90,7 @@ func (r *groupResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	if resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...); resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.c.DeleteGroup(ctx, id.ValueString()); err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Cannot delete group", err.Error())
+	if err := r.c.DeleteGroup(ctx, id.ValueString()); err != nil && !isNotFound(err) {
+		resp.Diagnostics.AddError("Cannot delete group", hubError(err))
 	}
 }

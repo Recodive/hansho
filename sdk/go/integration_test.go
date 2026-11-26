@@ -329,7 +329,7 @@ func TestIntegration(t *testing.T) {
 	t.Run("audiences", func(t *testing.T) {
 		g, ac := p+"-oncall", p+"-aud"
 		in := hansho.Channel{Name: "Audience " + p, DefaultLevel: hansho.LevelActive, MaxLevel: hansho.LevelActive,
-			Audience: &hansho.Audience{Mode: hansho.AudienceOnly, Groups: []string{g}}}
+			Audience: &hansho.Audience{Mode: hansho.AudienceModeOnly, Groups: []string{g}}}
 		err := c.PutChannel(ctx, ac, in)
 		if ae, ok := hansho.IsAPIError(err); !ok || ae.Status != 400 || ae.Field != "audience.groups" {
 			t.Fatalf("an unknown group: %v", err)
@@ -356,7 +356,7 @@ func TestIntegration(t *testing.T) {
 		if err := c.PutChannel(ctx, ac, in); err != nil {
 			t.Fatal(err)
 		}
-		if got, err := c.GetChannel(ctx, ac); err != nil || got.Audience == nil || got.Audience.Mode != hansho.AudienceOnly {
+		if got, err := c.GetChannel(ctx, ac); err != nil || got.Audience == nil || got.Audience.Mode != hansho.AudienceModeOnly {
 			t.Fatalf("%+v %v", got, err)
 		}
 		res, err = c.SendMessage(ctx, hansho.Message{ToAudience: true, Channel: ac, Title: "Everyone in", Body: "b"})

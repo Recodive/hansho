@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { Level } from "./types.ts";
+import { EVENTS } from "./types_gen.ts";
 
 /** `X-Hansho-Webhook-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, t + "." + body)>` */
 export const WEBHOOK_SIGNATURE_HEADER = "X-Hansho-Webhook-Signature";
@@ -25,68 +25,6 @@ export class WebhookError extends Error {
   }
 }
 
-export interface PairingCreated {
-  pairingId: string;
-  externalUserId: string;
-  deviceName: string;
-}
-export interface PairingRevoked {
-  pairingId: string;
-  externalUserId: string;
-  /** Who revoked: "sender", "device" or "relay". */
-  by: string;
-}
-export interface MessageDelivered {
-  messageId: string;
-  externalUserId: string;
-  channel: string;
-  level: Level;
-  devices: number;
-}
-export interface MessageUndeliverable {
-  messageId: string;
-  externalUserId: string;
-  channel: string;
-  /** "no_devices" or "all_deliveries_failed". */
-  reason: string;
-}
-export interface MessageAcked {
-  messageId: string;
-  externalUserId: string;
-  deviceId: string;
-  /** Who acknowledged: their external user id (differs from `externalUserId` when a page went to several people). */
-  ackedBy?: string;
-  /** The acknowledger's display name, only when they have one. */
-  ackedByName?: string;
-}
-/** The person swiped away a message that asked to be acknowledged, without acknowledging it. */
-export interface MessageDismissed {
-  messageId: string;
-  externalUserId: string;
-  deviceId: string;
-}
-export interface MessageExpired {
-  messageId: string;
-  externalUserId: string;
-  channel: string;
-  attempts: number;
-}
-/** A button press. */
-export interface ActionTaken {
-  messageId: string;
-  actionId: string;
-  deviceId: string;
-  externalUserId: string;
-  /** Reply text of a text action. */
-  text?: string;
-}
-export interface ActivityEnded {
-  activityId: string;
-  externalUserId: string;
-  channel: string;
-  reason: string;
-}
-
 interface EventBase {
   /** The hub's event id. */
   id: string;
@@ -95,17 +33,11 @@ interface EventBase {
   raw: Uint8Array;
 }
 
+type Events = typeof EVENTS;
+
 /** A verified webhook. Narrow on `type`; an event this SDK does not know is `"unknown"`. */
 export type HanshoEvent =
-  | (EventBase & { type: "pairing.created"; data: PairingCreated })
-  | (EventBase & { type: "pairing.revoked"; data: PairingRevoked })
-  | (EventBase & { type: "message.delivered"; data: MessageDelivered })
-  | (EventBase & { type: "message.undeliverable"; data: MessageUndeliverable })
-  | (EventBase & { type: "message.acked"; data: MessageAcked })
-  | (EventBase & { type: "message.dismissed"; data: MessageDismissed })
-  | (EventBase & { type: "message.expired"; data: MessageExpired })
-  | (EventBase & { type: "action"; data: ActionTaken })
-  | (EventBase & { type: "activity.ended"; data: ActivityEnded })
+  | { [K in keyof Events]: EventBase & { type: K; data: ReturnType<Events[K]> } }[keyof Events]
   | (EventBase & {
       type: "unknown";
       /** The event name as sent. */
@@ -135,48 +67,6 @@ type Wire = Record<string, unknown>;
 
 const s = (v: unknown): string => (typeof v === "string" ? v : v === undefined || v === null ? "" : String(v));
 const n = (v: unknown): number => (typeof v === "number" ? v : Number(v ?? 0));
-
-function undef<T extends Wire>(o: T): T {
-  for (const k of Object.keys(o)) if (o[k] === undefined) delete o[k];
-  return o;
-}
-
-function mapPayload(type: string, d: Wire): HanshoEvent["data"] | undefined {
-  switch (type) {
-    case "pairing.created":
-      return { pairingId: s(d.pairing_id), externalUserId: s(d.external_user_id), deviceName: s(d.device_name) };
-    case "pairing.revoked":
-      return { pairingId: s(d.pairing_id), externalUserId: s(d.external_user_id), by: s(d.by) };
-    case "message.delivered":
-      return { messageId: s(d.message_id), externalUserId: s(d.external_user_id), channel: s(d.channel), level: s(d.level) as Level, devices: n(d.devices) };
-    case "message.undeliverable":
-      return { messageId: s(d.message_id), externalUserId: s(d.external_user_id), channel: s(d.channel), reason: s(d.reason) };
-    case "message.acked":
-      return undef({
-        messageId: s(d.message_id),
-        externalUserId: s(d.external_user_id),
-        deviceId: s(d.device_id),
-        ackedBy: typeof d.acked_by === "string" ? d.acked_by : undefined,
-        ackedByName: typeof d.acked_by_name === "string" ? d.acked_by_name : undefined,
-      });
-    case "message.dismissed":
-      return { messageId: s(d.message_id), externalUserId: s(d.external_user_id), deviceId: s(d.device_id) };
-    case "message.expired":
-      return { messageId: s(d.message_id), externalUserId: s(d.external_user_id), channel: s(d.channel), attempts: n(d.attempts) };
-    case "action":
-      return undef({
-        messageId: s(d.message_id),
-        actionId: s(d.action_id),
-        deviceId: s(d.device_id),
-        externalUserId: s(d.external_user_id),
-        text: typeof d.text === "string" ? d.text : undefined,
-      });
-    case "activity.ended":
-      return { activityId: s(d.activity_id), externalUserId: s(d.external_user_id), channel: s(d.channel), reason: s(d.reason) };
-    default:
-      return undefined;
-  }
-}
 
 function parseHeader(header: unknown): { t: string; sigs: string[] } {
   if (typeof header !== "string" || header.trim() === "") throw new WebhookError("malformed_header", "missing signature header");
@@ -241,7 +131,6 @@ export function verifyWebhook(opts: VerifyWebhookOptions): HanshoEvent {
   if (typeof name !== "string" || name === "") throw new WebhookError("malformed_body", "body has no event");
   const base: EventBase = { id: s(env.id), createdAt: new Date(n(env.created_at) * 1000), raw };
   const data = (env.data && typeof env.data === "object" ? env.data : {}) as Wire;
-  const mapped = mapPayload(name, data);
-  if (mapped === undefined) return { ...base, type: "unknown", name, data: env.data };
-  return { ...base, type: name, data: mapped } as HanshoEvent;
+  if (!Object.hasOwn(EVENTS, name)) return { ...base, type: "unknown", name, data: env.data };
+  return { ...base, type: name, data: EVENTS[name as keyof Events](data) } as HanshoEvent;
 }

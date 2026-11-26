@@ -138,11 +138,7 @@ describe("send targets and results", () => {
         const res = await h.client.sendMessage({ externalUserIds: ["alice", "carol"], channel: "ops", title: "t", body: "b" });
         assert.deepEqual(body(h, 0), { external_user_ids: ["alice", "carol"], channel: "ops", title: "t", body: "b" });
         assert.deepEqual(res, {
-          messageId: "",
           level: "active",
-          devices: 0,
-          status: "",
-          deliveries: [],
           recipients: [
             { externalUserId: "alice", messageId: "msg_1", status: "queued", devices: 1, deliveries: [{ deviceId: "dev_1", status: "queued" }] },
             { externalUserId: "carol", status: RECIPIENT_NO_ACCESS },
@@ -165,7 +161,7 @@ describe("send targets and results", () => {
       },
       async (h) => {
         const res = await h.client.sendMessage({ externalUserId: "carol", channel: "ops", title: "t", body: "b" });
-        assert.equal(res.messageId, "");
+        assert.equal(res.messageId, undefined);
         assert.equal(res.status, RECIPIENT_NO_ACCESS);
         assert.equal(res.devices, 0);
         assert.deepEqual(res.recipients, [{ externalUserId: "carol", status: "no_access" }]);
