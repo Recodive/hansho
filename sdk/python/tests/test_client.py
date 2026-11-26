@@ -29,7 +29,7 @@ from hansho._retry import parse_retry_after
 from .helpers import TEST_KEY, Hub, Recorded, Reply
 
 CHANNEL = Channel("Ops", "active", "critical")
-MSG = Message("u", "c", "t", "b")
+MSG = Message(external_user_id="u", channel="c", title="t", body="b")
 
 
 class Basics(unittest.TestCase):
@@ -76,7 +76,7 @@ class Basics(unittest.TestCase):
 
     def test_zero_and_empty_are_sent_as_given(self) -> None:
         with Hub() as h:
-            h.client.send_message(Message("u", "c", "t", "", level="page", page=PageOptions(max_retries=0), data=0))
+            h.client.send_message(Message(external_user_id="u", channel="c", title="t", body="", level="page", page=PageOptions(max_retries=0), data=0))
             body = json.loads(h.requests[0].body)
             self.assertEqual(body["page"], {"max_retries": 0})
             self.assertEqual(body["body"], "")
@@ -84,14 +84,14 @@ class Basics(unittest.TestCase):
 
     def test_non_ascii_body_is_utf8(self) -> None:
         with Hub() as h:
-            h.client.send_message(Message("u", "c", "Täst 日本", "b"))
+            h.client.send_message(Message(external_user_id="u", channel="c", title="Täst 日本", body="b"))
             self.assertIn("Täst 日本".encode("utf-8"), h.requests[0].body)
 
     def test_unserialisable_data_fails_before_sending(self) -> None:
         with Hub() as h:
             for bad in (object(), float("nan")):
                 with self.assertRaises((TypeError, ValueError)):
-                    h.client.send_message(Message("u", "c", "t", "b", data=bad))
+                    h.client.send_message(Message(external_user_id="u", channel="c", title="t", body="b", data=bad))
             self.assertEqual(h.requests, [])
 
     def test_sound_over_1mb_is_refused_before_sending(self) -> None:
@@ -277,7 +277,7 @@ class Retries(unittest.TestCase):
                 reply.status, reply.body = 202, '{"message_id":"m1","status":"queued"}'
 
         with Hub(serve) as h:
-            res = h.client.send_message(Message("u", "c", "t", "b", idempotency_key="order-7"))
+            res = h.client.send_message(Message(external_user_id="u", channel="c", title="t", body="b", idempotency_key="order-7"))
             self.assertEqual(res.message_id, "m1")
             self.assertEqual(len(h.requests), 2)
             for r in h.requests:
@@ -402,8 +402,8 @@ class PathEscaping(unittest.TestCase):
 
     def test_page_ack_option_is_sent_only_when_set(self) -> None:
         with Hub() as h:
-            h.client.send_message(Message("u", "c", "t", "b", level="page", page=PageOptions(max_retries=1)))
-            h.client.send_message(Message("u", "c", "t", "b", level="page", page=PageOptions(ack="each")))
+            h.client.send_message(Message(external_user_id="u", channel="c", title="t", body="b", level="page", page=PageOptions(max_retries=1)))
+            h.client.send_message(Message(external_user_id="u", channel="c", title="t", body="b", level="page", page=PageOptions(ack="each")))
             self.assertEqual(json.loads(h.requests[0].body)["page"], {"max_retries": 1})
             self.assertEqual(json.loads(h.requests[1].body)["page"], {"ack": "each"})
 
@@ -508,7 +508,7 @@ class NetworkErrors(unittest.TestCase):
 
         with Hub(serve) as h:
             with self.assertRaises(HanshoError) as cm:
-                h.client.send_message(Message("u", "c", "SECRET-TITLE", "SECRET-BODY"))
+                h.client.send_message(Message(external_user_id="u", channel="c", title="SECRET-TITLE", body="SECRET-BODY"))
             self.assertEqual(str(cm.exception), "hansho: POST /api/v1/messages: 400 invalid_request (field title)")
             self.assertEqual(cm.exception.detail, "required")
 
@@ -541,7 +541,7 @@ class InjectedTransport(unittest.TestCase):
             return TransportResponse(202, {"Content-Type": "application/json"}, b'{"message_id":"m","level":"page","devices":1,"status":"queued"}')
 
         c = Hansho("http://hub.test/", TEST_KEY, transport=transport, timeout=None)
-        res = c.send_message(Message("u", "c", "t", "b", idempotency_key="k"))
+        res = c.send_message(Message(external_user_id="u", channel="c", title="t", body="b", idempotency_key="k"))
         self.assertEqual((res.message_id, res.devices), ("m", 1))
         r = seen[0]
         self.assertEqual((r.method, r.url, r.timeout), ("POST", "http://hub.test/api/v1/messages", None))

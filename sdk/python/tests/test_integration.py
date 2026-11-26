@@ -145,7 +145,7 @@ class IntegrationAgainstTheRealHub(unittest.TestCase):
             # errors
             self.api_error(lambda: Hansho(hub_url, "ck_not_a_key").create_pairing_ticket("x"), 401, "unauthorized")
             self.api_error(lambda: c.get_channel("no-such-channel"), 404, "unknown_channel")
-            self.api_error(lambda: c.send_message(Message(user, ch, "", "b")), 400, "invalid_request", "title")
+            self.api_error(lambda: c.send_message(Message(external_user_id=user, channel=ch, title="", body="b")), 400, "invalid_request", "title")
 
             # catalog
             sound = c.put_sound(snd, "audio/wav", tiny_wav())
@@ -210,7 +210,7 @@ class IntegrationAgainstTheRealHub(unittest.TestCase):
                     "message.delivered",
                     lambda e, res=res, level=level: e.data.message_id == res.message_id and e.data.level == level and e.data.devices == 1,
                 )
-            default = c.send_message(Message(user, ch, "Default", "b"))
+            default = c.send_message(Message(external_user_id=user, channel=ch, title="Default", body="b"))
             self.assertEqual(default.level, "active")
 
             # page + acknowledgement from the (fake) device
@@ -257,7 +257,7 @@ class IntegrationAgainstTheRealHub(unittest.TestCase):
             # unpair, then nobody is left to deliver to
             c.unpair(user)
             rx.wait("pairing.revoked", lambda e: e.data.external_user_id == user and e.data.by == "sender")
-            none = c.send_message(Message(user, ch, "Anyone?", "b"))
+            none = c.send_message(Message(external_user_id=user, channel=ch, title="Anyone?", body="b"))
             self.assertEqual(none.devices, 0)
             wait_status(c, none.message_id, "undeliverable")
             rx.wait("message.undeliverable", lambda e: e.data.message_id == none.message_id)

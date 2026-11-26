@@ -94,10 +94,10 @@ for r in res.recipients:
 ```
 
 `Message` takes exactly one of `external_user_id`, `external_user_ids` (at most 1000) and `to_audience`. The
-answer has one `Recipient` per user in `res.recipients` (`message_id` is `None` for `"no_access"`). For
-`external_user_id` the top-level fields describe that one recipient (`message_id is None`, `status == "no_access"`
+answer has one `Recipient` per user in `res.recipients` (`message_id` is `""` for `"no_access"`). For
+`external_user_id` the top-level fields describe that one recipient (`message_id == ""`, `status == "no_access"`
 and `devices == 0` without access); for several users or an audience `message_id` and `status` are `None`,
-`devices` is 0 and `deliveries` is empty; each message is under `recipients`.
+`devices` is `None` and `deliveries` is empty; each message is under `recipients`.
 
 Error codes: `CODE_NO_ACCESS` (403, `start_activity` for a user outside the channel's audience) and
 `CODE_UNKNOWN_GROUP` (404), compared against `HanshoError.code`.

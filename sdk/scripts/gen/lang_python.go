@@ -78,26 +78,11 @@ func pyType(t *TypeRef) string {
 	panic("python: no type for " + t.Kind)
 }
 
-// pyLead keeps a type's positional arguments as they have always been: Message(external_user_id, channel, title, body, ...).
-// A required field that follows an optional one gets an empty default, as Python wants.
-var pyLead = map[string][]string{"Message": {"external_user_id", "channel", "title", "body", "level", "subtitle", "image_url", "template_id", "data",
-	"sound", "actions", "collapse_id", "page", "idempotency_key"}}
-
-// pyFields orders a dataclass's fields: the lead ones, then the required ones (Python wants fields without a default
-// first), then the optional ones, then the ones only the hub sets, each group in spec order.
+// pyFields orders a dataclass's fields: the required ones first (Python wants fields without a default first), then
+// the optional ones, then the ones only the hub sets, each group in spec order.
 func pyFields(t *Type) []*Field {
-	var lead, req, opt, ro []*Field
-	for _, n := range pyLead[t.Name] {
-		for _, f := range t.Fields {
-			if f.Wire == n {
-				lead = append(lead, f)
-			}
-		}
-	}
+	var req, opt, ro []*Field
 	for _, f := range t.Fields {
-		if slices.Contains(lead, f) {
-			continue
-		}
 		switch {
 		case f.Required:
 			req = append(req, f)
@@ -107,86 +92,21 @@ func pyFields(t *Type) []*Field {
 			opt = append(opt, f)
 		}
 	}
-	return slices.Concat(lead, req, opt, ro)
+	return slices.Concat(req, opt, ro)
 }
 
 // pyLine is a field's declaration: an optional list defaults to an empty one, any other optional field to None.
-func pyLine(s *Spec, t *Type, f *Field) string {
+func pyLine(f *Field) string {
 	n, ty := pyName(f), pyType(f.T)
 	switch {
-	case f.Required && pyAfterOptional(t, f):
-		if f.T.Kind != "string" {
-			panic("python: no default for required " + n)
-		}
-		return n + ": " + ty + ` = ""`
 	case f.Required:
 		return n + ": " + ty
 	case f.T.Kind == "array":
 		return n + ": " + ty + " = field(default_factory=list)"
 	case f.T.Kind == "any":
 		return n + ": Any = None"
-	case pyZeroInt(s, t, f):
-		return n + ": int = 0"
 	}
 	return n + ": Optional[" + ty + "] = None"
-}
-
-// pyRequests names the types the SDK sends: the request bodies and everything they contain. Every other type only
-// comes back in answers and webhooks.
-func pyRequests(s *Spec) map[string]bool {
-	byName := map[string]*Type{}
-	for _, t := range s.Types {
-		byName[t.Name] = t
-	}
-	out := map[string]bool{}
-	var add func(name string)
-	add = func(name string) {
-		t := byName[name]
-		if t == nil || out[name] {
-			return
-		}
-		out[name] = true
-		for _, f := range t.Fields {
-			r := f.T
-			if r.Kind == "array" {
-				r = r.Elem
-			}
-			if r.Kind == "object" {
-				add(r.Ref)
-			}
-		}
-	}
-	for _, o := range s.Ops {
-		if o.BodyRef != "" {
-			add(o.BodyRef)
-		}
-	}
-	return out
-}
-
-// pyLoose is the reading of an optional field of a type that only comes back in answers: an integer the hub leaves
-// out is 0 and an empty string is None, as the SDK has always read them. A field that is also sent keeps what it is
-// given, so that 0 and "" can be sent. Integers restricted to a few values (a priority) have no 0 and stay None.
-func pyLoose(s *Spec, t *Type, f *Field) bool {
-	return !f.Required && !pyRequests(s)[t.Name]
-}
-
-func pyZeroInt(s *Spec, t *Type, f *Field) bool {
-	return pyLoose(s, t, f) && (f.T.Kind == "int" || f.T.Kind == "int64") && len(f.T.Values) == 0
-}
-
-// pyAfterOptional: f is a required field placed after one with a default.
-func pyAfterOptional(t *Type, f *Field) bool {
-	seen := false
-	for _, o := range pyFields(t) {
-		if o == f {
-			return seen
-		}
-		if !o.Required {
-			seen = true
-		}
-	}
-	return false
 }
 
 // pyScalar names the helper in _wire.py that reads one value of kind t from an answer.
@@ -224,7 +144,7 @@ func pyReader(t *TypeRef) string {
 }
 
 // pyFrom reads the wire value of f from the dict w.
-func pyFrom(s *Spec, t *Type, f *Field) string {
+func pyFrom(f *Field) string {
 	e := fmt.Sprintf("w.get(%q)", f.Wire)
 	switch f.T.Kind {
 	case "any":
@@ -240,14 +160,11 @@ func pyFrom(s *Spec, t *Type, f *Field) string {
 		}
 		return "_list(" + e + ", " + pyReader(f.T.Elem) + ")"
 	}
-	if pyLoose(s, t, f) && f.T.Kind == "string" {
-		return "_opt_s(" + e + ") or None"
-	}
-	return pyScalar(f.T, f.Required || pyZeroInt(s, t, f)) + "(" + e + ")"
+	return pyScalar(f.T, f.Required) + "(" + e + ")"
 }
 
 // pyTo turns the attribute of f on v into its wire value; None is dropped later.
-func pyTo(s *Spec, t *Type, f *Field) string {
+func pyTo(f *Field) string {
 	e := "v." + pyName(f)
 	switch f.T.Kind {
 	case "time":
@@ -266,9 +183,6 @@ func pyTo(s *Spec, t *Type, f *Field) string {
 			return "_arr(" + e + ", " + fn + ", True)"
 		}
 		return "_arr(" + e + ", " + fn + ")"
-	}
-	if pyZeroInt(s, t, f) {
-		return e + " or None"
 	}
 	return e
 }
