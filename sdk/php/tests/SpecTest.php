@@ -19,6 +19,7 @@ use Recodive\Hansho\Delivery;
 use Recodive\Hansho\Exception\ApiException;
 use Recodive\Hansho\Feed;
 use Recodive\Hansho\FeedResult;
+use Recodive\Hansho\FeedSettings;
 use Recodive\Hansho\Group;
 use Recodive\Hansho\Hansho;
 use Recodive\Hansho\Level;
@@ -28,21 +29,26 @@ use Recodive\Hansho\MessageStatus;
 use Recodive\Hansho\PageOptions;
 use Recodive\Hansho\PairingTicket;
 use Recodive\Hansho\Recipient;
+use Recodive\Hansho\Sound;
 use Recodive\Hansho\SoundResult;
+use Recodive\Hansho\Spec;
+use Recodive\Hansho\Template;
 
-/** Every operation and error of the shared sdk/spec/api.json. */
+/** Every operation and error of the shared contract (sdk/spec/openapi.json, "x-conformance"). */
 final class SpecTest extends TestCase
 {
     /** @return array<string,mixed> */
     private static function spec(): array
     {
-        return json_decode((string) file_get_contents(__DIR__ . '/../../spec/api.json'), true, 512, JSON_THROW_ON_ERROR);
+        $doc = json_decode((string) file_get_contents(__DIR__ . '/../../spec/openapi.json'), true, 512, JSON_THROW_ON_ERROR);
+
+        return $doc['x-conformance'];
     }
 
     /** @return array<string,array{Closure(Hansho): mixed, mixed}> */
     private static function calls(): array
     {
-        $ack = [new Action('ack', 'Acknowledge', true), new Action('reply', 'Reply', kind: 'text')];
+        $ack = [new Action('ack', 'Acknowledge', true), new Action('reply', 'Reply', kind: 'text'), new Action('runbook', 'Runbook', kind: 'url', url: 'https://example.com/runbook')];
         $only = new Audience(AudienceMode::Only, ['alice'], ['oncall']);
 
         return [
@@ -54,7 +60,7 @@ final class SpecTest extends TestCase
             'clearUserDisplayName' => [fn (Hansho $c) => $c->setUserDisplayName('user 42', ''), null],
             'unpair' => [fn (Hansho $c) => $c->unpair('user-42'), null],
             'putChannel' => [fn (Hansho $c) => $c->putChannel('ops', new Channel('Operations', Level::Active, Level::Critical, 'ding', 'status', 'ops-thread', $ack)), null],
-            'getChannel' => [fn (Hansho $c) => $c->getChannel('ops'), new Channel('Operations', 'active', 'critical', '', '', 'ops', [])],
+            'getChannel' => [fn (Hansho $c) => $c->getChannel('ops'), new Channel('Operations', 'active', 'critical', '', '', 'ops', [], id: 'ops')],
             'deleteChannel' => [fn (Hansho $c) => $c->deleteChannel('ops'), null],
             'putTemplate' => [fn (Hansho $c) => $c->putTemplate('status', 2, ['type' => 'vstack', 'children' => [['type' => 'text', 'style' => 'headline', 'text' => '{{title}}']]]), null],
             'putSound' => [fn (Hansho $c) => $c->putSound('ding', 'audio/wav', (string) base64_decode('UklGRgAAAABXQVZF', true)), new SoundResult('ding', 'ding.wav', '00', 12)],
@@ -71,7 +77,7 @@ final class SpecTest extends TestCase
                 sound: 'ding',
                 actions: [new Action('ack', 'Ack', true)],
                 collapseId: 'disk-db-1',
-            )), new MessageResult('msg_1', 'time-sensitive', 2, 'queued', [new Delivery('dev_1', 'queued'), new Delivery('dev_2', 'queued')])],
+            )), new MessageResult('time-sensitive', 'msg_1', 2, 'queued', [new Delivery('dev_1', 'queued'), new Delivery('dev_2', 'queued')])],
             'sendPage' => [fn (Hansho $c) => $c->sendMessage(new Message(
                 externalUserId: 'user-42',
                 channel: 'ops',
@@ -79,7 +85,7 @@ final class SpecTest extends TestCase
                 body: 'Failover did not complete',
                 level: Level::Page,
                 page: new PageOptions(60, 3),
-            )), new MessageResult('msg_2', 'page', 1, 'queued', [new Delivery('dev_1', 'queued')])],
+            )), new MessageResult('page', 'msg_2', 1, 'queued', [new Delivery('dev_1', 'queued')])],
             'sendPageEach' => [fn (Hansho $c) => $c->sendMessage(new Message(
                 null,
                 externalUserIds: ['alice', 'bob'],
@@ -88,7 +94,7 @@ final class SpecTest extends TestCase
                 body: 'Failover did not complete',
                 level: Level::Page,
                 page: new PageOptions(60, 3, 'each'),
-            )), new MessageResult('', 'page', 0, '', [], [
+            )), new MessageResult('page', recipients: [
                 new Recipient('alice', 'queued', 'msg_3', 1, [new Delivery('dev_1', 'queued')]),
                 new Recipient('bob', 'queued', 'msg_4', 1, [new Delivery('dev_2', 'queued')]),
             ])],
@@ -105,9 +111,19 @@ final class SpecTest extends TestCase
             'deleteGroup' => [fn (Hansho $c) => $c->deleteGroup('oncall'), null],
             'kick' => [fn (Hansho $c) => $c->kick('user-42'), null],
             'putChannelWithAudience' => [fn (Hansho $c) => $c->putChannel('ops', new Channel('Operations', Level::Active, Level::Critical, audience: $only)), null],
+            'listChannels' => [fn (Hansho $c) => $c->listChannels(), [new Channel('Operations', 'active', 'critical', '', '', 'ops', [], new Audience('everyone'), 'ops')]],
+            'listTemplates' => [fn (Hansho $c) => $c->listTemplates(), [new Template('status', 2, ['type' => 'text', 'text' => '{{title}}'])]],
+            'getTemplate' => [fn (Hansho $c) => $c->getTemplate('status'), new Template('status', 2, ['type' => 'text', 'text' => '{{title}}'])],
+            'deleteTemplate' => [fn (Hansho $c) => $c->deleteTemplate('status'), null],
+            'listSounds' => [fn (Hansho $c) => $c->listSounds(), [new Sound('ding', 'audio/wav', 12, '00')]],
+            'getSound' => [fn (Hansho $c) => $c->getSound('ding'), new Sound('ding', 'audio/wav', 12, '00')],
+            'deleteSound' => [fn (Hansho $c) => $c->deleteSound('ding'), null],
+            'listGroups' => [fn (Hansho $c) => $c->listGroups(), [new Group('oncall', ['alice', 'bob'])]],
+            'getFeed' => [fn (Hansho $c) => $c->getFeed('uptime', 'user-42'),
+                new FeedSettings('uptime', 'status', 1762603200, 'user-42', 'Uptime', 'ops', new Audience('only', ['alice']))],
             'putFeedWithChannel' => [fn (Hansho $c) => $c->putFeed('uptime', new Feed('status', ['up' => true], channel: 'ops', audience: $only)), new FeedResult('uptime', 1)],
             'sendToAudience' => [fn (Hansho $c) => $c->sendMessage(new Message(null, 'ops', 'Deploy done', 'v1.2.3 is live', toAudience: true)),
-                new MessageResult('', 'active', 0, '', [], [
+                new MessageResult('active', recipients: [
                     new Recipient('alice', 'queued', 'msg_7', 1, [new Delivery('dev_1', 'queued')]),
                     new Recipient('carol', Recipient::NO_ACCESS),
                 ])],
@@ -150,6 +166,33 @@ final class SpecTest extends TestCase
             $this->assertSame($op['request']['content_type'], $r['headers']['content-type']);
             $this->assertEquals($op['request']['body'], json_decode((string) $r['body'], true, 512, JSON_THROW_ON_ERROR));
         }
+    }
+
+    public function testClientHasAMethodForEverySpecOperation(): void
+    {
+        $have = array_map(static fn (\ReflectionMethod $m) => $m->getName(), (new \ReflectionClass(Hansho::class))->getMethods(\ReflectionMethod::IS_PUBLIC));
+        $missing = array_values(array_diff(Spec::OPERATIONS, $have));
+        $this->assertSame([], $missing, 'the client has no method for the spec operations: ' . implode(', ', $missing));
+    }
+
+    public function testDecodingNeverThrowsOnWhatItDoesNotKnow(): void
+    {
+        [$client] = FakeTransport::client(fn () => FakeTransport::reply(200, [
+            'id' => 'ops', 'name' => 'Ops', 'default_level' => 'ultra', 'max_level' => 'page', 'from_the_future' => ['x' => 1],
+            'audience' => ['mode' => 'sometimes'],
+        ]));
+
+        $ch = $client->getChannel('ops');
+
+        $this->assertSame('ultra', $ch->defaultLevel);
+        $this->assertSame('sometimes', $ch->audience?->mode);
+    }
+
+    public function testVersionIsTheSpecVersion(): void
+    {
+        $doc = json_decode((string) file_get_contents(__DIR__ . '/../../spec/openapi.json'), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame($doc['info']['version'], Spec::VERSION);
+        $this->assertSame(Spec::VERSION, Hansho::VERSION);
     }
 
     public function testCoversEverySdkCall(): void

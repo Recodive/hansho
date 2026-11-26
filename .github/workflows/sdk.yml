@@ -150,7 +150,7 @@ jobs:
         # No committed lock: 8.1 resolves PHPUnit 10, 8.4 PHPUnit 11.
         run: composer update --no-interaction --no-progress
       - name: lint
-        run: find sdk/php/src sdk/php/tests sdk/examples/php -name '*.php' -not -path '*/vendor/*' -print0 | xargs -0 -n1 php -l
+        run: find sdk/php/src sdk/php/generated sdk/php/tests sdk/examples/php -name '*.php' -not -path '*/vendor/*' -print0 | xargs -0 -n1 php -l
       - name: test
         working-directory: sdk/php
         run: vendor/bin/phpunit --testsuite unit
