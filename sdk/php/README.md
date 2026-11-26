@@ -7,8 +7,8 @@ PHP client for a Hansho hub. PHP 8.1 or newer, no runtime dependencies beyond
 composer require recodive/hansho
 ```
 
-See [../README.md](../README.md) for the model shared with the other SDKs.
-Licence: MIT (see [../LICENSE](../LICENSE)). The hub itself is AGPL-3.0.
+See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) for the model shared with the other SDKs.
+Licence: MIT (see [../LICENSE](https://github.com/Recodive/hansho/blob/main/sdk/LICENSE)). The hub itself is AGPL-3.0.
 
 ## Quick start
 
@@ -35,7 +35,9 @@ and `sleep` (replaces the retry wait; for tests).
 
 Levels are the `Level` enum (`Passive`, `Active`, `TimeSensitive`, `Critical`,
 `Page`); the matching strings (`'page'`) work too. Requests and results are small
-immutable classes with camelCase properties. `data` and template bodies are sent
+immutable classes with camelCase properties; they are generated from the shared spec (`generated/types.php`, do not edit).
+An enum-typed property accepts the enum or its string (`Level::Page` or `'page'`), and what the hub answers stays a string,
+so a value a newer hub adds does not break you; unknown fields in an answer are ignored. `data` and template bodies are sent
 exactly as given (keys are never renamed); use `new stdClass()` for an empty JSON
 object, since an empty PHP array encodes as `[]`.
 
@@ -51,6 +53,16 @@ $hansho->unpair('user-42'); // revokes every pairing of the user
 $hansho->kick('user-42');   // the same call; the app tells the person that you ended it
 ```
 
+## Users
+
+```php
+// What other people see for the user instead of their id (any language, max 40 characters).
+$hansho->setUserDisplayName('user-42', 'Ada Lovelace');
+$hansho->setUserDisplayName('user-42', '');  // clears it
+// Or give it with the pairing ticket:
+$ticket = $hansho->createPairingTicket('user-42', displayName: 'Ada Lovelace');
+```
+
 ## Audiences and groups
 
 A channel or feed is open to everyone unless it has an `Audience`: `AudienceMode::Only` the listed users and groups, or
@@ -60,9 +72,11 @@ keep on the hub. The hub decides who has access and checks it on every request, 
 ```php
 use Recodive\Hansho\{Audience, AudienceMode, Channel, Feed, Level, Message, Recipient};
 
-$hansho->putGroup('oncall', ['alice', 'bob']); // replaces the whole member list; also getGroup, deleteGroup
+$hansho->putGroup('oncall', ['alice', 'bob']); // replaces the whole member list; also getGroup, deleteGroup, listGroups
 $hansho->putChannel('pager', new Channel('Pager', Level::Page, Level::Page,
     audience: new Audience(AudienceMode::Only, groups: ['oncall'])));
+// Action buttons: `new Action('ack', 'Acknowledge', ack: true)`, `new Action('reply', 'Reply', kind: 'text')`,
+// `new Action('runbook', 'Runbook', kind: 'url', url: 'https://example.com/runbook')`.
 // A null audience keeps the audience stored on the hub; new Audience(AudienceMode::Everyone) opens the channel up again.
 
 // A feed uses its channel's audience unless it sets its own. Leaving both out keeps what is stored; naming a channel
@@ -88,7 +102,7 @@ that names a group that does not exist is refused with `400 invalid_request`. Er
 ## Sending
 
 ```php
-use Recodive\Hansho\{Action, Activity, ActivityAlert, ActivityUpdate, Feed, PageOptions};
+use Recodive\Hansho\{Action, Activity, ActivityAlert, ActivityUpdate, Feed, PageAck, PageOptions};
 
 // A notification. The level defaults to the channel's default and is capped at its max.
 $hansho->sendMessage(new Message(
@@ -107,6 +121,11 @@ $page = $hansho->sendMessage(new Message(
 ));
 $status = $hansho->getMessage($page->messageId); // queued, delivered, undeliverable, paging, acked, expired
 // $status->status, ->attempts, ->deliveries, ->ackedAt (DateTimeImmutable|null)
+// ->ackedBy is who acknowledged (external user id), ->ackedByName their display name; both null when unknown.
+
+// A page to several people stops for everyone at the first acknowledgement (ack: 'any', the default).
+// ack: 'each' keeps paging each person until they acknowledge for themselves.
+new PageOptions(intervalSeconds: 60, ack: PageAck::Each); // or 'each'
 
 // A templated message.
 $hansho->putTemplate('status', 1, ['type' => 'vstack', 'children' => [['type' => 'text', 'style' => 'headline', 'text' => '{{title}}']]]);
@@ -124,8 +143,19 @@ $hansho->putFeed('uptime', new Feed('status', ['title' => 'up'], externalUserId:
 $hansho->putSound('ding', 'audio/wav', file_get_contents('ding.wav'));
 ```
 
-Channels: `putChannel`, `getChannel`, `deleteChannel`. Ids may contain any
-characters except `.` and `..`: they are path-escaped.
+## Catalog
+
+```php
+$hansho->listChannels();            // list<Channel>; a Channel read from the hub carries its `id`
+$hansho->putChannel('ops', $ch);    // also getChannel, deleteChannel
+$hansho->listTemplates();           // list<Template> (id, version, body), latest versions
+$hansho->getTemplate('status');     // also putTemplate, deleteTemplate ('in_use' while a channel names it)
+$hansho->listSounds();              // list<Sound> (id, contentType, bytes, sha256)
+$hansho->getSound('ding');          // also putSound, deleteSound ('in_use' while a channel names it)
+$hansho->listGroups();              // list<Group>
+```
+
+Ids may contain any characters except `.` and `..`: they are path-escaped.
 
 ## Webhooks
 
@@ -144,7 +174,7 @@ try {
         body: file_get_contents('php://input'),
     );
     switch ($event->type) {
-        case 'message.acked': error_log('acknowledged: ' . $event->data['messageId']); break;
+        case 'message.acked': error_log('acknowledged: ' . $event->data['messageId'] . ' by ' . ($event->data['ackedBy'] ?? '?')); break;
         case 'action': error_log('button ' . $event->data['actionId'] . ' on ' . $event->data['messageId']); break;
         case 'unknown': error_log('newer hub event: ' . $event->name); break;
     }
@@ -164,7 +194,7 @@ changes it; `now` is injectable, both in seconds). `WebhookException::$reason` i
 late), `malformed_body`, `invalid_body`, `invalid_secret`. Events:
 `pairing.created`, `pairing.revoked`, `message.delivered`,
 `message.undeliverable`, `message.acked`, `message.dismissed`, `message.expired`,
-`action`, `activity.ended`, with camelCase keys in `$event->data`; anything else is
+`action`, `activity.ended`, with camelCase keys in `$event->data` (only the fields the hub sent; the payload types are generated, see `Spec::EVENTS`); anything else is
 `type 'unknown'` with the event name in `$event->name` and the parsed payload in
 `$event->data`. `$event->raw` is the verified body.
 
@@ -200,7 +230,7 @@ updates (`PATCH`) are not retried. The retry wait blocks the PHP process.
 ## Tests
 
     composer install
-    vendor/bin/phpunit                         # unit tests (loads ../spec/*.json)
+    vendor/bin/phpunit                         # unit tests (loads ../spec/openapi.json and webhook-vectors.json)
     ../scripts/run-integration.sh              # also runs the integration suite against the real hub
 
 The integration suite (`--testsuite integration`) is skipped unless

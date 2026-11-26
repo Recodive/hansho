@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -349,5 +350,76 @@ func TestSyncReturnsOnlyLiveChannels(t *testing.T) {
 	}
 	if w := e.do("GET", "/device/v1/sounds/ding", nil, nil); w.Code != 401 {
 		t.Fatalf("unauthenticated download: %d", w.Code)
+	}
+}
+
+func TestCatalogReadAndDelete(t *testing.T) {
+	e := newEnv(t)
+	for _, p := range []string{"templates", "sounds", "channels", "groups"} {
+		w := e.api("GET", "/api/v1/"+p, nil)
+		if w.Code != 200 || strings.TrimSpace(w.Body.String()) != "[]" {
+			t.Fatalf("empty %s list: %d %s", p, w.Code, w.Body)
+		}
+		if w := e.do("GET", "/api/v1/"+p, nil, nil); w.Code != 401 {
+			t.Fatalf("unauthenticated %s list: %d", p, w.Code)
+		}
+	}
+	for _, p := range []string{"templates", "sounds"} {
+		if w := e.api("GET", "/api/v1/"+p+"/x", nil); w.Code != 404 || errCode(t, w) != "unknown_"+strings.TrimSuffix(p, "s") {
+			t.Fatalf("get unknown %s: %d %s", p, w.Code, w.Body)
+		}
+		if w := e.api("DELETE", "/api/v1/"+p+"/x", nil); w.Code != 404 {
+			t.Fatalf("delete unknown %s: %d", p, w.Code)
+		}
+	}
+	e.api("PUT", "/api/v1/templates/t1", map[string]any{"version": 3, "body": json.RawMessage(goodTemplate)})
+	wav := wavBytes(2)
+	if r := e.putSound("ding", "audio/wav", wav); r.Code != 200 {
+		t.Fatal(r.Code, r.Body)
+	}
+	e.api("PUT", "/api/v1/groups/oncall", map[string]any{"members": []string{"bob", "alice"}})
+	m := okChannel()
+	m["template_id"], m["sound"] = "t1", "ding"
+	putChannel(e, "ops", m)
+
+	sum := sha256.Sum256(wav)
+	tpl := decode[map[string]any](t, e.api("GET", "/api/v1/templates/t1", nil))
+	if tpl["id"] != "t1" || tpl["version"] != float64(3) || tpl["body"].(map[string]any)["type"] != "vstack" {
+		t.Fatalf("template %v", tpl)
+	}
+	wantSnd := map[string]any{"id": "ding", "content_type": "audio/wav", "bytes": float64(len(wav)), "sha256": hex.EncodeToString(sum[:])}
+	if got := decode[map[string]any](t, e.api("GET", "/api/v1/sounds/ding", nil)); !reflect.DeepEqual(got, wantSnd) {
+		t.Fatalf("sound %v", got)
+	}
+	if got := decode[[]map[string]any](t, e.api("GET", "/api/v1/sounds", nil)); len(got) != 1 || !reflect.DeepEqual(got[0], wantSnd) {
+		t.Fatalf("sound list %v", got)
+	}
+	if got := decode[[]map[string]any](t, e.api("GET", "/api/v1/templates", nil)); len(got) != 1 || got[0]["id"] != "t1" {
+		t.Fatalf("template list %v", got)
+	}
+	if got := decode[[]map[string]any](t, e.api("GET", "/api/v1/channels", nil)); len(got) != 1 || got[0]["id"] != "ops" {
+		t.Fatalf("channel list %v", got)
+	}
+	if got := decode[[]map[string]any](t, e.api("GET", "/api/v1/groups", nil)); len(got) != 1 || got[0]["id"] != "oncall" || !reflect.DeepEqual(got[0]["members"], []any{"alice", "bob"}) {
+		t.Fatalf("group list %v", got)
+	}
+
+	// A live channel holds both back.
+	for _, p := range []string{"templates/t1", "sounds/ding"} {
+		if w := e.api("DELETE", "/api/v1/"+p, nil); w.Code != 409 || errCode(t, w) != "in_use" {
+			t.Fatalf("delete %s in use: %d %s", p, w.Code, w.Body)
+		}
+	}
+	e.api("DELETE", "/api/v1/channels/ops", nil)
+	for _, p := range []string{"templates/t1", "sounds/ding"} {
+		if w := e.api("DELETE", "/api/v1/"+p, nil); w.Code != 204 {
+			t.Fatalf("delete %s: %d %s", p, w.Code, w.Body)
+		}
+		if w := e.api("GET", "/api/v1/"+p, nil); w.Code != 404 {
+			t.Fatalf("get deleted %s: %d", p, w.Code)
+		}
+		if w := e.api("DELETE", "/api/v1/"+p, nil); w.Code != 404 {
+			t.Fatalf("delete %s twice: %d", p, w.Code)
+		}
 	}
 }

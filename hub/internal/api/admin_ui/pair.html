@@ -1,0 +1,14 @@
+{{define "content"}}
+<h1>Pair a person</h1>
+<p class="lead">Type the person's name. The hub makes a pair code that works once and only for {{.Hub}}. The person then scans it with the Hansho app.</p>
+{{with .Data.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<form method="post" action="/admin/pair" class="stack">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<div class="field">
+<label for="name">Name</label>
+<p class="hint" id="name-hint">This is how you find the person later, for example a name or an email address. Your own software uses the same name to send them messages.</p>
+<input id="name" name="name" type="text" value="{{.Data.Name}}" maxlength="256" required autocomplete="off" aria-describedby="name-hint">
+</div>
+<div><button class="btn">Make pair code</button></div>
+</form>
+{{end}}

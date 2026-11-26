@@ -105,6 +105,19 @@ func (w *Worker) processPage(ctx context.Context, m store.Message) error {
 // keep ringing on the device.
 const maxCancelTitleRunes = 100
 
+// cancelBody is the text of the cancel banner. When another recipient of the same send acknowledged the page it says so,
+// by display name, or generically when they have none: an external user id is never shown to other recipients.
+func cancelBody(title string, m store.Message) string {
+	body := title + " was acknowledged"
+	if m.AckedBy == "" || m.AckedBy == m.ExternalUserID {
+		return body
+	}
+	if m.AckedByName != "" {
+		return body + " by " + m.AckedByName
+	}
+	return body + " by another recipient"
+}
+
 // CancelPage tells every active device of the message's user that the page
 // was acknowledged. It is an alert push (a silent background push cannot wake a
 // force-quit app) collapsed onto the page banner; its encrypted plaintext tells
@@ -129,8 +142,9 @@ func (w *Worker) CancelPage(ctx context.Context, m store.Message) (int, error) {
 			}
 		}
 	}
+	body := cancelBody(title, m)
 	plaintext, err := json.Marshal(Plaintext{
-		Cancel: m.ID, Title: "Acknowledged", Body: title + " was acknowledged", Channel: m.ChannelID, Level: level.Passive,
+		Cancel: m.ID, Title: "Acknowledged", Body: body, Channel: m.ChannelID, Level: level.Passive,
 	})
 	if err != nil {
 		return 0, err

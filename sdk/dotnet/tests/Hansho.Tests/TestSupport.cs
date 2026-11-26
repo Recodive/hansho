@@ -163,7 +163,7 @@ internal sealed class SilentServer : IDisposable
     }
 }
 
-internal sealed record SpecOp(string Name, string Method, string Path, JsonElement Request, int ResponseStatus, JsonElement ResponseBody);
+internal sealed record SpecOp(string Name, string Operation, string Method, string Path, JsonElement Request, int ResponseStatus, JsonElement ResponseBody);
 
 internal sealed record SpecError(int Status, Dictionary<string, string> Headers, JsonElement Body, string? Raw, string Code, string Field, long RetryAfterMs);
 
@@ -187,11 +187,15 @@ internal static class Spec
     public static IReadOnlyList<SpecOp> Operations { get; } = LoadOperations();
     public static IReadOnlyList<SpecError> Errors { get; } = LoadErrors();
 
+    /// <summary>The requests every SDK must produce and the answers the hub gives: "x-conformance" of the OpenAPI document.</summary>
+    private static JsonElement Conformance() => Load("openapi.json").RootElement.GetProperty("x-conformance").Clone();
+
     private static List<SpecOp> LoadOperations()
     {
-        var root = Load("api.json").RootElement;
+        var root = Conformance();
         return root.GetProperty("operations").EnumerateArray().Select(o => new SpecOp(
             o.GetProperty("name").GetString()!,
+            o.GetProperty("operation").GetString()!,
             o.GetProperty("method").GetString()!,
             o.GetProperty("path").GetString()!,
             o.GetProperty("request"),
@@ -201,7 +205,7 @@ internal static class Spec
 
     private static List<SpecError> LoadErrors()
     {
-        var root = Load("api.json").RootElement;
+        var root = Conformance();
         return root.GetProperty("errors").EnumerateArray().Select(e => new SpecError(
             e.GetProperty("status").GetInt32(),
             e.GetProperty("headers").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString()!),

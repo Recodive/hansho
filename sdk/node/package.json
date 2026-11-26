@@ -1,6 +1,6 @@
 {
   "name": "@recodive/hansho",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Official Node.js / TypeScript client for a Hansho hub: pair users, send notifications, pages, Live Activities and widget feeds, verify webhooks.",
   "license": "MIT",
   "homepage": "https://github.com/Recodive/hansho/tree/main/sdk/node#readme",

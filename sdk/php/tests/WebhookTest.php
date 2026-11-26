@@ -167,6 +167,19 @@ final class WebhookTest extends TestCase
         $this->assertSame('Bas’s iPhone <Ünï>', $ev->data['deviceName']);
     }
 
+    public function testMessageAckedCarriesWhoAckedWhenSent(): void
+    {
+        $body = '{"id":"9","event":"message.acked","created_at":1700000000,"data":{"message_id":"m","device_id":"d","external_user_id":"u","acked_by":"bob","acked_by_name":"Bob ボブ"}}';
+        $ev = Webhook::verify('k', self::sign('k', 1700000000, $body), $body, 1700000000);
+        $this->assertSame('bob', $ev->data['ackedBy']);
+        $this->assertSame('Bob ボブ', $ev->data['ackedByName']);
+        $body = '{"id":"9","event":"message.acked","created_at":1700000000,"data":{"message_id":"m","device_id":"d","external_user_id":"u"}}';
+        $ev = Webhook::verify('k', self::sign('k', 1700000000, $body), $body, 1700000000);
+        $this->assertArrayNotHasKey('ackedBy', $ev->data);
+        $this->assertArrayNotHasKey('ackedByName', $ev->data);
+        $this->assertSame('m', $ev->data['messageId']);
+    }
+
     public function testActionTextIsOnlyPresentForTextActions(): void
     {
         $body = '{"id":"9","event":"action","created_at":1700000000,"data":{"action_id":"ack","device_id":"d","external_user_id":"u","message_id":"m"}}';

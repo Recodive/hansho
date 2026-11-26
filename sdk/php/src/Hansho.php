@@ -15,7 +15,7 @@ final class Hansho
 {
     public const NAME = 'hansho';
     /** SDK version, sent in the default User-Agent. */
-    public const VERSION = '0.1.0';
+    public const VERSION = '0.2.0';
 
     private const MAX_SOUND_BYTES = 1 << 20;
 
@@ -66,14 +66,24 @@ final class Hansho
 
     /**
      * Creates a single-use pairing ticket (valid 10 minutes). Render `qr` as a QR code for the user to scan in the
-     * Hansho app.
+     * Hansho app. `$displayName` (when not null) is what other people see for the user instead of their id; '' is
+     * sent as given.
      */
-    public function createPairingTicket(string $externalUserId): PairingTicket
+    public function createPairingTicket(string $externalUserId, ?string $displayName = null): PairingTicket
     {
         self::seg($externalUserId);
-        $w = $this->json('POST', '/api/v1/pairing-tickets', ['external_user_id' => $externalUserId]);
+        $w = $this->json('POST', '/api/v1/pairing-tickets', self::defined(['external_user_id' => $externalUserId, 'display_name' => $displayName]));
 
-        return new PairingTicket(self::str($w, 'ticket'), self::str($w, 'qr'), new \DateTimeImmutable(self::str($w, 'expires_at')));
+        return PairingTicket::fromWire($w);
+    }
+
+    /**
+     * Sets what other people see for the user instead of their external user id: any language, trimmed, at most 40
+     * characters, no control characters. '' clears it. The user does not need to be paired yet.
+     */
+    public function setUserDisplayName(string $externalUserId, string $displayName): void
+    {
+        $this->json('PUT', '/api/v1/users/' . self::seg($externalUserId), ['display_name' => $displayName]);
     }
 
     /** Revokes every pairing of the user. */
@@ -94,39 +104,39 @@ final class Hansho
 
     // --- catalog -------------------------------------------------------------
 
+    /**
+     * Every channel.
+     *
+     * @return list<Channel>
+     */
+    public function listChannels(): array
+    {
+        return self::all($this->json('GET', '/api/v1/channels'), Channel::fromWire(...));
+    }
+
     public function putChannel(string $id, Channel $channel): void
     {
-        $this->json('PUT', '/api/v1/channels/' . self::seg($id), self::defined([
-            'name' => $channel->name,
-            'default_level' => self::level($channel->defaultLevel),
-            'max_level' => self::level($channel->maxLevel),
-            'sound' => $channel->sound,
-            'template_id' => $channel->templateId,
-            'thread' => $channel->thread,
-            'actions' => self::actionsToWire($channel->actions),
-            'audience' => self::audienceToWire($channel->audience),
-        ]));
+        $this->json('PUT', '/api/v1/channels/' . self::seg($id), $channel->toWire());
     }
 
     public function getChannel(string $id): Channel
     {
-        $w = $this->json('GET', '/api/v1/channels/' . self::seg($id));
-
-        return new Channel(
-            self::str($w, 'name'),
-            self::str($w, 'default_level'),
-            self::str($w, 'max_level'),
-            isset($w['sound']) && is_string($w['sound']) ? $w['sound'] : null,
-            isset($w['template_id']) && is_string($w['template_id']) ? $w['template_id'] : null,
-            isset($w['thread']) && is_string($w['thread']) ? $w['thread'] : null,
-            isset($w['actions']) && is_array($w['actions']) ? array_values(array_map(self::actionFromWire(...), $w['actions'])) : null,
-            self::audienceFromWire($w['audience'] ?? null),
-        );
+        return Channel::fromWire($this->json('GET', '/api/v1/channels/' . self::seg($id)));
     }
 
     public function deleteChannel(string $id): void
     {
         $this->json('DELETE', '/api/v1/channels/' . self::seg($id));
+    }
+
+    /**
+     * Every group.
+     *
+     * @return list<Group>
+     */
+    public function listGroups(): array
+    {
+        return self::all($this->json('GET', '/api/v1/groups'), Group::fromWire(...));
     }
 
     /**
@@ -137,21 +147,29 @@ final class Hansho
      */
     public function putGroup(string $id, array $members): Group
     {
-        $w = $this->json('PUT', '/api/v1/groups/' . self::seg($id), ['members' => array_values($members)]);
-
-        return self::groupFromWire($w, $id);
+        return self::group($this->json('PUT', '/api/v1/groups/' . self::seg($id), ['members' => array_values($members)]), $id);
     }
 
     /** A missing group is an ApiException with apiCode ApiException::UNKNOWN_GROUP. */
     public function getGroup(string $id): Group
     {
-        return self::groupFromWire($this->json('GET', '/api/v1/groups/' . self::seg($id)), $id);
+        return self::group($this->json('GET', '/api/v1/groups/' . self::seg($id)), $id);
     }
 
     /** An audience that still names the group matches nobody through it. */
     public function deleteGroup(string $id): void
     {
         $this->json('DELETE', '/api/v1/groups/' . self::seg($id));
+    }
+
+    /**
+     * Every template at its latest version.
+     *
+     * @return list<Template>
+     */
+    public function listTemplates(): array
+    {
+        return self::all($this->json('GET', '/api/v1/templates'), Template::fromWire(...));
     }
 
     /**
@@ -163,6 +181,28 @@ final class Hansho
         $this->json('PUT', '/api/v1/templates/' . self::seg($id), ['version' => $version, 'body' => $body]);
     }
 
+    /** A missing template is an ApiException with apiCode 'unknown_template'. */
+    public function getTemplate(string $id): Template
+    {
+        return Template::fromWire($this->json('GET', '/api/v1/templates/' . self::seg($id)));
+    }
+
+    /** One a live channel still names is refused: an ApiException with apiCode 'in_use'. */
+    public function deleteTemplate(string $id): void
+    {
+        $this->json('DELETE', '/api/v1/templates/' . self::seg($id));
+    }
+
+    /**
+     * Every sound's metadata.
+     *
+     * @return list<Sound>
+     */
+    public function listSounds(): array
+    {
+        return self::all($this->json('GET', '/api/v1/sounds'), Sound::fromWire(...));
+    }
+
     /** Uploads a sound (audio/x-caf, audio/wav or audio/aiff, at most 1 MB). */
     public function putSound(string $id, string $contentType, string $bytes): SoundResult
     {
@@ -170,9 +210,20 @@ final class Hansho
         if (strlen($bytes) > self::MAX_SOUND_BYTES) {
             throw new \RangeException('hansho: sound exceeds 1 MB');
         }
-        $w = $this->send('PUT', $path, $bytes, $contentType, true);
 
-        return new SoundResult(self::str($w, 'id'), self::str($w, 'filename'), self::str($w, 'sha256'), self::int($w, 'size'));
+        return SoundResult::fromWire($this->send('PUT', $path, $bytes, $contentType, true));
+    }
+
+    /** A sound's metadata; a missing one is an ApiException with apiCode 'unknown_sound'. */
+    public function getSound(string $id): Sound
+    {
+        return Sound::fromWire($this->json('GET', '/api/v1/sounds/' . self::seg($id)));
+    }
+
+    /** One a live channel still names is refused: an ApiException with apiCode 'in_use'. */
+    public function deleteSound(string $id): void
+    {
+        $this->json('DELETE', '/api/v1/sounds/' . self::seg($id));
     }
 
     // --- messages ------------------------------------------------------------
@@ -183,26 +234,7 @@ final class Hansho
      */
     public function sendMessage(Message $m): MessageResult
     {
-        $body = self::defined([
-            'external_user_id' => $m->externalUserId,
-            'external_user_ids' => $m->externalUserIds === null ? null : array_values($m->externalUserIds),
-            'to_audience' => $m->toAudience ? true : null,
-            'channel' => $m->channel,
-            'level' => $m->level === null ? null : self::level($m->level),
-            'title' => $m->title,
-            'subtitle' => $m->subtitle,
-            'body' => $m->body,
-            'image_url' => $m->imageUrl,
-            'template_id' => $m->templateId,
-            'data' => $m->data,
-            'sound' => $m->sound,
-            'actions' => self::actionsToWire($m->actions),
-            'collapse_id' => $m->collapseId,
-            'page' => $m->page === null ? null : self::defined([
-                'interval_s' => $m->page->intervalSeconds,
-                'max_retries' => $m->page->maxRetries,
-            ]),
-        ]);
+        $body = $m->toWire();
         $retry = $m->idempotencyKey !== null && $m->idempotencyKey !== '';
         $w = $this->send(
             'POST',
@@ -213,55 +245,27 @@ final class Hansho
             $retry ? ['Idempotency-Key' => (string) $m->idempotencyKey] : [],
         );
 
-        return new MessageResult(
-            self::str($w, 'message_id'),
-            self::str($w, 'level'),
-            self::int($w, 'devices'),
-            self::str($w, 'status'),
-            self::deliveries($w['deliveries'] ?? null),
-            self::recipients($w['recipients'] ?? null),
-        );
+        return MessageResult::fromWire($w);
     }
 
     public function getMessage(string $id): MessageStatus
     {
         $w = $this->json('GET', '/api/v1/messages/' . self::seg($id));
 
-        return new MessageStatus(
-            self::str($w, 'message_id'),
-            self::str($w, 'status'),
-            self::str($w, 'level'),
-            self::int($w, 'attempts'),
-            self::deliveries($w['deliveries'] ?? null),
-            isset($w['acked_at']) && is_string($w['acked_at']) ? new \DateTimeImmutable($w['acked_at']) : null,
-        );
+        return MessageStatus::fromWire($w);
     }
 
     // --- live activities and feeds -------------------------------------------
 
     public function startActivity(Activity $a): ActivityStarted
     {
-        $w = $this->json('POST', '/api/v1/activities', self::defined([
-            'external_user_id' => $a->externalUserId,
-            'channel' => $a->channel,
-            'template_id' => $a->templateId,
-            'data' => $a->data,
-            'alert' => self::alertToWire($a->alert),
-        ]));
-
-        return new ActivityStarted(self::str($w, 'activity_id'), self::int($w, 'devices'));
+        return ActivityStarted::fromWire($this->json('POST', '/api/v1/activities', $a->toWire()));
     }
 
     /** Not retried automatically. */
     public function updateActivity(string $id, ActivityUpdate $u): ActivityUpdated
     {
-        $w = $this->json('PATCH', '/api/v1/activities/' . self::seg($id), self::defined([
-            'data' => $u->data,
-            'priority' => $u->priority,
-            'alert' => self::alertToWire($u->alert),
-        ]));
-
-        return new ActivityUpdated(self::str($w, 'activity_id'), self::int($w, 'update'));
+        return ActivityUpdated::fromWire($this->json('PATCH', '/api/v1/activities/' . self::seg($id), $u->toWire()));
     }
 
     public function endActivity(string $id): void
@@ -279,32 +283,13 @@ final class Hansho
         if ($externalUserId !== null && $externalUserId !== '') {
             $path .= '?external_user_id=' . rawurlencode($externalUserId);
         }
-        $w = $this->json('GET', $path);
-        $str = static fn (string $k): ?string => isset($w[$k]) && is_string($w[$k]) && $w[$k] !== '' ? $w[$k] : null;
 
-        return new FeedSettings(
-            self::str($w, 'feed_id'),
-            self::str($w, 'template_id'),
-            $str('external_user_id'),
-            $str('title'),
-            $str('channel'),
-            self::audienceFromWire($w['audience'] ?? null),
-            self::int($w, 'updated_at'),
-        );
+        return FeedSettings::fromWire($this->json('GET', $path));
     }
 
     public function putFeed(string $id, Feed $feed): FeedResult
     {
-        $w = $this->json('PUT', '/api/v1/feeds/' . self::seg($id), self::defined([
-            'external_user_id' => $feed->externalUserId,
-            'template_id' => $feed->templateId,
-            'title' => $feed->title,
-            'channel' => $feed->channel,
-            'audience' => self::audienceToWire($feed->audience),
-            'data' => $feed->data,
-        ]));
-
-        return new FeedResult(self::str($w, 'feed_id'), self::int($w, 'devices'));
+        return FeedResult::fromWire($this->json('PUT', '/api/v1/feeds/' . self::seg($id), $feed->toWire()));
     }
 
     // --- plumbing ------------------------------------------------------------
@@ -435,122 +420,22 @@ final class Hansho
         return array_filter($o, static fn ($v) => $v !== null);
     }
 
-    private static function level(Level|string $l): string
-    {
-        return $l instanceof Level ? $l->value : $l;
-    }
-
     /**
-     * @param list<Action>|null $actions
+     * @param array<mixed>                $raw
+     * @param callable(mixed): object     $from
      *
-     * @return list<array<string,mixed>>|null
+     * @return list<mixed>
      */
-    private static function actionsToWire(?array $actions): ?array
+    private static function all(array $raw, callable $from): array
     {
-        return $actions === null ? null : array_map(
-            static fn (Action $a) => self::defined(['id' => $a->id, 'title' => $a->title, 'ack' => $a->ack, 'kind' => $a->kind]),
-            array_values($actions),
-        );
+        return array_values(array_map($from, $raw));
     }
 
     /** @param array<string,mixed> $w */
-    private static function actionFromWire(mixed $w): Action
+    private static function group(array $w, string $id): Group
     {
-        $w = is_array($w) ? $w : [];
+        $g = Group::fromWire($w);
 
-        return new Action(
-            self::str($w, 'id'),
-            self::str($w, 'title'),
-            isset($w['ack']) && is_bool($w['ack']) ? $w['ack'] : null,
-            isset($w['kind']) && is_string($w['kind']) ? $w['kind'] : null,
-        );
-    }
-
-    /** @return array<string,mixed>|null */
-    private static function alertToWire(?ActivityAlert $a): ?array
-    {
-        return $a === null ? null : self::defined(['title' => $a->title, 'body' => $a->body]);
-    }
-
-    /** @return array<string,mixed>|null */
-    private static function audienceToWire(?Audience $a): ?array
-    {
-        return $a === null ? null : self::defined([
-            'mode' => $a->mode instanceof AudienceMode ? $a->mode->value : $a->mode,
-            'users' => $a->users === [] ? null : array_values($a->users),
-            'groups' => $a->groups === [] ? null : array_values($a->groups),
-        ]);
-    }
-
-    private static function audienceFromWire(mixed $w): ?Audience
-    {
-        if (!is_array($w)) {
-            return null;
-        }
-        $list = static fn (mixed $v): array => is_array($v) ? array_values(array_map('strval', array_filter($v, 'is_scalar'))) : [];
-
-        return new Audience(self::str($w, 'mode'), $list($w['users'] ?? null), $list($w['groups'] ?? null));
-    }
-
-    /** @param array<string,mixed> $w */
-    private static function groupFromWire(array $w, string $id): Group
-    {
-        $members = isset($w['members']) && is_array($w['members']) ? array_values(array_map('strval', array_filter($w['members'], 'is_scalar'))) : [];
-
-        return new Group(self::str($w, 'id') ?: $id, $members);
-    }
-
-    /** @return list<Recipient> */
-    private static function recipients(mixed $raw): array
-    {
-        if (!is_array($raw)) {
-            return [];
-        }
-        $out = [];
-        foreach ($raw as $r) {
-            $r = is_array($r) ? $r : [];
-            $id = self::str($r, 'message_id');
-            $out[] = new Recipient(
-                self::str($r, 'external_user_id'),
-                self::str($r, 'status'),
-                $id === '' ? null : $id,
-                self::int($r, 'devices'),
-                self::deliveries($r['deliveries'] ?? null),
-            );
-        }
-
-        return $out;
-    }
-
-    /** @return list<Delivery> */
-    private static function deliveries(mixed $raw): array
-    {
-        if (!is_array($raw)) {
-            return [];
-        }
-        $out = [];
-        foreach ($raw as $d) {
-            $d = is_array($d) ? $d : [];
-            $err = self::str($d, 'error');
-            $out[] = new Delivery(self::str($d, 'device_id'), self::str($d, 'status'), $err === '' ? null : $err);
-        }
-
-        return $out;
-    }
-
-    /** @param array<mixed> $w */
-    private static function str(array $w, string $key): string
-    {
-        $v = $w[$key] ?? '';
-
-        return is_string($v) ? $v : (is_scalar($v) ? (string) $v : '');
-    }
-
-    /** @param array<mixed> $w */
-    private static function int(array $w, string $key): int
-    {
-        $v = $w[$key] ?? 0;
-
-        return is_numeric($v) ? (int) $v : 0;
+        return $g->id === '' ? new Group($id, $g->members) : $g;
     }
 }

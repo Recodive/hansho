@@ -1,0 +1,16 @@
+{{define "content"}}
+<h1>Feeds</h1>
+<p class="lead">A feed is live data, such as the state of your deploys, that the app shows as a widget. This list is only for looking: feeds and Live Activities are published by your own software through the API, so there is nothing to change here.</p>
+{{if .Data}}
+<table>
+<caption class="sr">Feeds</caption>
+<thead><tr><th scope="col">Feed</th><th scope="col">Name in the app</th><th scope="col">Template</th><th scope="col">Who sees it</th><th scope="col">Last updated</th></tr></thead>
+<tbody>
+{{range .Data}}<tr><td><code>{{.ID}}</code></td><td>{{if .Title}}{{.Title}}{{else}}Not named{{end}}</td><td>{{.Template}}</td><td>{{.Who}}</td><td>{{.Updated}}</td></tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<p class="empty">Your software has not published any feeds yet.</p>
+{{end}}
+{{end}}

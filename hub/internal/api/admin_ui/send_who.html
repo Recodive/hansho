@@ -1,0 +1,19 @@
+{{define "content"}}
+<h1>Send a test message</h1>
+<p class="lead">Check that a channel reaches someone. First choose who gets the message.</p>
+{{with .Data.Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<form method="get" action="/admin/send" class="stack">
+<div class="field">
+<label for="who">A person who is paired</label>
+<select id="who" name="who">
+{{range .Data.People}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+</select>
+</div>
+<div class="field">
+<label for="other">Or type a name</label>
+<p class="hint" id="other-hint">If you type a name, it is used instead of the person above.</p>
+<input id="other" name="other" type="text" value="{{.Data.Other}}" maxlength="256" autocomplete="off" aria-describedby="other-hint">
+</div>
+<div><button class="btn">Next</button></div>
+</form>
+{{end}}

@@ -1,0 +1,62 @@
+{{define "content"}}
+<h1>Send a test message</h1>
+<p class="lead">To <strong>{{.Data.Person}}</strong>. <a href="/admin/send">Choose someone else</a></p>
+{{if eq .Data.Devices 0}}<p class="warn" role="note"><strong>No device is paired for {{.Data.Person}}.</strong> The message can still be sent, but it is marked as not deliverable.</p>{{end}}
+{{if .Data.Channels}}
+{{if .Data.Errors}}<p class="error" role="alert">The message was not sent. Fix what is marked below and try again.{{with index .Data.Errors "form"}} {{.}}{{end}}</p>{{end}}
+<form method="post" action="/admin/send" class="stack wide">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="person" value="{{.Data.Person}}">
+<div class="field">
+<label for="channel">Channel</label>
+<p class="hint" id="channel-hint">Only channels {{.Data.Person}} may use are listed.</p>
+{{with index .Data.Errors "channel"}}<p class="field-error" id="channel-err">{{.}}</p>{{end}}
+<select id="channel" name="channel" aria-describedby="channel-hint channel-err"{{if index .Data.Errors "channel"}} aria-invalid="true"{{end}}>
+{{range .Data.Channels}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+</select>
+</div>
+<div class="field">
+<label for="level">Level</label>
+<p class="hint" id="level-hint">A message never goes above its channel's highest level, shown next to the channel. The next page says which level it went out at.</p>
+{{with index .Data.Errors "level"}}<p class="field-error" id="level-err">{{.}}</p>{{end}}
+<select id="level" name="level" data-help="level-help" aria-describedby="level-hint level-help level-err">
+{{range .Data.Levels}}<option value="{{.Value}}" data-help="{{.Help}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+</select>
+<p class="hint" id="level-help"></p>
+</div>
+<div class="field">
+<label for="title">Title</label>
+{{with index .Data.Errors "title"}}<p class="field-error" id="title-err">{{.}}</p>{{end}}
+<input id="title" name="title" type="text" value="{{.Data.Title}}" required autocomplete="off" aria-describedby="title-err"{{if index .Data.Errors "title"}} aria-invalid="true"{{end}}>
+</div>
+<div class="field">
+<label for="body">Message</label>
+{{with index .Data.Errors "body"}}<p class="field-error" id="body-err">{{.}}</p>{{end}}
+<textarea id="body" name="body" rows="4" required aria-describedby="body-err"{{if index .Data.Errors "body"}} aria-invalid="true"{{end}}>{{.Data.Body}}</textarea>
+</div>
+<div class="field">
+<label for="data">Template data (optional)</label>
+<p class="hint" id="data-hint">Only if the channel has a template that needs values. Write it as JSON, for example {"name": "Ada"}.</p>
+{{with index .Data.Errors "data"}}<p class="field-error" id="data-err">{{.}}</p>{{end}}
+<textarea id="data" name="data" rows="3" spellcheck="false" autocomplete="off" aria-describedby="data-hint data-err"{{if index .Data.Errors "data"}} aria-invalid="true"{{end}}>{{.Data.Data}}</textarea>
+</div>
+<fieldset>
+<legend class="label">If it goes out as a page</legend>
+<p class="hint">A page repeats until someone acknowledges it. Leave these empty to use the usual 120 seconds and 5 repeats.</p>
+<div class="field">
+<label for="interval">Repeat every (seconds)</label>
+{{with index .Data.Errors "interval"}}<p class="field-error" id="interval-err">{{.}}</p>{{end}}
+<input id="interval" name="interval" type="text" inputmode="numeric" value="{{.Data.Interval}}" autocomplete="off" aria-describedby="interval-err"{{if index .Data.Errors "interval"}} aria-invalid="true"{{end}}>
+</div>
+<div class="field">
+<label for="retries">Repeat at most (times)</label>
+{{with index .Data.Errors "retries"}}<p class="field-error" id="retries-err">{{.}}</p>{{end}}
+<input id="retries" name="retries" type="text" inputmode="numeric" value="{{.Data.Retries}}" autocomplete="off" aria-describedby="retries-err"{{if index .Data.Errors "retries"}} aria-invalid="true"{{end}}>
+</div>
+</fieldset>
+<div class="row"><button class="btn">Send message</button><a class="btn ghost" href="/admin/send">Cancel</a></div>
+</form>
+{{else}}
+<p class="empty">{{.Data.Person}} cannot use any channel yet. Make one on the <a href="/admin/channels">Channels page</a>, or change who may use an existing one.</p>
+{{end}}
+{{end}}
