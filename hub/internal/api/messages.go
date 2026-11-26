@@ -38,8 +38,9 @@ type sendRequest struct {
 }
 
 type sendPage struct {
-	IntervalS  *int `json:"interval_s"`
-	MaxRetries *int `json:"max_retries"`
+	IntervalS  *int    `json:"interval_s"`
+	MaxRetries *int    `json:"max_retries"`
+	Ack        *string `json:"ack"` // "any" (default) or "each"
 }
 
 // recipient is one entry of a send's "recipients".
@@ -198,6 +199,15 @@ func (s *server) send(ctx context.Context, req sendRequest) (string, []recipient
 			}
 			in.PageMaxRetries = mr
 		}
+		if a := req.Page.Ack; a != nil && *a != store.PageAckAny && *a != store.PageAckEach {
+			return "", nil, badField("page.ack", "must be any or each")
+		}
+	}
+	if lvl == level.Page {
+		in.PageAck, in.SendID = store.PageAckAny, store.NewID("send_")
+		if req.Page != nil && req.Page.Ack != nil {
+			in.PageAck = *req.Page.Ack
+		}
 	}
 
 	var users []string
@@ -287,6 +297,9 @@ func (s *server) getMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if !m.AckedAt.IsZero() {
 		out["acked_at"] = m.AckedAt.UTC().Format(time.RFC3339)
+		if m.AckedBy != "" {
+			out["acked_by"] = m.AckedBy
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

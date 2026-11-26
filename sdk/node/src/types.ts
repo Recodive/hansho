@@ -55,6 +55,11 @@ export interface PageOptions {
   intervalSeconds?: number;
   /** Resends before the page expires (hub default 5). */
   maxRetries?: number;
+  /**
+   * Who must acknowledge a page sent to several people: `"any"` (hub default) stops it for everyone at the first
+   * acknowledgement, `"each"` keeps paging each person until they acknowledge for themselves.
+   */
+  ack?: "any" | "each";
 }
 
 export interface Message {

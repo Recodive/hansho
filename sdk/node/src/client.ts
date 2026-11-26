@@ -144,7 +144,7 @@ function messageToWire(m: Message): Wire {
     sound: m.sound,
     actions: actionsToWire(m.actions),
     collapse_id: m.collapseId,
-    page: m.page && defined({ interval_s: m.page.intervalSeconds, max_retries: m.page.maxRetries }),
+    page: m.page && defined({ interval_s: m.page.intervalSeconds, max_retries: m.page.maxRetries, ack: m.page.ack }),
   });
 }
 

@@ -40,7 +40,7 @@ func TestMigrationsIdempotentOnReopen(t *testing.T) {
 	}
 	defer st.Close()
 	var n int
-	if err := st.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil || n != 4 { // 001_init, 002_unique_active_device, 003_feed_title and 004_audiences, each applied once
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil || n != 5 { // 001_init, 002_unique_active_device, 003_feed_title, 004_audiences and 005_page_ack, each applied once
 		t.Fatalf("migrations applied %d times (%v)", n, err)
 	}
 	var fk int

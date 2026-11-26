@@ -93,6 +93,9 @@ type Channel struct {
 type PageOptions struct {
 	IntervalSeconds int `json:"interval_s,omitempty"`
 	MaxRetries      int `json:"max_retries,omitempty"`
+	// Ack is "any" (the hub's default: the first acknowledgement stops the page for everyone it was sent to) or
+	// "each" (every recipient must acknowledge for themselves). "" means the hub default.
+	Ack string `json:"ack,omitempty"`
 }
 
 // Message is a notification for one user, for several, or for a channel's audience.

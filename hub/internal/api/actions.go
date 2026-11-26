@@ -134,7 +134,7 @@ func (s *server) deviceAction(w http.ResponseWriter, r *http.Request, dev store.
 	}
 
 	if s.isAckAction(m, req.ActionID) {
-		acked, err := s.Store.AckMessage(m.ID, s.Now())
+		acked, err := s.Store.AckMessage(m.ID, m.ExternalUserID, s.Now())
 		if err != nil {
 			s.internal(w, "ack failed", err)
 			return
@@ -142,13 +142,27 @@ func (s *server) deviceAction(w http.ResponseWriter, r *http.Request, dev store.
 		if acked {
 			s.emit(r.Context(), webhook.EventActionTaken, action)
 			s.emit(r.Context(), webhook.EventMessageAcked, map[string]string{
-				"message_id": m.ID, "external_user_id": m.ExternalUserID, "device_id": dev.ID,
+				"message_id": m.ID, "external_user_id": m.ExternalUserID, "device_id": dev.ID, "acked_by": m.ExternalUserID,
 			})
 			if m.Level == level.Page {
+				m.AckedBy = m.ExternalUserID
 				if _, err := s.dw.CancelPage(r.Context(), m); err != nil {
 					s.log.Error("cancel push failed", "message_id", m.ID, "err", err)
 				}
 				s.log.Info("page acknowledged", "message_id", m.ID, "device_id", dev.ID)
+				// A page sent with ack "any" stops for the other recipients of its send too.
+				sibs, err := s.Store.AckSiblings(m, m.ExternalUserID, s.Now())
+				if err != nil {
+					s.log.Error("ack siblings failed", "message_id", m.ID, "err", err)
+				}
+				for _, o := range sibs {
+					s.emit(r.Context(), webhook.EventMessageAcked, map[string]string{
+						"message_id": o.ID, "external_user_id": o.ExternalUserID, "acked_by": m.ExternalUserID,
+					})
+					if _, err := s.dw.CancelPage(r.Context(), o); err != nil {
+						s.log.Error("cancel push failed", "message_id", o.ID, "err", err)
+					}
+				}
 			}
 		}
 		w.WriteHeader(http.StatusOK)

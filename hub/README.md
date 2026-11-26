@@ -147,7 +147,7 @@ export HUB_ADMIN_PASSWORD='a long password only your team knows'
 | `GET /api/v1/channels`, `/groups`, `/templates`, `/sounds` | Lists: an array of what the matching `GET .../{id}` returns |
 | `PUT/GET/DELETE /api/v1/templates/{id}` | `{version, body}`; version must increase. A DELETE answers `409 in_use` while a channel still names the template |
 | `PUT/GET/DELETE /api/v1/sounds/{id}` | PUT takes raw `audio/x-caf`, `audio/wav` or `audio/aiff`, at most 1 MB; WAV/AIFF shorter than 30 s. GET returns `{id, content_type, bytes, sha256}` without the audio; a DELETE answers `409 in_use` while a channel still names the sound |
-| `POST /api/v1/messages` | `{external_user_id \| external_user_ids \| to_audience, channel, level?, title, subtitle?, body, image_url?, template_id?, data?, sound?, actions?, collapse_id?, page?:{interval_s?, max_retries?}}` -> 202 with a `recipients` list (see [Audiences](#audiences-groups-and-kick)) |
+| `POST /api/v1/messages` | `{external_user_id \| external_user_ids \| to_audience, channel, level?, title, subtitle?, body, image_url?, template_id?, data?, sound?, actions?, collapse_id?, page?:{interval_s?, max_retries?, ack?}}` -> 202 with a `recipients` list (see [Audiences](#audiences-groups-and-kick)) |
 | `GET /api/v1/messages/{id}` | `{status, level, attempts, deliveries, acked_at?}` |
 | `POST /api/v1/activities`, `PATCH`/`DELETE /api/v1/activities/{id}` | Live Activities (content-state at most 4 KB; update priority 5 or 10) |
 | `PUT/GET /api/v1/feeds/{id}` | `{external_user_id?, template_id?, title?, channel?, audience?, data}` (GET takes `?external_user_id=` and returns the settings without the data); `channel` and `audience` are explained under [Audiences](#audiences-groups-and-kick) and an upsert without them keeps what is stored; omit the user for a feed shared by all paired users; `title` (at most 64 bytes) is the name the app's feed picker shows instead of the id, and an upsert without one clears it. Without `template_id` the app draws the data with an automatic layout chosen from its shape (a number with `min`/`max` -> gauge, a `value` -> big number, `items[]` with `state` -> status grid, other `items[]` -> list); a named template must exist |
@@ -284,6 +284,8 @@ Acknowledging is opt-in per message. A page always asks for it (acknowledging is
 other message asks for it only when it has the built-in `ack` action or an action flagged `"ack": true`. The
 first press of that button sends `action` and `message.acked` and sets the message to `acked`; for a page it
 also stops the ringing on every device. Later presses are ignored.
+
+A page sent to several people (`external_user_ids` or `to_audience`) is one message per person, and they share a send. With `page.ack: "any"` (the default) the first acknowledgement by any of them acknowledges the page for all of them: the others stop ringing, their banner says who acknowledged it, each gets its own `message.acked` webhook, and `GET /api/v1/messages/{id}` shows `acked_by`. With `page.ack: "each"` every person must acknowledge for themselves and is paged until they do. A page to one person behaves the same either way, and a page already paging when the hub is updated finishes as `each`. `message.acked` carries `acked_by`, the user who acknowledged.
 
 When the person dismisses such a message without acknowledging it, the hub sends `message.dismissed`
 (`message_id`, `external_user_id`, `device_id`). Dismissing other messages is never reported. iOS counts only

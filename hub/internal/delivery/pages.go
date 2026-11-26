@@ -129,8 +129,12 @@ func (w *Worker) CancelPage(ctx context.Context, m store.Message) (int, error) {
 			}
 		}
 	}
+	body := title + " was acknowledged"
+	if m.AckedBy != "" && m.AckedBy != m.ExternalUserID {
+		body += " by " + m.AckedBy // another recipient of the same send acknowledged it
+	}
 	plaintext, err := json.Marshal(Plaintext{
-		Cancel: m.ID, Title: "Acknowledged", Body: title + " was acknowledged", Channel: m.ChannelID, Level: level.Passive,
+		Cancel: m.ID, Title: "Acknowledged", Body: body, Channel: m.ChannelID, Level: level.Passive,
 	})
 	if err != nil {
 		return 0, err
