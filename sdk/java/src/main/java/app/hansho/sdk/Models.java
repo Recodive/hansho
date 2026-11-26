@@ -155,26 +155,6 @@ public final class Models {
                     .url(url);
         }
 
-        /** A plain button. */
-        public static Action of(String id, String title) {
-            return builder(id, title).build();
-        }
-
-        /** A button that acknowledges a page. */
-        public static Action acknowledge(String id, String title) {
-            return builder(id, title).ack(true).build();
-        }
-
-        /** A button that opens a reply field; the text arrives in the {@code action} webhook. */
-        public static Action text(String id, String title) {
-            return builder(id, title).kind("text").build();
-        }
-
-        /** A button that opens an https URL. */
-        public static Action url(String id, String title, String url) {
-            return builder(id, title).kind("url").url(Objects.requireNonNull(url, "url")).build();
-        }
-
         /** Builds a {@link Action}. */
         public static final class Builder {
             private String id;
@@ -296,14 +276,6 @@ public final class Models {
                     .templateId(templateId)
                     .data(data)
                     .alert(alert);
-        }
-
-        public static Activity of(String externalUserId, String channel, String templateId, Object data) {
-            return builder(externalUserId, channel, templateId, data).build();
-        }
-
-        public Activity withAlert(ActivityAlert alert) {
-            return toBuilder().alert(alert).build();
         }
 
         /** Builds a {@link Activity}. */
@@ -481,18 +453,6 @@ public final class Models {
                     .alert(alert);
         }
 
-        public static ActivityUpdate of(Object data) {
-            return builder(data).build();
-        }
-
-        public ActivityUpdate withPriority(int priority) {
-            return toBuilder().priority(priority).build();
-        }
-
-        public ActivityUpdate withAlert(ActivityAlert alert) {
-            return toBuilder().alert(alert).build();
-        }
-
         /** Builds a {@link ActivityUpdate}. */
         public static final class Builder {
             private Object data;
@@ -582,25 +542,6 @@ public final class Models {
                     .mode(mode)
                     .users(users)
                     .groups(groups);
-        }
-
-        /** Every paired user. */
-        public static Audience everyone() {
-            return builder(AudienceMode.EVERYONE).users(List.of()).groups(List.of()).build();
-        }
-
-        /** Just these users and the members of these groups; a {@code null} list is an empty one. */
-        public static Audience only(List<String> users, List<String> groups) {
-            return builder(AudienceMode.ONLY).users(orEmpty(users)).groups(orEmpty(groups)).build();
-        }
-
-        /** Everyone but these users and the members of these groups; a {@code null} list is an empty one. */
-        public static Audience except(List<String> users, List<String> groups) {
-            return builder(AudienceMode.EXCEPT).users(orEmpty(users)).groups(orEmpty(groups)).build();
-        }
-
-        private static List<String> orEmpty(List<String> l) {
-            return l == null ? List.of() : l;
         }
 
         /** Builds a {@link Audience}. */
@@ -860,27 +801,6 @@ public final class Models {
                     .data(data);
         }
 
-        public static Feed of(String templateId, Object data) {
-            return builder(templateId, data).build();
-        }
-
-        /** A copy for one user; leave it out for a feed shared by all paired users. */
-        public Feed forUser(String externalUserId) {
-            return toBuilder().externalUserId(externalUserId).build();
-        }
-
-        public Feed withTitle(String title) {
-            return toBuilder().title(title).build();
-        }
-
-        public Feed withChannel(String channel) {
-            return toBuilder().channel(channel).build();
-        }
-
-        public Feed withAudience(Audience audience) {
-            return toBuilder().audience(audience).build();
-        }
-
         /** Builds a {@link Feed}. */
         public static final class Builder {
             private String externalUserId;
@@ -1078,21 +998,6 @@ public final class Models {
                     .collapseId(collapseId)
                     .page(page)
                     .idempotencyKey(idempotencyKey);
-        }
-
-        /** A message for one user. */
-        public static Builder builder(String externalUserId, String channel, String title, String body) {
-            return builder(channel, title, body).externalUserId(Objects.requireNonNull(externalUserId, "externalUserId"));
-        }
-
-        /** A message for several users at once (at most 1000). */
-        public static Builder forUsers(List<String> externalUserIds, String channel, String title, String body) {
-            return builder(channel, title, body).externalUserIds(Objects.requireNonNull(externalUserIds, "externalUserIds"));
-        }
-
-        /** A message for every paired user in the channel's audience, resolved when you send. */
-        public static Builder forAudience(String channel, String title, String body) {
-            return builder(channel, title, body).toAudience(true);
         }
 
         /** Builds a {@link Message}. */
@@ -1454,21 +1359,6 @@ public final class Models {
                     .ack(ack);
         }
 
-        /** Page options with an interval and a retry count; who must acknowledge stays at the hub default. */
-        public static PageOptions of(int intervalSeconds, int maxRetries) {
-            return builder().intervalSeconds(intervalSeconds).maxRetries(maxRetries).build();
-        }
-
-        /** Page options that only set who must acknowledge; interval and retries stay at the hub defaults. */
-        public static PageOptions ack(PageAck ack) {
-            return builder().ack(ack).build();
-        }
-
-        /** A copy that asks for the given acknowledgement mode. */
-        public PageOptions withAck(PageAck ack) {
-            return toBuilder().ack(ack).build();
-        }
-
         /** Builds a {@link PageOptions}. */
         public static final class Builder {
             private Integer intervalSeconds;
@@ -1561,12 +1451,6 @@ public final class Models {
             String qr,
             Instant expiresAt) {
 
-        /** Leaves the ticket, a secret, out. */
-        @Override
-        public String toString() {
-            return "PairingTicket[expiresAt=" + expiresAt + "]";
-        }
-
         static PairingTicket fromWire(JsonNode w) {
             return new PairingTicket(
                     Json.str(w.get("ticket")),
@@ -1590,9 +1474,6 @@ public final class Models {
         public Recipient {
             deliveries = deliveries == null ? null : List.copyOf(deliveries);
         }
-
-        /** The {@code status} of a user outside the channel's audience: it got no message. */
-        public static final String NO_ACCESS = "no_access";
 
         static Recipient fromWire(JsonNode w) {
             return new Recipient(

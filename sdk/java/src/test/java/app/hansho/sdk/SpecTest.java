@@ -66,8 +66,8 @@ class SpecTest {
         op("putChannel", c -> {
             c.putChannel("ops", Channel.builder("Operations", Level.ACTIVE, Level.CRITICAL)
                     .sound("ding").templateId("status").thread("ops-thread")
-                    .actions(List.of(Action.acknowledge("ack", "Acknowledge"), Action.text("reply", "Reply"),
-                            Action.url("runbook", "Runbook", "https://example.com/runbook")))
+                    .actions(List.of(Action.builder("ack", "Acknowledge").ack(true).build(), Action.builder("reply", "Reply").kind("text").build(),
+                            Action.builder("runbook", "Runbook").kind("url").url("https://example.com/runbook").build()))
                     .build());
             return null;
         }, null);
@@ -83,16 +83,16 @@ class SpecTest {
             return null;
         }, null);
         op("putSound", c -> c.putSound("ding", "audio/wav", WAV), new SoundResult("ding", "ding.wav", "00", 12));
-        op("sendMessage", c -> c.sendMessage(Message.builder("user-42", "ops", "Disk full", "db-1 is at 97%")
+        op("sendMessage", c -> c.sendMessage(Message.builder("ops", "Disk full", "db-1 is at 97%").externalUserId("user-42")
                 .level(Level.TIME_SENSITIVE).subtitle("db-1").imageUrl("https://example.com/i.png").templateId("status")
                 .data(Map.of("disk", 97, "nested", Map.of("snake_case_key", List.of(1, 2))))
-                .sound("ding").actions(List.of(Action.acknowledge("ack", "Ack"))).collapseId("disk-db-1").build()),
+                .sound("ding").actions(List.of(Action.builder("ack", "Ack").ack(true).build())).collapseId("disk-db-1").build()),
                 new MessageResult("msg_1", Level.TIME_SENSITIVE, 2, "queued",
                         List.of(new Delivery("dev_1", "queued", null), new Delivery("dev_2", "queued", null)), List.of()));
-        op("sendPage", c -> c.sendMessage(Message.builder("user-42", "ops", "Primary DB down", "Failover did not complete")
-                .level(Level.PAGE).page(PageOptions.of(60, 3)).build()),
+        op("sendPage", c -> c.sendMessage(Message.builder("ops", "Primary DB down", "Failover did not complete").externalUserId("user-42")
+                .level(Level.PAGE).page(PageOptions.builder().intervalSeconds(60).maxRetries(3).build()).build()),
                 new MessageResult("msg_2", Level.PAGE, 1, "queued", List.of(new Delivery("dev_1", "queued", null)), List.of()));
-        op("sendPageEach", c -> c.sendMessage(Message.forUsers(List.of("alice", "bob"), "ops", "Primary DB down", "Failover did not complete")
+        op("sendPageEach", c -> c.sendMessage(Message.builder("ops", "Primary DB down", "Failover did not complete").externalUserIds(List.of("alice", "bob"))
                 .level(Level.PAGE).page(new PageOptions(60, 3, PageAck.EACH)).build()),
                 new MessageResult(null, Level.PAGE, null, null, List.of(), List.of(
                         new Recipient("alice", "msg_3", "queued", 1, List.of(new Delivery("dev_1", "queued", null))),
@@ -102,15 +102,15 @@ class SpecTest {
         op("getMessage", c -> c.getMessage("msg_2"), new MessageStatus("msg_2", "acked", Level.PAGE, 2,
                 List.of(new Delivery("dev_1", "sent", ""), new Delivery("dev_2", "failed", "unregistered")),
                 Instant.parse("2026-11-08T12:05:00Z"), "user-42", "Zoë 日本語"));
-        op("startActivity", c -> c.startActivity(Activity.of("user-42", "ops", "deploy", Map.of("progress", 0.1))
-                .withAlert(new ActivityAlert("Deploy started", "v1.2.3"))), new ActivityStarted("act_1", 1));
-        op("updateActivity", c -> c.updateActivity("act_1", ActivityUpdate.of(Map.of("progress", 0.6)).withPriority(10)
-                .withAlert(new ActivityAlert("Halfway", "60%"))), new ActivityUpdated("act_1", 3));
+        op("startActivity", c -> c.startActivity(Activity.builder("user-42", "ops", "deploy", Map.of("progress", 0.1))
+                .alert(new ActivityAlert("Deploy started", "v1.2.3")).build()), new ActivityStarted("act_1", 1));
+        op("updateActivity", c -> c.updateActivity("act_1", ActivityUpdate.builder(Map.of("progress", 0.6)).priority(10)
+                .alert(new ActivityAlert("Halfway", "60%")).build()), new ActivityUpdated("act_1", 3));
         op("endActivity", c -> {
             c.endActivity("act_1");
             return null;
         }, null);
-        op("putFeed", c -> c.putFeed("uptime", Feed.of("status", Map.of("up", true, "ms", 41)).forUser("user-42").withTitle("Uptime")),
+        op("putFeed", c -> c.putFeed("uptime", Feed.builder("status", Map.of("up", true, "ms", 41)).externalUserId("user-42").title("Uptime").build()),
                 new FeedResult("uptime", 2));
         op("putGroup", c -> c.putGroup("oncall", List.of("alice", "bob")), new Group("oncall", List.of("alice", "bob")));
         op("getGroup", c -> c.getGroup("oncall"), new Group("oncall", List.of("alice", "bob")));
@@ -124,15 +124,15 @@ class SpecTest {
         }, null);
         op("putChannelWithAudience", c -> {
             c.putChannel("ops", Channel.builder("Operations", Level.ACTIVE, Level.CRITICAL)
-                    .audience(Audience.only(List.of("alice"), List.of("oncall"))).build());
+                    .audience(Audience.builder(AudienceMode.ONLY).users(List.of("alice")).groups(List.of("oncall")).build()).build());
             return null;
         }, null);
-        op("putFeedWithChannel", c -> c.putFeed("uptime", Feed.of("status", Map.of("up", true)).withChannel("ops")
-                .withAudience(Audience.only(List.of("alice"), List.of("oncall")))), new FeedResult("uptime", 1));
-        op("sendToAudience", c -> c.sendMessage(Message.forAudience("ops", "Deploy done", "v1.2.3 is live").build()),
+        op("putFeedWithChannel", c -> c.putFeed("uptime", Feed.builder("status", Map.of("up", true)).channel("ops")
+                .audience(Audience.builder(AudienceMode.ONLY).users(List.of("alice")).groups(List.of("oncall")).build()).build()), new FeedResult("uptime", 1));
+        op("sendToAudience", c -> c.sendMessage(Message.builder("ops", "Deploy done", "v1.2.3 is live").toAudience(true).build()),
                 new MessageResult(null, Level.ACTIVE, null, null, List.of(), List.of(
                         new Recipient("alice", "msg_7", "queued", 1, List.of(new Delivery("dev_1", "queued", null))),
-                        new Recipient("carol", null, Recipient.NO_ACCESS, null, List.of()))));
+                        new Recipient("carol", null, Hansho.RECIPIENT_NO_ACCESS, null, List.of()))));
         op("listChannels", c -> c.listChannels(), List.of(new Channel("ops", "Operations", Level.ACTIVE, Level.CRITICAL, "", "", "ops",
                 List.of(), new Audience(AudienceMode.EVERYONE, List.of(), List.of()))));
         op("listTemplates", c -> c.listTemplates(), List.of(new Template("status", 2, Map.of("type", "text", "text", "{{title}}"))));
@@ -225,7 +225,7 @@ class SpecTest {
                     }
                     hub.always(reply);
                     HanshoException ex = assertThrows(HanshoException.class,
-                            () -> hub.client().sendMessage(Message.builder("u", "c", "t", "b").build()));
+                            () -> hub.client().sendMessage(Message.builder("c", "t", "b").externalUserId("u").build()));
                     assertEquals(e.get("status").asInt(), ex.status());
                     assertEquals(e.get("code").asText(), ex.code());
                     assertEquals(e.get("field").asText(), ex.field());

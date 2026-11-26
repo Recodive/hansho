@@ -34,7 +34,7 @@ import java.util.Objects;
  *
  * <pre>{@code
  * Hansho hansho = Hansho.builder("https://hub.example.com", System.getenv("HANSHO_API_KEY")).build();
- * hansho.sendMessage(Message.builder("user-42", "ops", "Disk full", "db-1 is at 97%").build());
+ * hansho.sendMessage(Message.builder("ops", "Disk full", "db-1 is at 97%").externalUserId("user-42").build());
  * }</pre>
  *
  * <p>Failures: a non-2xx answer throws {@link HanshoException}; no answer at all throws
@@ -45,6 +45,8 @@ public final class Hansho {
     public static final String NAME = "hansho";
     /** SDK version, sent in the default User-Agent. */
     public static final String VERSION = Models.VERSION;
+    /** The {@code status} of a {@link Models.Recipient} outside the channel's audience: it got no message. */
+    public static final String RECIPIENT_NO_ACCESS = "no_access";
 
     private static final int MAX_SOUND_BYTES = 1 << 20;
 
