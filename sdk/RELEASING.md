@@ -1,9 +1,15 @@
 # Releasing the SDKs
 
-Each SDK is released by pushing its tag; `.github/workflows/release-sdk.yml` checks that the tag matches the version
-in the manifest, runs the tests and publishes. Tags: `sdk/<lang>/v<version>`, e.g. `sdk/python/v0.1.0`.
+All eight SDKs are released together at one version, so a version number means the same features in every language.
 
-    git tag sdk/python/v0.1.0 && git push origin sdk/python/v0.1.0
+1. Set `info.version` in `spec/openapi.json`, run `go run .` in `scripts/gen` (it writes the version into every
+   SDK and manifest), and merge that to main.
+2. From an up-to-date main, run `sdk/scripts/release.sh <version>`. It checks that the tree, the spec and the
+   generated code are at that version, then pushes one tag per SDK: `sdk/<lang>/v<version>`, e.g.
+   `sdk/python/v0.2.0`. Go needs its own tag prefix, which is why there are eight tags and not one.
+
+`.github/workflows/release-sdk.yml` runs once per tag: it checks that the tag matches the version in the manifest,
+runs the tests and publishes.
 
 The workflow runs in the GitHub environment `release` (add required reviewers there to gate every publish).
 

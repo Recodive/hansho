@@ -1,8 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"regexp"
 	"strings"
 	"testing"
@@ -126,5 +129,26 @@ func TestStatusPageServesItsFontsAndIconsFromTheHub(t *testing.T) {
 	csp := e.do("GET", "/", nil, nil).Header().Get("Content-Security-Policy")
 	if !strings.Contains(csp, "font-src 'self'") || strings.Contains(csp, "http") {
 		t.Fatalf("CSP %q", csp)
+	}
+}
+
+func TestLogoIsServedAndNamedInTheInfoOnlyWhenConfigured(t *testing.T) {
+	e := newEnvCfg(t, nil)
+	if w := e.do("GET", "/_hub/logo.png", nil, nil); w.Code != 404 {
+		t.Fatalf("no logo: %d", w.Code)
+	}
+	if got := decode[map[string]string](t, e.do("GET", "/device/v1/hub", nil, nil)); got["logo"] != "" || len(got) != 5 {
+		t.Fatalf("info without a logo %v", got)
+	}
+
+	png := []byte("\x89PNG stand-in")
+	e = newEnvCfg(t, func(c *config.Config) { c.Logo = png })
+	w := e.do("GET", "/_hub/logo.png", nil, nil)
+	if w.Code != 200 || w.Header().Get("Content-Type") != "image/png" || !bytes.Equal(w.Body.Bytes(), png) {
+		t.Fatalf("logo: %d %q", w.Code, w.Header().Get("Content-Type"))
+	}
+	sum := sha256.Sum256(png)
+	if got := decode[map[string]string](t, e.do("GET", "/device/v1/hub", nil, nil)); got["logo"] != hex.EncodeToString(sum[:8]) {
+		t.Fatalf("info %v", got)
 	}
 }

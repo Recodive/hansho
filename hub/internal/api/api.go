@@ -5,7 +5,9 @@ package api
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -50,8 +52,14 @@ type server struct {
 	pub    ed25519.PublicKey
 	fp     string
 	domain string
+	logo   string // first 16 hex digits of the logo's SHA-256, "" without a logo
 
 	actionLimit actionLimiter // per-device press rate for POST /device/v1/actions
+
+	adminKey     []byte // signs admin sessions; set when HUB_ADMIN is on
+	adminSalt    []byte // salt and derived key of the admin password
+	adminPassKey []byte
+	adminLimit   adminLimiter // wrong admin passwords per address
 }
 
 // New returns the hub's HTTP handler.
@@ -69,7 +77,13 @@ func New(d Deps) http.Handler {
 		s.domain = u.Hostname()
 	}
 
+	if len(d.Cfg.Logo) > 0 {
+		sum := sha256.Sum256(d.Cfg.Logo)
+		s.logo = hex.EncodeToString(sum[:8])
+	}
+
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /_hub/logo.png", s.serveLogo)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, "ok")
 	})
@@ -83,13 +97,22 @@ func New(d Deps) http.Handler {
 
 	// Sender API.
 	mux.HandleFunc("POST /api/v1/pairing-tickets", s.withAPIKey(s.createTicket))
+	mux.HandleFunc("PUT /api/v1/users/{external_user_id}", s.withAPIKey(s.putUser))
 	mux.HandleFunc("DELETE /api/v1/users/{external_user_id}/pairings", s.withAPIKey(s.unpairUser))
 
+	mux.HandleFunc("GET /api/v1/channels", s.withAPIKey(s.listChannels))
 	mux.HandleFunc("PUT /api/v1/channels/{id}", s.withAPIKey(s.putChannel))
 	mux.HandleFunc("GET /api/v1/channels/{id}", s.withAPIKey(s.getChannel))
 	mux.HandleFunc("DELETE /api/v1/channels/{id}", s.withAPIKey(s.deleteChannel))
+	mux.HandleFunc("GET /api/v1/templates", s.withAPIKey(s.listTemplates))
 	mux.HandleFunc("PUT /api/v1/templates/{id}", s.withAPIKey(s.putTemplate))
+	mux.HandleFunc("GET /api/v1/templates/{id}", s.withAPIKey(s.getTemplate))
+	mux.HandleFunc("DELETE /api/v1/templates/{id}", s.withAPIKey(s.deleteTemplate))
+	mux.HandleFunc("GET /api/v1/sounds", s.withAPIKey(s.listSounds))
 	mux.HandleFunc("PUT /api/v1/sounds/{id}", s.withAPIKey(s.putSound))
+	mux.HandleFunc("GET /api/v1/sounds/{id}", s.withAPIKey(s.getSound))
+	mux.HandleFunc("DELETE /api/v1/sounds/{id}", s.withAPIKey(s.deleteSound))
+	mux.HandleFunc("GET /api/v1/groups", s.withAPIKey(s.listGroups))
 	mux.HandleFunc("PUT /api/v1/groups/{id}", s.withAPIKey(s.putGroup))
 	mux.HandleFunc("GET /api/v1/groups/{id}", s.withAPIKey(s.getGroup))
 	mux.HandleFunc("DELETE /api/v1/groups/{id}", s.withAPIKey(s.deleteGroup))
@@ -107,13 +130,18 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /device/v1/feeds/{id}", s.withDevice(s.getFeed))
 	mux.HandleFunc("POST /device/v1/actions", s.withDevice(s.deviceAction))
 	mux.HandleFunc("GET /device/v1/acks", s.withDevice(s.deviceAcks))
+	mux.HandleFunc("PUT /device/v1/profile", s.withDevice(s.putProfile))
 	mux.HandleFunc("GET /device/v1/sync", s.withDevice(s.sync))
 	mux.HandleFunc("GET /device/v1/sounds/{id}", s.withDevice(s.downloadSound))
 	mux.HandleFunc("GET /device/v1/hub", s.publicHubInfo)
+	mux.HandleFunc("GET /device/v1/pairing-tickets/{ticket}", s.ticketStatus)
 	mux.HandleFunc("POST /device/v1/pairings", s.redeemTicket)
 	mux.HandleFunc("POST /device/v1/pairings/{id}/devices", s.addDevice)
 	mux.HandleFunc("PUT /device/v1/devices/{id}/tokens", s.withDevice(s.updateTokens))
 	mux.HandleFunc("DELETE /device/v1/pairings/{id}", s.withDevice(s.unpairDevice))
+	if d.Cfg.Admin {
+		s.mountAdmin(mux)
+	}
 	return mux
 }
 
@@ -133,6 +161,37 @@ func writeErr(w http.ResponseWriter, code int, errCode string) {
 // writeFieldErr reports a validation failure with the path of the offending field.
 func writeFieldErr(w http.ResponseWriter, code int, errCode, field, msg string) {
 	writeJSON(w, code, map[string]string{"error": errCode, "field": field, "message": msg})
+}
+
+// apiError is a failed request in the API's terms, so a handler and the admin UI can share the code that fails. A
+// validation failure names the field and why (400 invalid_request); Err is an internal failure to log (500); other
+// failures carry their own status and error code.
+type apiError struct {
+	Status     int
+	Code       string
+	Field, Msg string
+	What       string
+	Err        error
+}
+
+func badField(field, msg string) *apiError {
+	return &apiError{Status: http.StatusBadRequest, Code: "invalid_request", Field: field, Msg: msg}
+}
+
+func internalErr(what string, err error) *apiError {
+	return &apiError{Status: http.StatusInternalServerError, Code: "internal", What: what, Err: err}
+}
+
+// fail answers a request with e.
+func (s *server) fail(w http.ResponseWriter, e *apiError) {
+	switch {
+	case e.Err != nil:
+		s.internal(w, e.What, e.Err)
+	case e.Field != "":
+		writeFieldErr(w, e.Status, e.Code, e.Field, e.Msg)
+	default:
+		writeErr(w, e.Status, e.Code)
+	}
 }
 
 func (s *server) internal(w http.ResponseWriter, what string, err error) {
@@ -184,9 +243,25 @@ func (s *server) challenge(w http.ResponseWriter, _ *http.Request) {
 
 // hubInfo is the hub description returned to devices.
 func (s *server) hubInfo() map[string]string {
-	return map[string]string{
+	info := map[string]string{
 		"hub_id": s.Cfg.HubID, "name": s.Cfg.DisplayName, "domain": s.domain,
 		"public_key":  b64url.EncodeToString(s.pub),
 		"fingerprint": s.fp,
 	}
+	if s.logo != "" {
+		info["logo"] = s.logo // the app downloads GET /_hub/logo.png when it does not hold this one
+	}
+	return info
+}
+
+func (s *server) serveLogo(w http.ResponseWriter, _ *http.Request) {
+	if s.logo == "" {
+		http.NotFound(w, nil)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", "image/png")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(s.Cfg.Logo)
 }

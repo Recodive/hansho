@@ -85,7 +85,7 @@ public class AudienceTests
         var c = await hub.Client.GetChannelAsync("ops");
         Assert.Equal(AudienceMode.Except, c.Audience!.Mode);
         Assert.Equal(new[] { "bob" }, c.Audience.Users);
-        Assert.Empty(c.Audience.Groups);
+        Assert.Empty(c.Audience.Groups!);
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public class AudienceTests
         var f = await hub.Client.GetFeedAsync("queue", "u 1");
         Assert.Equal("GET", hub.Requests[0].Method);
         Assert.Equal("/api/v1/feeds/queue?external_user_id=u%201", hub.Requests[0].RawUrl);
-        Assert.Equal(new FeedSettings("queue", "u 1", "status", "Queue", "pager", null, 1760000000), f);
+        Assert.Equal(new FeedSettings { FeedId = "queue", ExternalUserId = "u 1", TemplateId = "status", Title = "Queue", Channel = "pager", UpdatedAt = 1760000000 }, f);
 
         await hub.Client.GetFeedAsync("queue");
         Assert.Equal("/api/v1/feeds/queue", hub.Requests[1].RawUrl);
@@ -176,21 +176,21 @@ public class AudienceTests
                 + "{\"external_user_id\":\"carol\",\"status\":\"no_access\"}]}";
         });
         var res = await hub.Client.SendMessageAsync(ToOne with { ExternalUserId = null, ExternalUserIds = new[] { "alice", "carol" } });
-        Assert.Equal("", res.MessageId);
-        Assert.Equal("", res.Status);
-        Assert.Equal(0, res.Devices);
+        Assert.Null(res.MessageId); // several users: each message is under Recipients
+        Assert.Null(res.Status);
+        Assert.Null(res.Devices);
         Assert.Equal(Level.Active, res.Level);
-        Assert.Empty(res.Deliveries);
+        Assert.Null(res.Deliveries);
         var rs = res.Recipients!;
         Assert.Equal(2, rs.Count);
         Assert.Equal("msg_1", rs[0].MessageId);
         Assert.Equal("queued", rs[0].Status);
         Assert.Equal(1, rs[0].Devices);
-        Assert.Equal(new Delivery("d1", "queued", null), Assert.Single(rs[0].Deliveries));
+        Assert.Equal(new Delivery { DeviceId = "d1", Status = "queued" }, Assert.Single(rs[0].Deliveries!));
         Assert.Equal("carol", rs[1].ExternalUserId);
         Assert.Equal(Recipient.NoAccess, rs[1].Status);
         Assert.Null(rs[1].MessageId);
-        Assert.Equal(0, rs[1].Devices);
+        Assert.Null(rs[1].Devices);
     }
 
     [Fact]

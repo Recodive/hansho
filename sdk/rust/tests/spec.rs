@@ -1,4 +1,5 @@
-//! Every operation and error of sdk/spec/api.json: the exact request the SDK produces and the typed result.
+//! Every case of `x-conformance` in sdk/spec/openapi.json: the exact request the SDK produces and the typed result, plus a
+//! check that the client has a method for every operationId of the spec.
 
 mod common;
 
@@ -15,11 +16,27 @@ fn at(secs: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(secs)
 }
 
-fn delivery(device: &str, status: &str, error: Option<&str>) -> Delivery {
-    Delivery { device_id: device.into(), status: status.into(), error: error.map(Into::into) }
+fn delivery(device: &str, status: &str, error: &str) -> Delivery {
+    Delivery { device_id: device.into(), status: status.into(), error: error.into() }
 }
 
 type Call = Box<dyn Fn(&Client)>;
+
+/// The `x-conformance` object of the OpenAPI document: the cases (`operations`) and the `errors`.
+fn conformance() -> Value {
+    load_spec("openapi.json")["x-conformance"].clone()
+}
+
+/// `listTemplates` -> `list_templates`.
+fn snake(id: &str) -> String {
+    id.chars().fold(String::new(), |mut out, c| {
+        if c.is_ascii_uppercase() {
+            out.push('_');
+        }
+        out.push(c.to_ascii_lowercase());
+        out
+    })
+}
 
 /// Every operation of the spec: the SDK call, asserting the value it must produce.
 fn calls() -> BTreeMap<&'static str, Call> {
@@ -36,11 +53,26 @@ fn calls() -> BTreeMap<&'static str, Call> {
             assert_eq!(got, want);
         }),
     );
+    m.insert(
+        "createPairingTicketWithName",
+        Box::new(|c| {
+            let got = c.create_pairing_ticket_with_name("user-42", "Zoë 日本語").unwrap();
+            let want = PairingTicket {
+                ticket: "tk_def".into(),
+                qr: "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_def&fp=ff00".into(),
+                expires_at: at(1_794_139_800),
+            };
+            assert_eq!(got, want);
+        }),
+    );
+    m.insert("setUserDisplayName", Box::new(|c| c.set_user_display_name("user-42", "Zoë 日本語").unwrap()));
+    m.insert("clearUserDisplayName", Box::new(|c| c.set_user_display_name("user 42", "").unwrap()));
     m.insert("unpair", Box::new(|c| c.unpair("user-42").unwrap()));
     m.insert(
         "putChannel",
         Box::new(|c| {
             let ch = Channel {
+                id: None,
                 name: "Operations".into(),
                 default_level: Level::Active,
                 max_level: Level::Critical,
@@ -48,8 +80,15 @@ fn calls() -> BTreeMap<&'static str, Call> {
                 template_id: Some("status".into()),
                 thread: Some("ops-thread".into()),
                 actions: vec![
-                    Action { id: "ack".into(), title: "Acknowledge".into(), ack: Some(true), kind: None },
-                    Action { id: "reply".into(), title: "Reply".into(), ack: None, kind: Some("text".into()) },
+                    Action { id: "ack".into(), title: "Acknowledge".into(), ack: Some(true), ..Default::default() },
+                    Action { id: "reply".into(), title: "Reply".into(), kind: Some("text".into()), ..Default::default() },
+                    Action {
+                        id: "runbook".into(),
+                        title: "Runbook".into(),
+                        kind: Some("url".into()),
+                        url: Some("https://example.com/runbook".into()),
+                        ..Default::default()
+                    },
                 ],
                 audience: None,
             };
@@ -60,6 +99,7 @@ fn calls() -> BTreeMap<&'static str, Call> {
         "getChannel",
         Box::new(|c| {
             let want = Channel {
+                id: Some("ops".into()),
                 name: "Operations".into(),
                 default_level: Level::Active,
                 max_level: Level::Critical,
@@ -91,7 +131,7 @@ fn calls() -> BTreeMap<&'static str, Call> {
         "sendMessage",
         Box::new(|c| {
             let msg = Message {
-                external_user_id: "user-42".into(),
+                external_user_id: Some("user-42".into()),
                 channel: "ops".into(),
                 level: Some(Level::TimeSensitive),
                 title: "Disk full".into(),
@@ -101,7 +141,7 @@ fn calls() -> BTreeMap<&'static str, Call> {
                 template_id: Some("status".into()),
                 data: Some(json!({"disk": 97, "nested": {"snake_case_key": [1, 2]}})),
                 sound: Some("ding".into()),
-                actions: vec![Action { id: "ack".into(), title: "Ack".into(), ack: Some(true), kind: None }],
+                actions: vec![Action { id: "ack".into(), title: "Ack".into(), ack: Some(true), ..Default::default() }],
                 collapse_id: Some("disk-db-1".into()),
                 ..Default::default()
             };
@@ -110,7 +150,7 @@ fn calls() -> BTreeMap<&'static str, Call> {
                 level: Level::TimeSensitive,
                 devices: 2,
                 status: "queued".into(),
-                deliveries: vec![delivery("dev_1", "queued", None), delivery("dev_2", "queued", None)],
+                deliveries: vec![delivery("dev_1", "queued", ""), delivery("dev_2", "queued", "")],
                 recipients: vec![],
             };
             assert_eq!(c.send_message(&msg).unwrap(), want);
@@ -121,7 +161,7 @@ fn calls() -> BTreeMap<&'static str, Call> {
         Box::new(|c| {
             let msg = Message {
                 level: Some(Level::Page),
-                page: Some(PageOptions { interval_seconds: Some(60), max_retries: Some(3) }),
+                page: Some(PageOptions { interval_seconds: Some(60), max_retries: Some(3), ..Default::default() }),
                 ..Message::new("user-42", "ops", "Primary DB down", "Failover did not complete")
             };
             let want = MessageResult {
@@ -129,10 +169,56 @@ fn calls() -> BTreeMap<&'static str, Call> {
                 level: Level::Page,
                 devices: 1,
                 status: "queued".into(),
-                deliveries: vec![delivery("dev_1", "queued", None)],
+                deliveries: vec![delivery("dev_1", "queued", "")],
                 recipients: vec![],
             };
             assert_eq!(c.send_message(&msg).unwrap(), want);
+        }),
+    );
+    m.insert(
+        "sendPageEach",
+        Box::new(|c| {
+            let msg = Message {
+                external_user_ids: vec!["alice".into(), "bob".into()],
+                level: Some(Level::Page),
+                page: Some(PageOptions { interval_seconds: Some(60), max_retries: Some(3), ack: Some(PageAck::Each) }),
+                ..Message::new("", "ops", "Primary DB down", "Failover did not complete")
+            };
+            let got = c.send_message(&msg).unwrap();
+            assert_eq!(got.level, Level::Page);
+            let want = vec![
+                Recipient {
+                    external_user_id: "alice".into(),
+                    message_id: "msg_3".into(),
+                    status: "queued".into(),
+                    devices: 1,
+                    deliveries: vec![delivery("dev_1", "queued", "")],
+                },
+                Recipient {
+                    external_user_id: "bob".into(),
+                    message_id: "msg_4".into(),
+                    status: "queued".into(),
+                    devices: 1,
+                    deliveries: vec![delivery("dev_2", "queued", "")],
+                },
+            ];
+            assert_eq!(got.recipients, want);
+        }),
+    );
+    m.insert(
+        "getMessageAckedNoName",
+        Box::new(|c| {
+            let want = MessageStatus {
+                message_id: "msg_3".into(),
+                status: "acked".into(),
+                level: Level::Page,
+                attempts: 1,
+                deliveries: vec![delivery("dev_1", "sent", "")],
+                acked_at: Some(at(1_794_139_500)),
+                acked_by: "alice".into(),
+                acked_by_name: String::new(),
+            };
+            assert_eq!(c.get_message("msg_3").unwrap(), want);
         }),
     );
     m.insert(
@@ -143,8 +229,10 @@ fn calls() -> BTreeMap<&'static str, Call> {
                 status: "acked".into(),
                 level: Level::Page,
                 attempts: 2,
-                deliveries: vec![delivery("dev_1", "sent", None), delivery("dev_2", "failed", Some("unregistered"))],
+                deliveries: vec![delivery("dev_1", "sent", ""), delivery("dev_2", "failed", "unregistered")],
                 acked_at: Some(at(1_794_139_500)), // 2026-11-08T12:05:00Z
+                acked_by: "user-42".into(),
+                acked_by_name: "Zoë 日本語".into(),
             };
             assert_eq!(c.get_message("msg_2").unwrap(), want);
         }),
@@ -232,22 +320,89 @@ fn calls() -> BTreeMap<&'static str, Call> {
     m.insert(
         "sendToAudience",
         Box::new(|c| {
-            let msg = Message { to_audience: true, ..Message::new("", "ops", "Deploy done", "v1.2.3 is live") };
+            let msg = Message { to_audience: Some(true), ..Message::new("", "ops", "Deploy done", "v1.2.3 is live") };
             let want = MessageResult {
                 level: Level::Active,
                 recipients: vec![
                     Recipient {
                         external_user_id: "alice".into(),
-                        message_id: Some("msg_7".into()),
+                        message_id: "msg_7".into(),
                         status: "queued".into(),
                         devices: 1,
-                        deliveries: vec![delivery("dev_1", "queued", None)],
+                        deliveries: vec![delivery("dev_1", "queued", "")],
                     },
                     Recipient { external_user_id: "carol".into(), status: RECIPIENT_NO_ACCESS.into(), ..Default::default() },
                 ],
                 ..Default::default()
             };
             assert_eq!(c.send_message(&msg).unwrap(), want);
+        }),
+    );
+    m.insert(
+        "listChannels",
+        Box::new(|c| {
+            let want = vec![Channel {
+                id: Some("ops".into()),
+                name: "Operations".into(),
+                default_level: Level::Active,
+                max_level: Level::Critical,
+                thread: Some("ops".into()),
+                audience: Some(Audience::default()),
+                ..Default::default()
+            }];
+            assert_eq!(c.list_channels().unwrap(), want);
+        }),
+    );
+    m.insert(
+        "listTemplates",
+        Box::new(|c| {
+            let want = vec![Template { id: "status".into(), version: 2, body: json!({"type": "text", "text": "{{title}}"}) }];
+            assert_eq!(c.list_templates().unwrap(), want);
+        }),
+    );
+    m.insert(
+        "getTemplate",
+        Box::new(|c| {
+            let want = Template { id: "status".into(), version: 2, body: json!({"type": "text", "text": "{{title}}"}) };
+            assert_eq!(c.get_template("status").unwrap(), want);
+        }),
+    );
+    m.insert("deleteTemplate", Box::new(|c| c.delete_template("status").unwrap()));
+    m.insert(
+        "listSounds",
+        Box::new(|c| {
+            let want = vec![Sound { id: "ding".into(), content_type: "audio/wav".into(), bytes: 12, sha256: "00".into() }];
+            assert_eq!(c.list_sounds().unwrap(), want);
+        }),
+    );
+    m.insert(
+        "getSound",
+        Box::new(|c| {
+            let want = Sound { id: "ding".into(), content_type: "audio/wav".into(), bytes: 12, sha256: "00".into() };
+            assert_eq!(c.get_sound("ding").unwrap(), want);
+        }),
+    );
+    m.insert("deleteSound", Box::new(|c| c.delete_sound("ding").unwrap()));
+    m.insert(
+        "listGroups",
+        Box::new(|c| {
+            let want = vec![Group { id: "oncall".into(), members: vec!["alice".into(), "bob".into()] }];
+            assert_eq!(c.list_groups().unwrap(), want);
+        }),
+    );
+    m.insert(
+        "getFeed",
+        Box::new(|c| {
+            let want = FeedSettings {
+                feed_id: "uptime".into(),
+                external_user_id: "user-42".into(),
+                template_id: "status".into(),
+                title: "Uptime".into(),
+                channel: "ops".into(),
+                audience: Some(Audience { mode: AudienceMode::Only, users: vec!["alice".into()], groups: vec![] }),
+                updated_at: 1_762_603_200,
+            };
+            assert_eq!(c.get_feed("uptime", Some("user-42")).unwrap(), want);
         }),
     );
     m
@@ -259,11 +414,12 @@ fn only() -> Audience {
 
 #[test]
 fn every_spec_operation() {
-    let spec = load_spec("api.json");
+    let spec = conformance();
     let calls = calls();
     for op in spec["operations"].as_array().unwrap() {
         let name = op["name"].as_str().unwrap();
         let call = calls.get(name).unwrap_or_else(|| panic!("no SDK call for spec operation {name}"));
+        assert!(SPEC_OPERATIONS.contains(&op["operation"].as_str().unwrap()), "{name}: operation is not in the spec");
         let (status, resp_body) = (op["response"]["status"].as_u64().unwrap() as u16, op["response"]["body"].to_string());
         let hub = start(move |_| Reply::default().status(status).body(resp_body.clone()));
         call(&hub.client());
@@ -294,17 +450,17 @@ fn every_spec_operation() {
 
 #[test]
 fn covers_every_sdk_call() {
-    let spec = load_spec("api.json");
+    let spec = conformance();
     let names: Vec<&str> = spec["operations"].as_array().unwrap().iter().map(|o| o["name"].as_str().unwrap()).collect();
     for k in calls().keys() {
-        assert!(names.contains(k), "SDK call {k} has no operation in sdk/spec/api.json");
+        assert!(names.contains(k), "SDK call {k} has no case in x-conformance of sdk/spec/openapi.json");
     }
     assert_eq!(names.len(), calls().len());
 }
 
 #[test]
 fn every_spec_error() {
-    let spec = load_spec("api.json");
+    let spec = conformance();
     let errors = spec["errors"].as_array().unwrap();
     assert!(errors.len() >= 5);
     for e in errors {
@@ -326,4 +482,36 @@ fn every_spec_error() {
         assert_eq!(hub.count(), 1, "POST /messages must not be retried");
         assert!(hub.waits().is_empty());
     }
+}
+
+#[test]
+fn client_has_a_method_for_every_spec_operation() {
+    let client = include_str!("../src/client.rs");
+    let missing: Vec<&str> = SPEC_OPERATIONS.iter().copied().filter(|id| !client.contains(&format!("pub fn {}(", snake(id)))).collect();
+    assert!(missing.is_empty(), "Client has no method for the spec operations {missing:?}");
+}
+
+#[test]
+fn the_generated_tables_match_the_spec() {
+    let doc = load_spec("openapi.json");
+    let mut ids: Vec<&str> = doc["paths"]
+        .as_object()
+        .unwrap()
+        .values()
+        .flat_map(|item| item.as_object().unwrap().values())
+        .filter_map(|op| op["operationId"].as_str())
+        .collect();
+    ids.sort_unstable();
+    let mut have: Vec<&str> = SPEC_OPERATIONS.to_vec();
+    have.sort_unstable();
+    assert_eq!(have, ids);
+
+    let mut events: Vec<&str> = doc["webhooks"].as_object().unwrap().keys().map(String::as_str).collect();
+    events.sort_unstable();
+    let mut have: Vec<&str> = EVENTS.iter().map(|(name, _)| *name).collect();
+    have.sort_unstable();
+    assert_eq!(have, events);
+
+    assert_eq!(VERSION, doc["info"]["version"].as_str().unwrap());
+    assert_eq!(VERSION, env!("CARGO_PKG_VERSION"));
 }

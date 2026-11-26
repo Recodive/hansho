@@ -213,6 +213,19 @@ func TestForwardCompatibility(t *testing.T) {
 	}
 }
 
+func TestMessageAckedCarriesWhoAcked(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	body := []byte(`{"id":"9","event":"message.acked","created_at":5,"data":{"message_id":"m","device_id":"d","external_user_id":"u","acked_by":"bob","acked_by_name":"Bob ボブ"}}`)
+	ev, err := VerifyWebhook([]byte("s"), signedHeader("s", now, body), body, now, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := MessageAcked{MessageID: "m", DeviceID: "d", ExternalUserID: "u", AckedBy: "bob", AckedByName: "Bob ボブ"}
+	if d, err := ev.Data(); err != nil || d != want {
+		t.Fatalf("%#v %v", d, err)
+	}
+}
+
 func TestTypedPayloads(t *testing.T) {
 	want := map[string]any{
 		EventPairingCreated:       PairingCreated{PairingID: "pair_1", ExternalUserID: "user-42", DeviceName: "Bas’s iPhone <Ünï>"},

@@ -94,7 +94,7 @@ fn feeds_carry_channel_and_audience_and_are_read_back() {
         FeedSettings {
             feed_id: "queue".into(),
             template_id: "status".into(),
-            channel: Some("pager".into()),
+            channel: "pager".into(),
             updated_at: 1_794_139_800,
             ..Default::default()
         }
@@ -123,12 +123,12 @@ fn send_targets_are_serialised_one_at_a_time() {
     assert_eq!(b["external_user_ids"], json!(["alice", "carol"]));
     assert!(b.get("external_user_id").is_none() && b.get("to_audience").is_none());
 
-    c.send_message(&Message { to_audience: true, ..base.clone() }).unwrap();
+    c.send_message(&Message { to_audience: Some(true), ..base.clone() }).unwrap();
     let b = body(&h, 1);
     assert_eq!(b["to_audience"], true);
     assert!(b.get("external_user_id").is_none() && b.get("external_user_ids").is_none());
 
-    c.send_message(&Message { external_user_id: "alice".into(), ..base }).unwrap();
+    c.send_message(&Message { external_user_id: Some("alice".into()), ..base }).unwrap();
     let b = body(&h, 2);
     assert_eq!(b["external_user_id"], "alice");
     assert!(b.get("external_user_ids").is_none() && b.get("to_audience").is_none());
@@ -156,13 +156,13 @@ fn per_recipient_results_and_the_old_top_level_fields() {
     assert_eq!(res.message_id, "");
     assert_eq!(res.level, Level::Page);
     assert_eq!(res.recipients.len(), 2);
-    assert_eq!(res.recipients[0].message_id.as_deref(), Some("msg_1"));
+    assert_eq!(res.recipients[0].message_id, "msg_1");
     assert_eq!(res.recipients[0].devices, 1);
     assert_eq!(res.recipients[0].deliveries.len(), 1);
-    assert_eq!(res.recipients[1].message_id, None);
+    assert_eq!(res.recipients[1].message_id, "");
     assert_eq!(res.recipients[1].status, RECIPIENT_NO_ACCESS);
 
-    let one = c.send_message(&Message { external_user_id: "carol".into(), ..base }).unwrap();
+    let one = c.send_message(&Message { external_user_id: Some("carol".into()), ..base }).unwrap();
     assert_eq!((one.message_id.as_str(), one.status.as_str(), one.devices), ("", RECIPIENT_NO_ACCESS, 0));
     assert_eq!(one.recipients[0].external_user_id, "carol");
 }

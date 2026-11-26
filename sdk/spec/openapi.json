@@ -1,0 +1,2812 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Hansho hub sender API",
+    "version": "0.2.0",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "description": "The one contract of the Hansho SDKs. Edit this file, run `go run ./scripts/gen` in sdk/, and implement the operation in every SDK: CI names the ones that miss it. `x-name` is the field name every SDK uses when it differs from the wire name; `x-header` is a field sent as a request header, never in the body. `x-conformance` holds the exact requests the SDKs must produce and answers the hub gives, which every SDK test suite replays."
+  },
+  "servers": [
+    {
+      "url": "https://hub.example.com",
+      "description": "Your hub's public URL."
+    }
+  ],
+  "security": [
+    {
+      "apiKey": []
+    }
+  ],
+  "paths": {
+    "/api/v1/pairing-tickets": {
+      "post": {
+        "operationId": "createPairingTicket",
+        "summary": "Creates a single-use pairing ticket for a user of your system (valid for 10 minutes).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "external_user_id"
+                ],
+                "properties": {
+                  "external_user_id": {
+                    "type": "string"
+                  },
+                  "display_name": {
+                    "type": "string",
+                    "description": "What other people see for the user instead of their id (trimmed, at most 40 characters, no control characters)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingTicket"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{external_user_id}": {
+      "parameters": [
+        {
+          "name": "external_user_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "operationId": "setUserDisplayName",
+        "summary": "Sets what other people see for the user instead of their external user id. An empty name clears it. The user need not be paired yet.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "display_name"
+                ],
+                "properties": {
+                  "display_name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{external_user_id}/pairings": {
+      "parameters": [
+        {
+          "name": "external_user_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "delete": {
+        "operationId": "unpair",
+        "summary": "Revokes every pairing of the user, on every device (the SDKs also call it kick).",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "revoked"
+                  ],
+                  "properties": {
+                    "revoked": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/channels": {
+      "get": {
+        "operationId": "listChannels",
+        "summary": "Lists every channel.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Channel"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/channels/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "operationId": "putChannel",
+        "summary": "Creates or replaces a channel. Ids match [A-Za-z0-9][A-Za-z0-9._-]{0,63}.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Channel"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Channel"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "get": {
+        "operationId": "getChannel",
+        "summary": "Returns a channel; a missing one is error `unknown_channel`.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Channel"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteChannel",
+        "summary": "Deletes a channel.",
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/templates": {
+      "get": {
+        "operationId": "listTemplates",
+        "summary": "Lists every template at its latest version.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Template"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/templates/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "operationId": "putTemplate",
+        "summary": "Stores a template version; the version must increase.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "version",
+                  "body"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "integer"
+                  },
+                  "body": {
+                    "description": "The template tree."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "version"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "get": {
+        "operationId": "getTemplate",
+        "summary": "Returns a template; a missing one is error `unknown_template`.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Template"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteTemplate",
+        "summary": "Deletes a template. One a live channel still names is refused with 409 `in_use`.",
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/sounds": {
+      "get": {
+        "operationId": "listSounds",
+        "summary": "Lists every sound.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Sound"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/sounds/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "operationId": "putSound",
+        "summary": "Uploads a notification sound (at most 1 MB).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "audio/x-caf": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "audio/wav": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "audio/aiff": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SoundResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "get": {
+        "operationId": "getSound",
+        "summary": "Returns a sound's metadata; a missing one is error `unknown_sound`.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sound"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteSound",
+        "summary": "Deletes a sound. One a live channel still names is refused with 409 `in_use`.",
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/groups": {
+      "get": {
+        "operationId": "listGroups",
+        "summary": "Lists every group.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Group"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "operationId": "putGroup",
+        "summary": "Creates a group or replaces its whole member list. Ids match [A-Za-z0-9][A-Za-z0-9_-]{0,63}.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "members"
+                ],
+                "properties": {
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Group"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "get": {
+        "operationId": "getGroup",
+        "summary": "Returns a group; a missing one is error `unknown_group`.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Group"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteGroup",
+        "summary": "Deletes a group. An audience that still names it matches nobody through it.",
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/feeds/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "operationId": "putFeed",
+        "summary": "Sets the data behind a widget and asks the devices to reload.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Feed"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "get": {
+        "operationId": "getFeed",
+        "summary": "Returns a feed's settings without its data; a missing one is error `unknown_feed`.",
+        "parameters": [
+          {
+            "name": "external_user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Leave out for the feed shared by all users."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedSettings"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/activities": {
+      "post": {
+        "operationId": "startActivity",
+        "summary": "Starts a Live Activity on the user's devices.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Activity"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityStarted"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/activities/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "patch": {
+        "operationId": "updateActivity",
+        "summary": "Pushes new content to a running Live Activity. Never retried automatically.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityUpdated"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "endActivity",
+        "summary": "Ends a Live Activity.",
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "activity_id"
+                  ],
+                  "properties": {
+                    "activity_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/messages": {
+      "post": {
+        "operationId": "sendMessage",
+        "summary": "Sends a notification, or a page at level `page`. Never retried automatically unless it carries an idempotency key.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Message"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/messages/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getMessage",
+        "summary": "Returns a message's status and per-device deliveries.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {
+    "pairing.created": {
+      "post": {
+        "operationId": "onPairingCreated",
+        "summary": "The pairing.created event. Its `data` object is a PairingCreated.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairingCreated"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received"
+          }
+        }
+      }
+    },
+    "pairing.revoked": {
+      "post": {
+        "operationId": "onPairingRevoked",
+        "summary": "The pairing.revoked event. Its `data` object is a PairingRevoked.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairingRevoked"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received"
+          }
+        }
+      }
+    },
+    "message.delivered": {
+      "post": {
+        "operationId": "onMessageDelivered",
+        "summary": "The message.delivered event. Its `data` object is a MessageDelivered.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageDelivered"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received"
+          }
+        }
+      }
+    },
+    "message.undeliverable": {
+      "post": {
+        "operationId": "onMessageUndeliverable",
+        "summary": "The message.undeliverable event. Its `data` object is a MessageUndeliverable.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageUndeliverable"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received"
+          }
+        }
+      }
+    },
+    "message.acked": {
+      "post": {
+        "operationId": "onMessageAcked",
+        "summary": "The message.acked event. Its `data` object is a MessageAcked.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageAcked"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received"
+          }
+        }
+      }
+    },
+    "message.dismissed": {
+      "post": {
+        "operationId": "onMessageDismissed",
+        "summary": "The message.dismissed event. Its `data` object is a MessageDismissed.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageDismissed"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received"
+          }
+        }
+      }
+    },
+    "message.expired": {
+      "post": {
+        "operationId": "onMessageExpired",
+        "summary": "The message.expired event. Its `data` object is a MessageExpired.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageExpired"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received"
+          }
+        }
+      }
+    },
+    "action": {
+      "post": {
+        "operationId": "onActionTaken",
+        "summary": "The action event. Its `data` object is a ActionTaken.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActionTaken"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received"
+          }
+        }
+      }
+    },
+    "activity.ended": {
+      "post": {
+        "operationId": "onActivityEnded",
+        "summary": "The activity.ended event. Its `data` object is a ActivityEnded.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityEnded"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "apiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A sender API key from `hub apikey create`."
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "An error: `{\"error\": code, \"field\"?, \"message\"?}`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error"
+              ],
+              "properties": {
+                "error": {
+                  "type": "string"
+                },
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Level": {
+        "type": "string",
+        "enum": [
+          "passive",
+          "active",
+          "time-sensitive",
+          "critical",
+          "page"
+        ],
+        "description": "How loudly a message is presented, lowest to highest. The hub delivers min(requested or the channel default, the channel max)."
+      },
+      "AudienceMode": {
+        "type": "string",
+        "enum": [
+          "everyone",
+          "only",
+          "except"
+        ],
+        "description": "How an audience reads its lists: everyone, only the listed users and groups, or everyone except them."
+      },
+      "PageAck": {
+        "type": "string",
+        "enum": [
+          "any",
+          "each"
+        ],
+        "description": "Who must acknowledge a page sent to several people: `any` (the hub default) stops it for everyone at the first acknowledgement, `each` keeps paging each person until they acknowledge for themselves."
+      },
+      "Action": {
+        "type": "object",
+        "description": "A button shown with a message or channel. Pressing an `ack` action on a page acknowledges it.",
+        "required": [
+          "id",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "ack": {
+            "type": "boolean",
+            "description": "Pressing it acknowledges a page."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`text` asks for a reply; `url` opens `url`."
+          },
+          "url": {
+            "type": "string",
+            "description": "For kind `url`: the https URL the button opens."
+          }
+        }
+      },
+      "PairingTicket": {
+        "type": "object",
+        "description": "A single-use pairing ticket, valid for 10 minutes.",
+        "required": [
+          "ticket",
+          "qr",
+          "expires_at"
+        ],
+        "properties": {
+          "ticket": {
+            "type": "string"
+          },
+          "qr": {
+            "type": "string",
+            "description": "Render this string as a QR code for the user to scan in the app."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Audience": {
+        "type": "object",
+        "description": "Says who may use a channel or feed. `users` are your external user ids (they may not have paired yet) and `groups` are group ids (a group that does not exist has no members). Both must be empty for `everyone`.",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/AudienceMode"
+          },
+          "users": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Group": {
+        "type": "object",
+        "description": "A named list of users, used in audiences.",
+        "required": [
+          "id",
+          "members"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Channel": {
+        "type": "object",
+        "description": "Groups messages and gives them defaults.",
+        "required": [
+          "name",
+          "default_level",
+          "max_level"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Set by the hub in answers; ignored when sent."
+          },
+          "name": {
+            "type": "string"
+          },
+          "default_level": {
+            "$ref": "#/components/schemas/Level"
+          },
+          "max_level": {
+            "$ref": "#/components/schemas/Level"
+          },
+          "sound": {
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "thread": {
+            "type": "string"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Action"
+            }
+          },
+          "audience": {
+            "$ref": "#/components/schemas/Audience",
+            "description": "Who may use the channel. Leaving it out keeps the stored audience; send mode `everyone` to open the channel up. Reading a channel always returns it."
+          }
+        }
+      },
+      "PageOptions": {
+        "type": "object",
+        "description": "Tunes a page (level `page`). A zero or absent field means the hub default.",
+        "required": [],
+        "properties": {
+          "interval_s": {
+            "type": "integer",
+            "x-name": "interval_seconds",
+            "description": "Seconds between resends (hub default 120)."
+          },
+          "max_retries": {
+            "type": "integer",
+            "description": "Resends before the page expires (hub default 5)."
+          },
+          "ack": {
+            "$ref": "#/components/schemas/PageAck"
+          }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "description": "A notification for one user, for several, or for a channel's audience. Users outside the channel's audience are not delivered to: their recipient has status `no_access`.",
+        "required": [
+          "channel",
+          "title",
+          "body"
+        ],
+        "properties": {
+          "external_user_id": {
+            "type": "string",
+            "description": "Exactly one of `external_user_id`, `external_user_ids` and `to_audience` is required."
+          },
+          "external_user_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sends to several users at once (at most 1000)."
+          },
+          "to_audience": {
+            "type": "boolean",
+            "description": "Sends to every paired user in the channel's audience, resolved when you send."
+          },
+          "channel": {
+            "type": "string"
+          },
+          "level": {
+            "$ref": "#/components/schemas/Level"
+          },
+          "title": {
+            "type": "string"
+          },
+          "subtitle": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "data": {
+            "description": "Template data, sent as given: its keys are never renamed."
+          },
+          "sound": {
+            "type": "string"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Action"
+            }
+          },
+          "collapse_id": {
+            "type": "string"
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageOptions"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "x-header": "Idempotency-Key",
+            "description": "Opts this send in to retries of 429 and 503. Sent as the Idempotency-Key header, never in the body. The hub ignores it today, so a retried send is at-least-once."
+          }
+        }
+      },
+      "Delivery": {
+        "type": "object",
+        "description": "The state of a message on one device.",
+        "required": [
+          "device_id",
+          "status"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "Recipient": {
+        "type": "object",
+        "description": "The outcome of a send for one user.",
+        "required": [
+          "external_user_id",
+          "status"
+        ],
+        "properties": {
+          "external_user_id": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "The message status (queued, undeliverable) or `no_access`, with no message id."
+          },
+          "devices": {
+            "type": "integer"
+          },
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Delivery"
+            }
+          }
+        }
+      },
+      "MessageResult": {
+        "type": "object",
+        "description": "The answer to a send. For a send to one `external_user_id` the other fields describe that recipient; for several users or an audience they are empty and each message is under `recipients`.",
+        "required": [
+          "level"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string"
+          },
+          "level": {
+            "$ref": "#/components/schemas/Level"
+          },
+          "devices": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Delivery"
+            }
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Recipient"
+            },
+            "description": "One entry per user."
+          }
+        }
+      },
+      "MessageStatus": {
+        "type": "object",
+        "description": "A message's status and per-device deliveries.",
+        "required": [
+          "message_id",
+          "status",
+          "level",
+          "attempts",
+          "deliveries"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "One of queued, delivered, undeliverable, paging, acked, expired."
+          },
+          "level": {
+            "$ref": "#/components/schemas/Level"
+          },
+          "attempts": {
+            "type": "integer"
+          },
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Delivery"
+            }
+          },
+          "acked_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When a page was acknowledged; absent until then."
+          },
+          "acked_by": {
+            "type": "string",
+            "description": "Who acknowledged a page: their external user id."
+          },
+          "acked_by_name": {
+            "type": "string",
+            "description": "The display name of whoever acknowledged, only when they have one."
+          }
+        }
+      },
+      "ActivityAlert": {
+        "type": "object",
+        "description": "The optional banner shown with a Live Activity change.",
+        "required": [],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        }
+      },
+      "Activity": {
+        "type": "object",
+        "description": "Starts a Live Activity from a template.",
+        "required": [
+          "external_user_id",
+          "channel",
+          "template_id",
+          "data"
+        ],
+        "properties": {
+          "external_user_id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "data": {
+            "description": "Any JSON value, sent and returned as is: its keys are never renamed."
+          },
+          "alert": {
+            "$ref": "#/components/schemas/ActivityAlert"
+          }
+        }
+      },
+      "ActivityUpdate": {
+        "type": "object",
+        "description": "Changes a running Live Activity.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "description": "Any JSON value, sent and returned as is: its keys are never renamed."
+          },
+          "priority": {
+            "type": "integer",
+            "enum": [
+              5,
+              10
+            ],
+            "description": "5 (the hub default) or 10."
+          },
+          "alert": {
+            "$ref": "#/components/schemas/ActivityAlert"
+          }
+        }
+      },
+      "ActivityStarted": {
+        "type": "object",
+        "required": [
+          "activity_id",
+          "devices"
+        ],
+        "properties": {
+          "activity_id": {
+            "type": "string"
+          },
+          "devices": {
+            "type": "integer"
+          }
+        },
+        "description": "The answer to starting a Live Activity."
+      },
+      "ActivityUpdated": {
+        "type": "object",
+        "required": [
+          "activity_id",
+          "update"
+        ],
+        "properties": {
+          "activity_id": {
+            "type": "string"
+          },
+          "update": {
+            "type": "integer"
+          }
+        },
+        "description": "The answer to updating a Live Activity: `update` counts the updates so far."
+      },
+      "Feed": {
+        "type": "object",
+        "description": "The data behind a widget.",
+        "required": [
+          "template_id",
+          "data"
+        ],
+        "properties": {
+          "external_user_id": {
+            "type": "string",
+            "description": "Leave out for a feed shared by all paired users."
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "description": "The name the app's feed picker shows instead of the id (at most 64 bytes)."
+          },
+          "channel": {
+            "type": "string",
+            "description": "The feed uses this channel's audience unless it sets its own."
+          },
+          "audience": {
+            "$ref": "#/components/schemas/Audience",
+            "description": "Who may see the feed. With neither this nor `channel` it is for everyone. Title, channel and audience are replaced by every put, so send them with each update."
+          },
+          "data": {
+            "description": "Any JSON value, sent and returned as is: its keys are never renamed."
+          }
+        }
+      },
+      "FeedSettings": {
+        "type": "object",
+        "description": "A feed without its data.",
+        "required": [
+          "feed_id",
+          "template_id",
+          "updated_at"
+        ],
+        "properties": {
+          "feed_id": {
+            "type": "string"
+          },
+          "external_user_id": {
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "audience": {
+            "$ref": "#/components/schemas/Audience",
+            "description": "Absent while the feed inherits its channel's audience."
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix seconds."
+          }
+        }
+      },
+      "FeedResult": {
+        "type": "object",
+        "required": [
+          "feed_id",
+          "devices"
+        ],
+        "properties": {
+          "feed_id": {
+            "type": "string"
+          },
+          "devices": {
+            "type": "integer"
+          }
+        },
+        "description": "The answer to putting a feed: `devices` is how many were asked to reload."
+      },
+      "Template": {
+        "type": "object",
+        "description": "A stored template version.",
+        "required": [
+          "id",
+          "version",
+          "body"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "body": {
+            "description": "The template tree."
+          }
+        }
+      },
+      "Sound": {
+        "type": "object",
+        "description": "A stored sound's metadata.",
+        "required": [
+          "id",
+          "content_type",
+          "bytes",
+          "sha256"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        }
+      },
+      "SoundResult": {
+        "type": "object",
+        "description": "The answer to a sound upload.",
+        "required": [
+          "id",
+          "filename",
+          "sha256",
+          "size"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          }
+        }
+      },
+      "PairingCreated": {
+        "type": "object",
+        "required": [
+          "pairing_id",
+          "external_user_id"
+        ],
+        "properties": {
+          "pairing_id": {
+            "type": "string"
+          },
+          "external_user_id": {
+            "type": "string"
+          },
+          "device_name": {
+            "type": "string"
+          }
+        }
+      },
+      "PairingRevoked": {
+        "type": "object",
+        "required": [
+          "pairing_id",
+          "external_user_id"
+        ],
+        "properties": {
+          "pairing_id": {
+            "type": "string"
+          },
+          "external_user_id": {
+            "type": "string"
+          },
+          "by": {
+            "type": "string",
+            "description": "Who revoked: `sender`, `device` or `relay`."
+          }
+        }
+      },
+      "MessageDelivered": {
+        "type": "object",
+        "required": [
+          "message_id",
+          "external_user_id"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string"
+          },
+          "external_user_id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "level": {
+            "$ref": "#/components/schemas/Level"
+          },
+          "devices": {
+            "type": "integer"
+          }
+        }
+      },
+      "MessageUndeliverable": {
+        "type": "object",
+        "required": [
+          "message_id",
+          "external_user_id"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string"
+          },
+          "external_user_id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "`no_devices` or `all_deliveries_failed`."
+          }
+        }
+      },
+      "MessageAcked": {
+        "type": "object",
+        "required": [
+          "message_id",
+          "external_user_id"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string"
+          },
+          "external_user_id": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "string"
+          },
+          "acked_by": {
+            "type": "string",
+            "description": "Who acknowledged (an external user id; differs from `external_user_id` when a page went to several people)."
+          },
+          "acked_by_name": {
+            "type": "string",
+            "description": "Their display name, only when they have one."
+          }
+        }
+      },
+      "MessageDismissed": {
+        "type": "object",
+        "description": "Means the person swiped away a message that asked to be acknowledged, without acknowledging it.",
+        "required": [
+          "message_id",
+          "external_user_id"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string"
+          },
+          "external_user_id": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "string"
+          }
+        }
+      },
+      "MessageExpired": {
+        "type": "object",
+        "required": [
+          "message_id",
+          "external_user_id"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string"
+          },
+          "external_user_id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "attempts": {
+            "type": "integer"
+          }
+        }
+      },
+      "ActionTaken": {
+        "type": "object",
+        "description": "A button press.",
+        "required": [
+          "message_id",
+          "action_id"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string"
+          },
+          "action_id": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "string"
+          },
+          "external_user_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string",
+            "description": "The reply text of a text action, if any."
+          }
+        }
+      },
+      "ActivityEnded": {
+        "type": "object",
+        "required": [
+          "activity_id"
+        ],
+        "properties": {
+          "activity_id": {
+            "type": "string"
+          },
+          "external_user_id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "x-conformance": {
+    "comment": "Paths are the escaped request paths. `operation` is the operationId the case exercises.",
+    "auth_header": "Authorization",
+    "auth_scheme": "Bearer",
+    "operations": [
+      {
+        "name": "createPairingTicket",
+        "operation": "createPairingTicket",
+        "method": "POST",
+        "path": "/api/v1/pairing-tickets",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "external_user_id": "user-42"
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "ticket": "tk_abc",
+            "qr": "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_abc&fp=ff00",
+            "expires_at": "2026-11-08T12:10:00Z",
+            "future_field": {
+              "ignored": true
+            }
+          }
+        }
+      },
+      {
+        "name": "createPairingTicketWithName",
+        "operation": "createPairingTicket",
+        "method": "POST",
+        "path": "/api/v1/pairing-tickets",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "external_user_id": "user-42",
+            "display_name": "Zoë 日本語"
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "ticket": "tk_def",
+            "qr": "hansho://pair?hub=https%3A%2F%2Fhub.example.com&t=tk_def&fp=ff00",
+            "expires_at": "2026-11-08T12:10:00Z"
+          }
+        }
+      },
+      {
+        "name": "setUserDisplayName",
+        "operation": "setUserDisplayName",
+        "method": "PUT",
+        "path": "/api/v1/users/user-42",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "display_name": "Zoë 日本語"
+          }
+        },
+        "response": {
+          "status": 204,
+          "body": null
+        }
+      },
+      {
+        "name": "clearUserDisplayName",
+        "operation": "setUserDisplayName",
+        "method": "PUT",
+        "path": "/api/v1/users/user%2042",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "display_name": ""
+          }
+        },
+        "response": {
+          "status": 204,
+          "body": null
+        }
+      },
+      {
+        "name": "unpair",
+        "operation": "unpair",
+        "method": "DELETE",
+        "path": "/api/v1/users/user-42/pairings",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "revoked": 1
+          }
+        }
+      },
+      {
+        "name": "putChannel",
+        "operation": "putChannel",
+        "method": "PUT",
+        "path": "/api/v1/channels/ops",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "name": "Operations",
+            "default_level": "active",
+            "max_level": "critical",
+            "sound": "ding",
+            "template_id": "status",
+            "thread": "ops-thread",
+            "actions": [
+              {
+                "id": "ack",
+                "title": "Acknowledge",
+                "ack": true
+              },
+              {
+                "id": "reply",
+                "title": "Reply",
+                "kind": "text"
+              },
+              {
+                "id": "runbook",
+                "title": "Runbook",
+                "kind": "url",
+                "url": "https://example.com/runbook"
+              }
+            ]
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "ops",
+            "name": "Operations",
+            "default_level": "active",
+            "max_level": "critical",
+            "sound": "ding",
+            "template_id": "status",
+            "thread": "ops-thread",
+            "actions": [
+              {
+                "id": "ack",
+                "title": "Acknowledge",
+                "ack": true
+              },
+              {
+                "id": "reply",
+                "title": "Reply",
+                "kind": "text"
+              },
+              {
+                "id": "runbook",
+                "title": "Runbook",
+                "kind": "url",
+                "url": "https://example.com/runbook"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "getChannel",
+        "operation": "getChannel",
+        "method": "GET",
+        "path": "/api/v1/channels/ops",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "ops",
+            "name": "Operations",
+            "default_level": "active",
+            "max_level": "critical",
+            "sound": "",
+            "template_id": "",
+            "thread": "ops",
+            "actions": [],
+            "added_later": 1
+          }
+        }
+      },
+      {
+        "name": "deleteChannel",
+        "operation": "deleteChannel",
+        "method": "DELETE",
+        "path": "/api/v1/channels/ops",
+        "request": null,
+        "response": {
+          "status": 204,
+          "body": null
+        }
+      },
+      {
+        "name": "putTemplate",
+        "operation": "putTemplate",
+        "method": "PUT",
+        "path": "/api/v1/templates/status",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "version": 2,
+            "body": {
+              "type": "vstack",
+              "children": [
+                {
+                  "type": "text",
+                  "style": "headline",
+                  "text": "{{title}}"
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "status",
+            "version": 2
+          }
+        }
+      },
+      {
+        "name": "putSound",
+        "operation": "putSound",
+        "method": "PUT",
+        "path": "/api/v1/sounds/ding",
+        "request": {
+          "content_type": "audio/wav",
+          "raw_base64": "UklGRgAAAABXQVZF"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "ding",
+            "filename": "ding.wav",
+            "sha256": "00",
+            "size": 12
+          }
+        }
+      },
+      {
+        "name": "sendMessage",
+        "operation": "sendMessage",
+        "method": "POST",
+        "path": "/api/v1/messages",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "external_user_id": "user-42",
+            "channel": "ops",
+            "level": "time-sensitive",
+            "title": "Disk full",
+            "subtitle": "db-1",
+            "body": "db-1 is at 97%",
+            "image_url": "https://example.com/i.png",
+            "template_id": "status",
+            "data": {
+              "disk": 97,
+              "nested": {
+                "snake_case_key": [
+                  1,
+                  2
+                ]
+              }
+            },
+            "sound": "ding",
+            "actions": [
+              {
+                "id": "ack",
+                "title": "Ack",
+                "ack": true
+              }
+            ],
+            "collapse_id": "disk-db-1"
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": {
+            "message_id": "msg_1",
+            "level": "time-sensitive",
+            "devices": 2,
+            "status": "queued",
+            "deliveries": [
+              {
+                "device_id": "dev_1",
+                "status": "queued"
+              },
+              {
+                "device_id": "dev_2",
+                "status": "queued"
+              }
+            ],
+            "future_field": "x"
+          }
+        }
+      },
+      {
+        "name": "sendPage",
+        "operation": "sendMessage",
+        "method": "POST",
+        "path": "/api/v1/messages",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "external_user_id": "user-42",
+            "channel": "ops",
+            "level": "page",
+            "title": "Primary DB down",
+            "body": "Failover did not complete",
+            "page": {
+              "interval_s": 60,
+              "max_retries": 3
+            }
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": {
+            "message_id": "msg_2",
+            "level": "page",
+            "devices": 1,
+            "status": "queued",
+            "deliveries": [
+              {
+                "device_id": "dev_1",
+                "status": "queued"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "sendPageEach",
+        "operation": "sendMessage",
+        "method": "POST",
+        "path": "/api/v1/messages",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "external_user_ids": [
+              "alice",
+              "bob"
+            ],
+            "channel": "ops",
+            "level": "page",
+            "title": "Primary DB down",
+            "body": "Failover did not complete",
+            "page": {
+              "interval_s": 60,
+              "max_retries": 3,
+              "ack": "each"
+            }
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": {
+            "level": "page",
+            "recipients": [
+              {
+                "external_user_id": "alice",
+                "message_id": "msg_3",
+                "status": "queued",
+                "devices": 1,
+                "deliveries": [
+                  {
+                    "device_id": "dev_1",
+                    "status": "queued"
+                  }
+                ]
+              },
+              {
+                "external_user_id": "bob",
+                "message_id": "msg_4",
+                "status": "queued",
+                "devices": 1,
+                "deliveries": [
+                  {
+                    "device_id": "dev_2",
+                    "status": "queued"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "getMessage",
+        "operation": "getMessage",
+        "method": "GET",
+        "path": "/api/v1/messages/msg_2",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "message_id": "msg_2",
+            "status": "acked",
+            "level": "page",
+            "attempts": 2,
+            "deliveries": [
+              {
+                "device_id": "dev_1",
+                "status": "sent",
+                "error": ""
+              },
+              {
+                "device_id": "dev_2",
+                "status": "failed",
+                "error": "unregistered"
+              }
+            ],
+            "acked_at": "2026-11-08T12:05:00Z",
+            "acked_by": "user-42",
+            "acked_by_name": "Zoë 日本語"
+          }
+        }
+      },
+      {
+        "name": "getMessageAckedNoName",
+        "operation": "getMessage",
+        "method": "GET",
+        "path": "/api/v1/messages/msg_3",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "message_id": "msg_3",
+            "status": "acked",
+            "level": "page",
+            "attempts": 1,
+            "deliveries": [
+              {
+                "device_id": "dev_1",
+                "status": "sent",
+                "error": ""
+              }
+            ],
+            "acked_at": "2026-11-08T12:05:00Z",
+            "acked_by": "alice"
+          }
+        }
+      },
+      {
+        "name": "startActivity",
+        "operation": "startActivity",
+        "method": "POST",
+        "path": "/api/v1/activities",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "external_user_id": "user-42",
+            "channel": "ops",
+            "template_id": "deploy",
+            "data": {
+              "progress": 0.1
+            },
+            "alert": {
+              "title": "Deploy started",
+              "body": "v1.2.3"
+            }
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "activity_id": "act_1",
+            "devices": 1
+          }
+        }
+      },
+      {
+        "name": "updateActivity",
+        "operation": "updateActivity",
+        "method": "PATCH",
+        "path": "/api/v1/activities/act_1",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "data": {
+              "progress": 0.6
+            },
+            "priority": 10,
+            "alert": {
+              "title": "Halfway",
+              "body": "60%"
+            }
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": {
+            "activity_id": "act_1",
+            "update": 3
+          }
+        }
+      },
+      {
+        "name": "endActivity",
+        "operation": "endActivity",
+        "method": "DELETE",
+        "path": "/api/v1/activities/act_1",
+        "request": null,
+        "response": {
+          "status": 202,
+          "body": {
+            "activity_id": "act_1"
+          }
+        }
+      },
+      {
+        "name": "putFeed",
+        "operation": "putFeed",
+        "method": "PUT",
+        "path": "/api/v1/feeds/uptime",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "external_user_id": "user-42",
+            "template_id": "status",
+            "title": "Uptime",
+            "data": {
+              "up": true,
+              "ms": 41
+            }
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": {
+            "feed_id": "uptime",
+            "devices": 2
+          }
+        }
+      },
+      {
+        "name": "putGroup",
+        "operation": "putGroup",
+        "method": "PUT",
+        "path": "/api/v1/groups/oncall",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "members": [
+              "alice",
+              "bob"
+            ]
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "oncall",
+            "members": [
+              "alice",
+              "bob"
+            ],
+            "future_field": 1
+          }
+        }
+      },
+      {
+        "name": "getGroup",
+        "operation": "getGroup",
+        "method": "GET",
+        "path": "/api/v1/groups/oncall",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "oncall",
+            "members": [
+              "alice",
+              "bob"
+            ]
+          }
+        }
+      },
+      {
+        "name": "deleteGroup",
+        "operation": "deleteGroup",
+        "method": "DELETE",
+        "path": "/api/v1/groups/oncall",
+        "request": null,
+        "response": {
+          "status": 204,
+          "body": null
+        }
+      },
+      {
+        "name": "kick",
+        "operation": "unpair",
+        "method": "DELETE",
+        "path": "/api/v1/users/user-42/pairings",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "revoked": 1
+          }
+        }
+      },
+      {
+        "name": "putChannelWithAudience",
+        "operation": "putChannel",
+        "method": "PUT",
+        "path": "/api/v1/channels/ops",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "name": "Operations",
+            "default_level": "active",
+            "max_level": "critical",
+            "audience": {
+              "mode": "only",
+              "users": [
+                "alice"
+              ],
+              "groups": [
+                "oncall"
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "ops",
+            "name": "Operations",
+            "default_level": "active",
+            "max_level": "critical",
+            "sound": "",
+            "template_id": "",
+            "thread": "ops",
+            "actions": [],
+            "audience": {
+              "mode": "only",
+              "users": [
+                "alice"
+              ],
+              "groups": [
+                "oncall"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "putFeedWithChannel",
+        "operation": "putFeed",
+        "method": "PUT",
+        "path": "/api/v1/feeds/uptime",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "template_id": "status",
+            "channel": "ops",
+            "audience": {
+              "mode": "only",
+              "users": [
+                "alice"
+              ],
+              "groups": [
+                "oncall"
+              ]
+            },
+            "data": {
+              "up": true
+            }
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": {
+            "feed_id": "uptime",
+            "devices": 1
+          }
+        }
+      },
+      {
+        "name": "sendToAudience",
+        "operation": "sendMessage",
+        "method": "POST",
+        "path": "/api/v1/messages",
+        "request": {
+          "content_type": "application/json",
+          "body": {
+            "to_audience": true,
+            "channel": "ops",
+            "title": "Deploy done",
+            "body": "v1.2.3 is live"
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": {
+            "level": "active",
+            "recipients": [
+              {
+                "external_user_id": "alice",
+                "message_id": "msg_7",
+                "status": "queued",
+                "devices": 1,
+                "deliveries": [
+                  {
+                    "device_id": "dev_1",
+                    "status": "queued"
+                  }
+                ]
+              },
+              {
+                "external_user_id": "carol",
+                "status": "no_access"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "listChannels",
+        "operation": "listChannels",
+        "method": "GET",
+        "path": "/api/v1/channels",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "ops",
+              "name": "Operations",
+              "default_level": "active",
+              "max_level": "critical",
+              "sound": "",
+              "template_id": "",
+              "thread": "ops",
+              "actions": [],
+              "audience": {
+                "mode": "everyone"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "listTemplates",
+        "operation": "listTemplates",
+        "method": "GET",
+        "path": "/api/v1/templates",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "status",
+              "version": 2,
+              "body": {
+                "type": "text",
+                "text": "{{title}}"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "getTemplate",
+        "operation": "getTemplate",
+        "method": "GET",
+        "path": "/api/v1/templates/status",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "status",
+            "version": 2,
+            "body": {
+              "type": "text",
+              "text": "{{title}}"
+            },
+            "future_field": true
+          }
+        }
+      },
+      {
+        "name": "deleteTemplate",
+        "operation": "deleteTemplate",
+        "method": "DELETE",
+        "path": "/api/v1/templates/status",
+        "request": null,
+        "response": {
+          "status": 204,
+          "body": null
+        }
+      },
+      {
+        "name": "listSounds",
+        "operation": "listSounds",
+        "method": "GET",
+        "path": "/api/v1/sounds",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "ding",
+              "content_type": "audio/wav",
+              "bytes": 12,
+              "sha256": "00"
+            }
+          ]
+        }
+      },
+      {
+        "name": "getSound",
+        "operation": "getSound",
+        "method": "GET",
+        "path": "/api/v1/sounds/ding",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "ding",
+            "content_type": "audio/wav",
+            "bytes": 12,
+            "sha256": "00"
+          }
+        }
+      },
+      {
+        "name": "deleteSound",
+        "operation": "deleteSound",
+        "method": "DELETE",
+        "path": "/api/v1/sounds/ding",
+        "request": null,
+        "response": {
+          "status": 204,
+          "body": null
+        }
+      },
+      {
+        "name": "listGroups",
+        "operation": "listGroups",
+        "method": "GET",
+        "path": "/api/v1/groups",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "oncall",
+              "members": [
+                "alice",
+                "bob"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "getFeed",
+        "operation": "getFeed",
+        "method": "GET",
+        "path": "/api/v1/feeds/uptime?external_user_id=user-42",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "feed_id": "uptime",
+            "external_user_id": "user-42",
+            "template_id": "status",
+            "title": "Uptime",
+            "channel": "ops",
+            "audience": {
+              "mode": "only",
+              "users": [
+                "alice"
+              ]
+            },
+            "updated_at": 1762603200
+          }
+        }
+      }
+    ],
+    "errors": [
+      {
+        "status": 400,
+        "headers": {},
+        "body": {
+          "error": "invalid_request",
+          "field": "title",
+          "message": "required"
+        },
+        "code": "invalid_request",
+        "field": "title",
+        "retry_after_ms": 0
+      },
+      {
+        "status": 401,
+        "headers": {},
+        "body": {
+          "error": "unauthorized"
+        },
+        "code": "unauthorized",
+        "field": "",
+        "retry_after_ms": 0
+      },
+      {
+        "status": 404,
+        "headers": {},
+        "body": {
+          "error": "unknown_channel"
+        },
+        "code": "unknown_channel",
+        "field": "",
+        "retry_after_ms": 0
+      },
+      {
+        "status": 404,
+        "headers": {},
+        "body": {
+          "error": "unknown_group"
+        },
+        "code": "unknown_group",
+        "field": "",
+        "retry_after_ms": 0
+      },
+      {
+        "status": 403,
+        "headers": {},
+        "body": {
+          "error": "no_access"
+        },
+        "code": "no_access",
+        "field": "",
+        "retry_after_ms": 0
+      },
+      {
+        "status": 429,
+        "headers": {
+          "Retry-After": "7"
+        },
+        "body": {
+          "error": "rate_limited"
+        },
+        "code": "rate_limited",
+        "field": "",
+        "retry_after_ms": 7000
+      },
+      {
+        "status": 502,
+        "headers": {},
+        "body": null,
+        "raw": "<html>bad gateway</html>",
+        "code": "",
+        "field": "",
+        "retry_after_ms": 0
+      }
+    ]
+  }
+}

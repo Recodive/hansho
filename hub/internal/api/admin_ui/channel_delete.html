@@ -1,0 +1,11 @@
+{{define "content"}}
+<h1>Delete {{.Data.Name}}?</h1>
+<p class="lead">Your software can no longer send messages to this channel, and the app stops listing it. Messages already sent stay where they are. You can make a channel with the same id again later.</p>
+<p class="meta">Id <code>{{.Data.ID}}</code>. Who may use it: {{.Data.Who}}.</p>
+{{template "iac" .}}
+<form method="post" action="/admin/channels/{{.Data.ID}}/delete" class="row">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button class="btn danger">Yes, delete it</button>
+<a class="btn ghost" href="/admin/channels">Cancel</a>
+</form>
+{{end}}

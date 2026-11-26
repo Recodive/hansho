@@ -123,9 +123,13 @@ fn maps_every_known_event_to_typed_payloads() {
                 channel: s("ops"),
                 reason: s("no_devices"),
             }),
-            "message.acked" => {
-                EventData::MessageAcked(MessageAcked { message_id: s("msg_1"), external_user_id: s("user-42"), device_id: s("dev_1") })
-            }
+            "message.acked" => EventData::MessageAcked(MessageAcked {
+                message_id: s("msg_1"),
+                external_user_id: s("user-42"),
+                device_id: s("dev_1"),
+                acked_by: s(""),
+                acked_by_name: s(""),
+            }),
             "message.dismissed" => EventData::MessageDismissed(MessageDismissed {
                 message_id: s("msg_1"),
                 external_user_id: s("user-42"),
@@ -142,7 +146,7 @@ fn maps_every_known_event_to_typed_payloads() {
                 action_id: s("approve"),
                 device_id: s("dev_1"),
                 external_user_id: s("user-42"),
-                text: Some(s("ship it")),
+                text: s("ship it"),
             }),
             "activity.ended" => EventData::ActivityEnded(ActivityEnded {
                 activity_id: s("act_1"),
@@ -386,6 +390,14 @@ mod forward_compatibility {
     }
 
     #[test]
+    fn a_payload_of_the_wrong_shape_is_delivered_as_unknown_not_rejected() {
+        let body = r#"{"id":"1","event":"message.expired","created_at":5,"data":{"message_id":"m","attempts":"many"}}"#;
+        let ev = verify_webhook("s", &sign("s", now_secs(), body), body).unwrap();
+        assert_eq!(ev.name(), "message.expired");
+        assert!(matches!(ev.data, EventData::Unknown { .. }));
+    }
+
+    #[test]
     fn an_unknown_event_without_data_has_null_data() {
         let body = r#"{"id":"1","event":"x.y","created_at":5}"#;
         let ev = verify_webhook("s", &sign("s", now_secs(), body), body).unwrap();
@@ -396,7 +408,27 @@ mod forward_compatibility {
     fn ignores_unknown_fields_on_known_events() {
         let body = r#"{"id":"8","event":"message.acked","created_at":5,"data":{"message_id":"m","device_id":"d","external_user_id":"u","from_the_future":true}}"#;
         let ev = verify_webhook("s", &sign("s", now_secs(), body), body).unwrap();
-        let want = EventData::MessageAcked(MessageAcked { message_id: "m".into(), external_user_id: "u".into(), device_id: "d".into() });
+        let want = EventData::MessageAcked(MessageAcked {
+            message_id: "m".into(),
+            external_user_id: "u".into(),
+            device_id: "d".into(),
+            acked_by: "".into(),
+            acked_by_name: "".into(),
+        });
+        assert_eq!(ev.data, want);
+    }
+
+    #[test]
+    fn message_acked_carries_who_acked() {
+        let body = r#"{"id":"9","event":"message.acked","created_at":5,"data":{"message_id":"m","device_id":"d","external_user_id":"u","acked_by":"bob","acked_by_name":"Bob ボブ"}}"#;
+        let ev = verify_webhook("s", &sign("s", now_secs(), body), body).unwrap();
+        let want = EventData::MessageAcked(MessageAcked {
+            message_id: "m".into(),
+            external_user_id: "u".into(),
+            device_id: "d".into(),
+            acked_by: "bob".into(),
+            acked_by_name: "Bob ボブ".into(),
+        });
         assert_eq!(ev.data, want);
     }
 
@@ -413,6 +445,6 @@ mod forward_compatibility {
         let body = r#"{"id":"8","event":"action","created_at":5}"#;
         let ev = verify_webhook("s", &sign("s", now_secs(), body), body).unwrap();
         let EventData::Action(a) = ev.data else { panic!() };
-        assert_eq!((a.message_id.as_str(), a.text), ("", None));
+        assert_eq!((a.message_id.as_str(), a.text.as_str()), ("", ""));
     }
 }

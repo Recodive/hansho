@@ -7,7 +7,7 @@ dependencies (global `fetch`, `node:crypto`). ESM and CommonJS builds with types
 npm install @recodive/hansho
 ```
 
-See [../README.md](../README.md) for the model shared with the Go SDK.
+See [../README.md](https://github.com/Recodive/hansho/blob/main/sdk/README.md) for the model shared with the Go SDK.
 
 ## Quick start
 
@@ -24,7 +24,7 @@ const res = await hansho.sendMessage({
   title: "Disk full",
   body: "db-1 is at 97%",
 });
-console.log(res.messageId, res.status); // msg_... queued
+console.log(res.messageId, res.status); // msg_... queued (both are absent for a send to several users, see below)
 ```
 
 Options: `fetch` (custom fetch), `maxRetries` (default 3, 0 disables), `timeoutMs`
@@ -44,6 +44,17 @@ const ticket = await hansho.createPairingTicket("user-42");
 
 await hansho.unpair("user-42"); // revokes every pairing of the user
 await hansho.kick("user-42"); // the same call; the app tells the person that you ended it
+```
+
+## Users
+
+A user can have a display name, which other people see instead of their `externalUserId` (any language, trimmed, at
+most 40 characters, no control characters). Set it with the ticket, or any time later; `""` clears it.
+
+```ts
+const ticket = await hansho.createPairingTicket("user-42", { displayName: "Ada Lovelace" });
+await hansho.setUserDisplayName("user-42", "Ada L."); // PUT /api/v1/users/user-42
+await hansho.setUserDisplayName("user-42", ""); // back to the id
 ```
 
 ## Audiences and groups
@@ -96,7 +107,16 @@ const page = await hansho.sendMessage({
   title: "Primary DB down", body: "Failover did not complete",
   page: { intervalSeconds: 60, maxRetries: 10 },
 });
-const status = await hansho.getMessage(page.messageId); // queued, delivered, undeliverable, paging, acked, expired
+const status = await hansho.getMessage(page.messageId!); // queued, delivered, undeliverable, paging, acked, expired
+// Once acked: status.ackedAt, status.ackedBy (external user id) and status.ackedByName (only when they have one).
+
+// A page to several people: by default the first acknowledgement stops it for everyone ("any").
+// With ack: "each" every recipient has to acknowledge for themselves.
+await hansho.sendMessage({
+  externalUserIds: ["alice", "bob"], channel: "ops", level: "page",
+  title: "Primary DB down", body: "Failover did not complete",
+  page: { ack: "each" },
+});
 
 // A templated message; data is sent exactly as given (its keys are never renamed).
 await hansho.putTemplate("status", 1, { type: "vstack", children: [{ type: "text", style: "headline", text: "{{title}}" }] });
@@ -113,7 +133,25 @@ await hansho.putFeed("uptime", { externalUserId: "user-42", templateId: "status"
 
 // A sound (audio/x-caf, audio/wav or audio/aiff, at most 1 MB).
 await hansho.putSound("ding", "audio/wav", wavBytes);
+
+// Reading back what is stored. The list calls return arrays; the get calls throw a HanshoError (404) for a missing id.
+const channels = await hansho.listChannels(); // each has a read-only id
+const templates = await hansho.listTemplates(); // { id, version, body }
+const template = await hansho.getTemplate("status");
+const sounds = await hansho.listSounds(); // { id, contentType, bytes, sha256 }: the metadata, not the audio
+const sound = await hansho.getSound("ding");
+const groups = await hansho.listGroups();
+await hansho.deleteTemplate("status");
+await hansho.deleteSound("ding");
 ```
+
+A button can open a link: `{ id: "runbook", title: "Runbook", kind: "url", url: "https://example.com/runbook" }`.
+
+For a send to several users or an audience, `messageId`, `devices`, `status` and `deliveries` of the result are absent;
+each message is under `recipients`.
+
+Types, enums and the wire mapping are generated from the shared contract (`sdk/spec/openapi.json`) into `src/types_gen.ts`.
+Unknown fields in an answer are ignored and an unknown enum value is kept as the raw string.
 
 Ids may contain any characters except `.` and `..`: they are path-escaped.
 
