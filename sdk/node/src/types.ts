@@ -60,6 +60,8 @@ export interface PageOptions {
    * acknowledgement, `"each"` keeps paging each person until they acknowledge for themselves.
    */
   ack?: "any" | "each";
+  /** Name the person who acknowledged in the other recipients' banner. Their external user id is shown to the others. Default false. */
+  showAcker?: boolean;
 }
 
 export interface Message {

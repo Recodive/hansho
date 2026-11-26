@@ -33,6 +33,7 @@ type EnqueueInput struct {
 	PageMaxRetries *int   // level page only; nil = default
 	SendID         string // shared by the messages of one send
 	PageAck        string // level page only: store.PageAckAny or PageAckEach; "" = each
+	ShowAcker      bool   // level page only: the other recipients' cancel banner names who acknowledged
 }
 
 // EnqueueResult is the stored message and its initial deliveries.
@@ -102,7 +103,7 @@ func Enqueue(ctx context.Context, st *store.Store, wh *webhook.Dispatcher, cfg c
 		if in.PageMaxRetries != nil {
 			m.PageMaxRetries = *in.PageMaxRetries
 		}
-		m.SendID = in.SendID
+		m.SendID, m.ShowAcker = in.SendID, in.ShowAcker
 		if in.PageAck == store.PageAckAny {
 			m.PageAck = store.PageAckAny
 		} else {

@@ -96,6 +96,9 @@ type PageOptions struct {
 	// Ack is "any" (the hub's default: the first acknowledgement stops the page for everyone it was sent to) or
 	// "each" (every recipient must acknowledge for themselves). "" means the hub default.
 	Ack string `json:"ack,omitempty"`
+	// ShowAcker names the person who acknowledged in the other recipients' banner. Their external user id is
+	// shown to the others, so use it only when ids are readable handles.
+	ShowAcker bool `json:"show_acker,omitempty"`
 }
 
 // Message is a notification for one user, for several, or for a channel's audience.

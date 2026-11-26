@@ -40,7 +40,8 @@ type sendRequest struct {
 type sendPage struct {
 	IntervalS  *int    `json:"interval_s"`
 	MaxRetries *int    `json:"max_retries"`
-	Ack        *string `json:"ack"` // "any" (default) or "each"
+	Ack        *string `json:"ack"`        // "any" (default) or "each"
+	ShowAcker  bool    `json:"show_acker"` // name the acknowledger in the other recipients' banner
 }
 
 // recipient is one entry of a send's "recipients".
@@ -205,8 +206,11 @@ func (s *server) send(ctx context.Context, req sendRequest) (string, []recipient
 	}
 	if lvl == level.Page {
 		in.PageAck, in.SendID = store.PageAckAny, store.NewID("send_")
-		if req.Page != nil && req.Page.Ack != nil {
-			in.PageAck = *req.Page.Ack
+		if req.Page != nil {
+			in.ShowAcker = req.Page.ShowAcker
+			if req.Page.Ack != nil {
+				in.PageAck = *req.Page.Ack
+			}
 		}
 	}
 

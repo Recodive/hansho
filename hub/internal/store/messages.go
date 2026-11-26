@@ -43,6 +43,7 @@ type Message struct {
 	SendID         string // messages of one send share it
 	PageAck        string // PageAckAny or PageAckEach
 	AckedBy        string // external user id that acknowledged it
+	ShowAcker      bool   // other recipients' cancel banner may name AckedBy
 }
 
 // How a page is acknowledged.
@@ -61,7 +62,7 @@ type Delivery struct {
 }
 
 const messageCols = `id, external_user_id, channel_id, level, status, page_interval_s, page_max_retries, attempts,
-	next_attempt_at, created_at, acked_at, collapse_id, sound, payload_wrapped, send_id, page_ack, acked_by`
+	next_attempt_at, created_at, acked_at, collapse_id, sound, payload_wrapped, send_id, page_ack, acked_by, show_acker`
 
 func scanMessage(sc interface{ Scan(...any) error }) (Message, error) {
 	var m Message
@@ -69,7 +70,7 @@ func scanMessage(sc interface{ Scan(...any) error }) (Message, error) {
 	var acked sql.NullInt64
 	err := sc.Scan(&m.ID, &m.ExternalUserID, &m.ChannelID, &m.Level, &m.Status, &m.PageIntervalS, &m.PageMaxRetries,
 		&m.Attempts, &next, &created, &acked, &m.CollapseID, &m.Sound, &m.PayloadWrapped,
-		&m.SendID, &m.PageAck, &m.AckedBy)
+		&m.SendID, &m.PageAck, &m.AckedBy, &m.ShowAcker)
 	if err != nil {
 		return m, err
 	}
@@ -84,10 +85,10 @@ func (s *Store) CreateMessage(m Message, ds []Delivery) error {
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.Exec(`INSERT INTO messages(`+messageCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = tx.Exec(`INSERT INTO messages(`+messageCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ExternalUserID, m.ChannelID, m.Level, m.Status, m.PageIntervalS, m.PageMaxRetries, m.Attempts,
 		unix(m.NextAttemptAt), unix(m.CreatedAt), nullUnix(m.AckedAt), m.CollapseID, m.Sound, m.PayloadWrapped,
-		m.SendID, m.PageAck, m.AckedBy)
+		m.SendID, m.PageAck, m.AckedBy, m.ShowAcker)
 	if err != nil {
 		return err
 	}
