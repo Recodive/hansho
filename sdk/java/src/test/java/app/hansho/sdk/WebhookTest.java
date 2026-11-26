@@ -1,5 +1,6 @@
 package app.hansho.sdk;
 
+import app.hansho.sdk.Models.*;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -241,9 +242,9 @@ class WebhookTest {
         long t = Instant.now().getEpochSecond();
         String body = "{\"id\":\"8\",\"event\":\"message.acked\",\"created_at\":5,\"data\":{\"message_id\":\"m\",\"device_id\":\"d\",\"external_user_id\":\"u\",\"from_the_future\":true}}";
         WebhookEvent.MessageAcked a = (WebhookEvent.MessageAcked) Webhook.verify("s", sign("s", t, body), body);
-        assertEquals("m", a.messageId());
-        assertEquals("u", a.externalUserId());
-        assertEquals("d", a.deviceId());
+        assertEquals("m", a.data().messageId());
+        assertEquals("u", a.data().externalUserId());
+        assertEquals("d", a.data().deviceId());
     }
 
     @Test
@@ -251,63 +252,74 @@ class WebhookTest {
         long t = Instant.now().getEpochSecond();
         String with = "{\"id\":\"9\",\"event\":\"message.acked\",\"created_at\":5,\"data\":{\"message_id\":\"m\",\"device_id\":\"d\",\"external_user_id\":\"u\",\"acked_by\":\"alice\",\"acked_by_name\":\"Zoë 日本語\"}}";
         WebhookEvent.MessageAcked a = (WebhookEvent.MessageAcked) Webhook.verify("s", sign("s", t, with), with);
-        assertEquals("u", a.externalUserId());
-        assertEquals("alice", a.ackedBy());
-        assertEquals("Zoë 日本語", a.ackedByName());
+        assertEquals("u", a.data().externalUserId());
+        assertEquals("alice", a.data().ackedBy());
+        assertEquals("Zoë 日本語", a.data().ackedByName());
 
         String noName = "{\"id\":\"9\",\"event\":\"message.acked\",\"created_at\":5,\"data\":{\"message_id\":\"m\",\"device_id\":\"d\",\"external_user_id\":\"u\",\"acked_by\":\"alice\"}}";
         a = (WebhookEvent.MessageAcked) Webhook.verify("s", sign("s", t, noName), noName);
-        assertEquals("alice", a.ackedBy());
-        assertNull(a.ackedByName());
+        assertEquals("alice", a.data().ackedBy());
+        assertNull(a.data().ackedByName());
 
         String without = "{\"id\":\"9\",\"event\":\"message.acked\",\"created_at\":5,\"data\":{\"message_id\":\"m\",\"device_id\":\"d\",\"external_user_id\":\"u\"}}";
         a = (WebhookEvent.MessageAcked) Webhook.verify("s", sign("s", t, without), without);
-        assertNull(a.ackedBy());
-        assertNull(a.ackedByName());
+        assertNull(a.data().ackedBy());
+        assertNull(a.data().ackedByName());
+    }
+
+    @Test
+    void everyEventOfTheSpecIsKnown() throws Exception {
+        long t = Instant.now().getEpochSecond();
+        for (String name : Models.EVENTS.keySet()) {
+            String body = "{\"id\":\"1\",\"event\":\"" + name + "\",\"created_at\":5,\"data\":{}}";
+            WebhookEvent e = Webhook.verify("s", sign("s", t, body), body);
+            assertEquals(name, e.type(), "Webhook does not map the spec event " + name);
+        }
+        assertEquals(9, Models.EVENTS.size());
     }
 
     @Test
     void mapsEveryKnownEvent() {
         java.util.function.Function<String, WebhookEvent> ev = name -> verifyVector(vector("valid " + name));
         WebhookEvent.PairingCreated pc = (WebhookEvent.PairingCreated) ev.apply("pairing.created");
-        assertEquals("pair_1", pc.pairingId());
-        assertEquals("user-42", pc.externalUserId());
-        assertEquals("Bas’s iPhone <Ünï>", pc.deviceName());
+        assertEquals("pair_1", pc.data().pairingId());
+        assertEquals("user-42", pc.data().externalUserId());
+        assertEquals("Bas’s iPhone <Ünï>", pc.data().deviceName());
 
         WebhookEvent.PairingRevoked pr = (WebhookEvent.PairingRevoked) ev.apply("pairing.revoked");
-        assertEquals("pair_1", pr.pairingId());
-        assertEquals("sender", pr.by());
+        assertEquals("pair_1", pr.data().pairingId());
+        assertEquals("sender", pr.data().by());
 
         WebhookEvent.MessageDelivered md = (WebhookEvent.MessageDelivered) ev.apply("message.delivered");
-        assertEquals("msg_1", md.messageId());
-        assertEquals("ops", md.channel());
-        assertEquals(Level.PAGE, md.level());
-        assertEquals(2, md.devices());
+        assertEquals("msg_1", md.data().messageId());
+        assertEquals("ops", md.data().channel());
+        assertEquals(Level.PAGE, md.data().level());
+        assertEquals(2, md.data().devices());
 
         WebhookEvent.MessageUndeliverable mu = (WebhookEvent.MessageUndeliverable) ev.apply("message.undeliverable");
-        assertEquals("msg_2", mu.messageId());
-        assertEquals("no_devices", mu.reason());
+        assertEquals("msg_2", mu.data().messageId());
+        assertEquals("no_devices", mu.data().reason());
 
         WebhookEvent.MessageAcked ma = (WebhookEvent.MessageAcked) ev.apply("message.acked");
-        assertEquals("dev_1", ma.deviceId());
+        assertEquals("dev_1", ma.data().deviceId());
 
         WebhookEvent.MessageDismissed mdis = (WebhookEvent.MessageDismissed) ev.apply("message.dismissed");
-        assertEquals("msg_1", mdis.messageId());
-        assertEquals("dev_1", mdis.deviceId());
+        assertEquals("msg_1", mdis.data().messageId());
+        assertEquals("dev_1", mdis.data().deviceId());
 
         WebhookEvent.MessageExpired me = (WebhookEvent.MessageExpired) ev.apply("message.expired");
-        assertEquals("msg_3", me.messageId());
-        assertEquals(6, me.attempts());
+        assertEquals("msg_3", me.data().messageId());
+        assertEquals(6, me.data().attempts());
 
         WebhookEvent.ActionTaken at = (WebhookEvent.ActionTaken) ev.apply("action");
-        assertEquals("msg_1", at.messageId());
-        assertEquals("approve", at.actionId());
-        assertEquals("dev_1", at.deviceId());
-        assertEquals("user-42", at.externalUserId());
-        assertEquals("ship it", at.text());
+        assertEquals("msg_1", at.data().messageId());
+        assertEquals("approve", at.data().actionId());
+        assertEquals("dev_1", at.data().deviceId());
+        assertEquals("user-42", at.data().externalUserId());
+        assertEquals("ship it", at.data().text());
 
         WebhookEvent.ActivityEnded ae = (WebhookEvent.ActivityEnded) ev.apply("activity.ended");
-        assertEquals("act_1", ae.activityId());
-        assertEquals("timeout", ae.reason());
+        assertEquals("act_1", ae.data().activityId());
+        assertEquals("timeout", ae.data().reason());
     }
 }

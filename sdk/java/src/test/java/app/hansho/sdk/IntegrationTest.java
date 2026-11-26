@@ -1,5 +1,6 @@
 package app.hansho.sdk;
 
+import app.hansho.sdk.Models.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -187,7 +188,7 @@ class IntegrationTest {
             assertTrue(tk.qr().startsWith("hansho://pair?") && tk.qr().contains(tk.ticket()));
             assertTrue(tk.expiresAt().isAfter(Instant.now()));
             fakeDevice("pair", "-hub", hubUrl, "-ticket", tk.ticket(), "-state", state, "-name", "SDK phone " + p);
-            rx.await(WebhookEvent.PairingCreated.class, e -> e.externalUserId().equals(user) && e.deviceName().equals("SDK phone " + p));
+            rx.await(WebhookEvent.PairingCreated.class, e -> e.data().externalUserId().equals(user) && e.data().deviceName().equals("SDK phone " + p));
 
             // messages at every level
             for (Level level : new Level[] {Level.PASSIVE, Level.ACTIVE, Level.TIME_SENSITIVE, Level.CRITICAL}) {
@@ -201,7 +202,7 @@ class IntegrationTest {
                 assertEquals(1, ms.deliveries().size());
                 assertEquals("sent", ms.deliveries().get(0).status());
                 rx.await(WebhookEvent.MessageDelivered.class,
-                        e -> e.messageId().equals(res.messageId()) && e.level() == level && e.devices() == 1);
+                        e -> e.data().messageId().equals(res.messageId()) && e.data().level() == level && e.data().devices() == 1);
             }
             MessageResult def = c.sendMessage(Message.builder(user, ch, "Default", "b").build());
             assertEquals(Level.ACTIVE, def.level());
@@ -214,9 +215,9 @@ class IntegrationTest {
             fakeDevice("ack", "-state", state, "-message", page.messageId());
             MessageStatus acked = waitStatus(c, page.messageId(), "acked");
             assertNotNull(acked.ackedAt());
-            WebhookEvent.MessageAcked ev = rx.await(WebhookEvent.MessageAcked.class, e -> e.messageId().equals(page.messageId()));
-            assertEquals(user, ev.externalUserId());
-            rx.await(WebhookEvent.ActionTaken.class, e -> e.messageId().equals(page.messageId()) && e.actionId().equals("ack"));
+            WebhookEvent.MessageAcked ev = rx.await(WebhookEvent.MessageAcked.class, e -> e.data().messageId().equals(page.messageId()));
+            assertEquals(user, ev.data().externalUserId());
+            rx.await(WebhookEvent.ActionTaken.class, e -> e.data().messageId().equals(page.messageId()) && e.data().actionId().equals("ack"));
 
             // live activity
             ActivityStarted started = c.startActivity(Activity.of(user, ch, tpl, Map.of("title", "Deploy", "progress", 0.1))
@@ -241,11 +242,11 @@ class IntegrationTest {
 
             // unpair, then nobody is left to deliver to
             c.unpair(user);
-            rx.await(WebhookEvent.PairingRevoked.class, e -> e.externalUserId().equals(user) && e.by().equals("sender"));
+            rx.await(WebhookEvent.PairingRevoked.class, e -> e.data().externalUserId().equals(user) && e.data().by().equals("sender"));
             MessageResult none = c.sendMessage(Message.builder(user, ch, "Anyone?", "b").build());
             assertEquals(0, none.devices());
             waitStatus(c, none.messageId(), "undeliverable");
-            rx.await(WebhookEvent.MessageUndeliverable.class, e -> e.messageId().equals(none.messageId()));
+            rx.await(WebhookEvent.MessageUndeliverable.class, e -> e.data().messageId().equals(none.messageId()));
             c.deleteChannel(ch);
             apiError(404, "unknown_channel", null, () -> c.getChannel(ch));
 

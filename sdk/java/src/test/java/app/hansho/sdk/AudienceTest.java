@@ -1,5 +1,6 @@
 package app.hansho.sdk;
 
+import app.hansho.sdk.Models.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -173,9 +174,9 @@ class AudienceTest {
                 + "{\"external_user_id\":\"carol\",\"status\":\"no_access\"}]}";
         try (TestHub hub = new TestHub().always(TestHub.Reply.json(202, reply))) {
             MessageResult res = hub.client().sendMessage(Message.forUsers(List.of("alice", "carol"), "c", "t", "b").build());
-            assertEquals("", res.messageId());
-            assertEquals("", res.status());
-            assertEquals(0, res.devices());
+            assertNull(res.messageId());
+            assertNull(res.status());
+            assertNull(res.devices());
             assertEquals(Level.ACTIVE, res.level());
             assertTrue(res.deliveries().isEmpty());
             assertEquals(2, res.recipients().size());
@@ -188,7 +189,7 @@ class AudienceTest {
             assertEquals("carol", carol.externalUserId());
             assertEquals(Recipient.NO_ACCESS, carol.status());
             assertNull(carol.messageId());
-            assertEquals(0, carol.devices());
+            assertNull(carol.devices());
         }
     }
 
