@@ -37,6 +37,13 @@ type Plaintext struct {
 	Sound      string          `json:"sound,omitempty"`
 	// Page is set for level "page" so the app can schedule an alarm without the critical-alert entitlement.
 	Page bool `json:"page,omitempty"`
+	// AckedByOther is set on a cancel only when another recipient acknowledged the page. Never an external user id.
+	AckedByOther *AckedByOther `json:"acked_by_other,omitempty"`
+}
+
+// AckedByOther says that someone else acknowledged a page; Name is their display name, omitted when they have none.
+type AckedByOther struct {
+	Name string `json:"name,omitempty"`
 }
 
 // EffectiveLevel is min(requested ?? channel default, channel max). An

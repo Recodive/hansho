@@ -256,8 +256,10 @@ func (s *Store) SoundFilename(id string) (string, error) {
 
 // Acked is the acknowledgement of one message.
 type Acked struct {
-	At        time.Time
-	ChannelID string
+	At          time.Time
+	ChannelID   string
+	AckedBy     string // external user id of the acknowledger; server-side only, never sent to a device
+	AckedByName string
 }
 
 // AckedForUser returns the acknowledgement of each of ids that is an acknowledged message of userID. Ids that
@@ -276,19 +278,19 @@ func (s *Store) AckedForUser(userID string, ids []string) (map[string]Acked, err
 		marks = append(marks, '?')
 		args = append(args, id)
 	}
-	rows, err := s.query(`SELECT id, acked_at, channel_id FROM messages
+	rows, err := s.query(`SELECT id, acked_at, channel_id, acked_by, acked_by_name FROM messages
 		WHERE external_user_id = ? AND status = ? AND acked_at IS NOT NULL AND id IN (`+string(marks)+`)`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id, channel string
+		var id, channel, by, name string
 		var at int64
-		if err := rows.Scan(&id, &at, &channel); err != nil {
+		if err := rows.Scan(&id, &at, &channel, &by, &name); err != nil {
 			return nil, err
 		}
-		out[id] = Acked{At: fromUnix(at), ChannelID: channel}
+		out[id] = Acked{At: fromUnix(at), ChannelID: channel, AckedBy: by, AckedByName: name}
 	}
 	return out, rows.Err()
 }

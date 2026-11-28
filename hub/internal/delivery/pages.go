@@ -107,15 +107,15 @@ const maxCancelTitleRunes = 100
 
 // cancelBody is the text of the cancel banner. When another recipient of the same send acknowledged the page it says so,
 // by display name, or generically when they have none: an external user id is never shown to other recipients.
-func cancelBody(title string, m store.Message) string {
+func cancelBody(title string, m store.Message) (string, *AckedByOther) {
 	body := title + " was acknowledged"
 	if m.AckedBy == "" || m.AckedBy == m.ExternalUserID {
-		return body
+		return body, nil
 	}
 	if m.AckedByName != "" {
-		return body + " by " + m.AckedByName
+		return body + " by " + m.AckedByName, &AckedByOther{Name: m.AckedByName}
 	}
-	return body + " by another recipient"
+	return body + " by another recipient", &AckedByOther{}
 }
 
 // CancelPage tells every active device of the message's user that the page
@@ -142,9 +142,9 @@ func (w *Worker) CancelPage(ctx context.Context, m store.Message) (int, error) {
 			}
 		}
 	}
-	body := cancelBody(title, m)
+	body, other := cancelBody(title, m)
 	plaintext, err := json.Marshal(Plaintext{
-		Cancel: m.ID, Title: "Acknowledged", Body: body, Channel: m.ChannelID, Level: level.Passive,
+		Cancel: m.ID, Title: "Acknowledged", Body: body, Channel: m.ChannelID, Level: level.Passive, AckedByOther: other,
 	})
 	if err != nil {
 		return 0, err
