@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -345,5 +346,71 @@ func TestCancelTitleIsTruncatedOnARuneBoundary(t *testing.T) {
 	_, pt := f.openPush(f.relay.Pushes()[len(f.relay.Pushes())-1], "p1")
 	if want := strings.Repeat("é", maxCancelTitleRunes) + "… was acknowledged"; pt.Body != want || !utf8.ValidString(pt.Body) {
 		t.Fatalf("body %q", pt.Body)
+	}
+}
+
+// cancelFor sends the cancel of alice's page after mod changed the message, and returns the decrypted plaintext and its JSON.
+func cancelFor(t *testing.T, f *fixture, mod func(*store.Message), title func(*EnqueueInput)) (Plaintext, string) {
+	t.Helper()
+	var mods []func(*EnqueueInput)
+	if title != nil {
+		mods = append(mods, title)
+	}
+	m := page(f, "alice", mods...)
+	cur := f.msg(m.ID)
+	mod(&cur)
+	if n, err := f.w.CancelPage(context.Background(), cur); err != nil || n != 1 {
+		t.Fatalf("sent %d err %v", n, err)
+	}
+	p := f.relay.Pushes()[len(f.relay.Pushes())-1]
+	if len(p.Payload) > MaxPayloadBytes {
+		t.Fatalf("payload %d bytes", len(p.Payload))
+	}
+	_, pt := f.openPush(p, "p1")
+	raw, _ := json.Marshal(pt)
+	return pt, string(raw)
+}
+
+func TestCancelPageSaysWhoAcknowledged(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		by, byName string
+		want       *AckedByOther
+		body       string
+	}{
+		{"self", "alice", "Alice", nil, "Disk full was acknowledged"},
+		{"unknown", "", "", nil, "Disk full was acknowledged"},
+		{"other with name", "bob-ext-id", "Bob", &AckedByOther{Name: "Bob"}, "Disk full was acknowledged by Bob"},
+		{"other without name", "bob-ext-id", "", &AckedByOther{}, "Disk full was acknowledged by another recipient"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.pairing("p1", "alice", "phone")
+			pt, raw := cancelFor(t, f, func(m *store.Message) { m.AckedBy, m.AckedByName = c.by, c.byName }, nil)
+			if pt.Body != c.body || !reflect.DeepEqual(pt.AckedByOther, c.want) {
+				t.Fatalf("plaintext %+v", pt)
+			}
+			if c.want == nil && strings.Contains(raw, "acked_by_other") {
+				t.Fatalf("self ack carries the field: %s", raw)
+			}
+			if c.want != nil && c.want.Name == "" && !strings.Contains(raw, `"acked_by_other":{}`) {
+				t.Fatalf("nameless acknowledger must be an empty object: %s", raw)
+			}
+			if strings.Contains(raw, "bob-ext-id") {
+				t.Fatalf("external user id leaked: %s", raw)
+			}
+		})
+	}
+}
+
+// 40 CJK runes of name plus a title cut to maxCancelTitleRunes must still fit one alert payload.
+func TestCancelPageWithLongNameAndTitleFits(t *testing.T) {
+	f := newFixture(t)
+	f.pairing("p1", "alice", "phone")
+	name := strings.Repeat("あ", 40)
+	pt, _ := cancelFor(t, f, func(m *store.Message) { m.AckedBy, m.AckedByName = "bob", name },
+		func(in *EnqueueInput) { in.Plaintext.Title = strings.Repeat("字", 100) })
+	if pt.AckedByOther == nil || pt.AckedByOther.Name != name || !strings.HasSuffix(pt.Body, " by "+name) {
+		t.Fatalf("plaintext %+v", pt)
 	}
 }
